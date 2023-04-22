@@ -1,6 +1,6 @@
 import util
 import argparse
-from model1 import *
+from model import *
 from engine import trainer
 
 parser = argparse.ArgumentParser()
