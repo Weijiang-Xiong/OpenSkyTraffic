@@ -17,9 +17,9 @@ parser.add_argument('--batch_size',type=int,default=32,help='batch size')
 parser.add_argument('--learning_rate',type=float,default=0.001,help='learning rate')
 parser.add_argument('--dropout',type=float,default=0.1,help='dropout rate')
 parser.add_argument('--weight_decay',type=float,default=0.0001,help='weight decay rate')
-parser.add_argument('--epochs',type=int,default=30,help='')
+parser.add_argument('--epochs',type=int,default=3,help='')
 parser.add_argument('--print_every',type=int,default=1000,help='')
-parser.add_argument('--save',type=str,default='scratch/exp2/',help='save path')
+parser.add_argument('--save',type=str,default='scratch/exp/',help='save path')
 parser.add_argument('--expid',type=int,default=1,help='experiment id')
 
 args = parser.parse_args()
@@ -33,7 +33,6 @@ def main():
     engine = trainer(scaler, args.in_dim, args.seq_length, args.nhid , args.dropout, args.learning_rate, args.weight_decay, args.device, supports)
     print("start training...",flush=True)
     his_loss =[]
-    hiss_loss = []
     val_time = []
     train_time = []
     for i in range(1,args.epochs+1):
@@ -86,7 +85,10 @@ def main():
 
         log = 'Epoch: {:03d}\nTrain Loss: {:.4f}, Train MAPE: {:.4f}, Train RMSE: {:.4f}\nValid Loss: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}\nTraining Time: {:.4f}/epoch'
         print(log.format(i, mtrain_loss, mtrain_mape, mtrain_rmse, mvalid_loss, mvalid_mape, mvalid_rmse, (t2 - t1)),flush=True)
+        
+        util.make_dir_if_not_exist(args.save)
         torch.save(engine.model.state_dict(), args.save+"_epoch_"+str(i)+"_"+str(round(mvalid_loss,2))+".pth")
+        
     print("Average Training Time: {:.4f} secs/epoch".format(np.mean(train_time)))
     print("Average Inference Time: {:.4f} secs".format(np.mean(val_time)))
 
@@ -111,7 +113,7 @@ def main():
     realy = torch.cat(realy,dim=0)
 
     print("Training finished")
-    print("The valid loss on best model is", str(round(hiss_loss[bestid],4)))
+    print("The valid loss on best model is", str(round(his_loss[bestid],4)))
 
     amae = []
     amape = []

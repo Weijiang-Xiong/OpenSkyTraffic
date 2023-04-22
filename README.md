@@ -1,3 +1,8 @@
+
+# Modified from [Traffic Transformer](https://github.com/R0oup1iao/Traffic-Transformer)
+
+changes: 
+
 # Traffic Transformer
 A pytorch implementation of Traffic Transformer for traffic forecasting.Now the corresponding paper is available online at (https://ieeexplore.ieee.org/document/9520129)
 
