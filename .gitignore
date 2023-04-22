@@ -1,0 +1,4 @@
+*.npz
+*.h5
+data/sensor_graph
+scratch
