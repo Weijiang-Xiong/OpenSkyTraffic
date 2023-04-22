@@ -1,3 +1,10 @@
+""" Notation of shapes:
+        N: batch size
+        T: sequence length (time steps)
+        C: channel dimension, feature dimension
+        M: number of nodes (sensors)
+"""
+
 import torch
 import numpy as np 
 import torch.nn as nn
@@ -39,11 +46,11 @@ class TemproalEmbedding(nn.Module):
 
     def forward(self, input):
         ori_shape = input.shape
-        x = input.permute(3, 0, 2, 1)
-        x = x.reshape(ori_shape[3], ori_shape[0] * ori_shape[2], ori_shape[1])
+        x = input.permute(3, 0, 2, 1) # (N, C, M, T) => (T, N, M, C)
+        x = x.reshape(ori_shape[3], ori_shape[0] * ori_shape[2], ori_shape[1]) # (T, N, M, C) => (T, N*M, C)
         x,_ = self.rnn(x)
-        x = x.reshape(ori_shape[3], ori_shape[0], ori_shape[2], ori_shape[1])
-        x = x.permute(1, 3, 2, 0)
+        x = x.reshape(ori_shape[3], ori_shape[0], ori_shape[2], ori_shape[1]) # (T, N*M, C) => (T, N, M, C)
+        x = x.permute(1, 3, 2, 0) # (T, N, M, C) => (N, C, M, T)
         return x
 
 class TrafficTransformer(nn.Module):
@@ -55,10 +62,10 @@ class TrafficTransformer(nn.Module):
         self.trans = nn.Transformer(in_dim, heads, 2, 6, in_dim*4, dropout=dropout)
 
     def forward(self,input, mask):
-        x = input.permute(1,0,2)
+        x = input.permute(1,0,2) # (N, M, C) => (M, N, C)
         x = self.pos(x)
         x = self.lpos(x)
-        x = self.trans(x,x,tgt_mask=mask)
+        x = self.trans(x,x,tgt_mask=mask) # TODO this is probably wrong because the second input should be query (if we don't do autoregressive prediction, like DETR)
         return x.permute(1,0,2)
 
     def _gen_mask(self,input):
@@ -67,9 +74,9 @@ class TrafficTransformer(nn.Module):
         mask = mask.bool()
         return mask
 
-class ttnet(nn.Module):
+class TTNet(nn.Module):
     def __init__(self, dropout=0.1, supports=None, in_dim=2, out_dim=12, hid_dim=32, layers=6):
-        super(ttnet, self).__init__()
+        super(TTNet, self).__init__()
         self.start_conv = nn.Conv2d(in_channels=in_dim,
                                     out_channels=hid_dim,
                                     kernel_size=(1, 1))
@@ -92,8 +99,9 @@ class ttnet(nn.Module):
 
 
     def forward(self, input):
-        x = self.start_conv(input)
-        x = self.start_embedding(x)[..., -1]
+        # input shape: (N, C_in, M, T)
+        x = self.start_conv(input) # out shape (N, C_hid, M, T)
+        x = self.start_embedding(x)[..., -1] # out shape (N, C_hid, M), take the last step output
         x = x.transpose(1, 2)
         x = self.network(x, self.mask)
         x = self.end_conv(x)
