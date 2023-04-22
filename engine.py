@@ -4,7 +4,7 @@ import util
 import torch
 class trainer():
     def __init__(self, scaler, in_dim, seq_length, nhid , dropout, lrate, wdecay, device, supports):
-        self.model = ttnet(dropout=dropout, supports=supports, in_dim=in_dim, out_dim=seq_length, hid_dim=nhid)
+        self.model = TTNet(dropout=dropout, supports=supports, in_dim=in_dim, out_dim=seq_length, hid_dim=nhid)
         self.model.to(device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=lrate, weight_decay=wdecay)
         self.loss = util.masked_mae
