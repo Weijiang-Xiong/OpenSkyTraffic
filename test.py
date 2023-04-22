@@ -4,9 +4,9 @@ from model import *
 from engine import trainer
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--device',type=str,default='cuda:0',help='')
-parser.add_argument('--data',type=str,default='data/pems',help='data path')
-parser.add_argument('--adjdata',type=str,default='data/sensor_graph/adj_mx_bay.pkl',help='adj data path')
+parser.add_argument('--device',type=str,default='cuda:1',help='')
+parser.add_argument('--data',type=str,default='data/metr',help='data path')
+parser.add_argument('--adjdata',type=str,default='data/sensor_graph/adj_mx.pkl',help='adj data path')
 parser.add_argument('--adjtype',type=str,default='doubletransition',help='adj type')
 parser.add_argument('--seq_length',type=int,default=12,help='')
 parser.add_argument('--nhid',type=int,default=64,help='')
@@ -15,7 +15,7 @@ parser.add_argument('--batch_size',type=int,default=32,help='batch size')
 parser.add_argument('--learning_rate',type=float,default=0.001,help='learning rate')
 parser.add_argument('--dropout',type=float,default=0.1,help='dropout rate')
 parser.add_argument('--weight_decay',type=float,default=0.0001,help='weight decay rate')
-parser.add_argument('--checkpoint',type=str,default="scratch/exp1/_epoch_4_0.0.pth", help='')
+parser.add_argument('--checkpoint',type=str,default="scratch/exp2/_epoch_16_1.62.pth", help='')
 args = parser.parse_args()
 
 def main():

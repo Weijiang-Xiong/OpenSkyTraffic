@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import math
 
 
 class LearnedPositionalEncoding(nn.Embedding):
@@ -20,7 +19,7 @@ class PositionalEncoding(nn.Module):
 
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
@@ -51,7 +50,7 @@ class TrafficTransformer(nn.Module):
         self.heads = heads
         self.pos = PositionalEncoding(in_dim,dropout=dropout)
         self.lpos = LearnedPositionalEncoding(in_dim, dropout=dropout)
-        self.trans = nn.Transformer(in_dim, heads, layers, layers, in_dim*4, dropout=dropout)
+        self.trans = nn.Transformer(in_dim, heads, 2, 6, in_dim*4, dropout=dropout)
 
     def forward(self,input, mask):
         x = input.permute(1,0,2)
@@ -83,6 +82,11 @@ class ttnet(nn.Module):
         for i in range(1, 7):
             out += mask ** i
         self.mask = out == 0
+        
+        # parameter initialization
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
 
 
     def forward(self, input):

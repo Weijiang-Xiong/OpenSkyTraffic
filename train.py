@@ -6,7 +6,7 @@ import util
 from engine import trainer
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--device',type=str,default='cuda:0',help='')
+parser.add_argument('--device',type=str,default='cuda:1',help='')
 parser.add_argument('--data',type=str,default='data/metr',help='data path')
 parser.add_argument('--adjdata',type=str,default='data/sensor_graph/adj_mx.pkl',help='adj data path')
 parser.add_argument('--adjtype',type=str,default='doubletransition',help='adj type')
@@ -19,7 +19,7 @@ parser.add_argument('--dropout',type=float,default=0.1,help='dropout rate')
 parser.add_argument('--weight_decay',type=float,default=0.0001,help='weight decay rate')
 parser.add_argument('--epochs',type=int,default=30,help='')
 parser.add_argument('--print_every',type=int,default=1000,help='')
-parser.add_argument('--save',type=str,default='./garage/bj',help='save path')
+parser.add_argument('--save',type=str,default='scratch/exp2/',help='save path')
 parser.add_argument('--expid',type=int,default=1,help='experiment id')
 
 args = parser.parse_args()

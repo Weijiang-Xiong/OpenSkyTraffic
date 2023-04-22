@@ -158,6 +158,7 @@ def load_dataset(dataset_dir, batch_size, valid_batch_size= None, test_batch_siz
     return data
 
 def masked_mse(preds, labels, null_val=np.nan):
+    report_nan(preds)
     if np.isnan(null_val):
         mask = ~torch.isnan(labels)
     else:
@@ -171,10 +172,12 @@ def masked_mse(preds, labels, null_val=np.nan):
     return torch.mean(loss)
 
 def masked_rmse(preds, labels, null_val=np.nan):
+    report_nan(preds)
     return torch.sqrt(masked_mse(preds=preds, labels=labels, null_val=null_val))
 
 
 def masked_mae(preds, labels, null_val=np.nan):
+    report_nan(preds)
     if np.isnan(null_val):
         mask = ~torch.isnan(labels)
     else:
@@ -190,6 +193,7 @@ def masked_mae(preds, labels, null_val=np.nan):
 
 
 def masked_mape(preds, labels, null_val=np.nan):
+    report_nan(preds)
     if np.isnan(null_val):
         mask = ~torch.isnan(labels)
     else:
@@ -210,3 +214,7 @@ def metric(pred, real):
     return mae,mape,rmse
 
 
+def report_nan(res:torch.tensor):
+    num_of_nan = torch.sum(torch.isnan(res)).item()
+    if num_of_nan > 0:
+        print("number of nan in result: ", torch.sum(torch.isnan(res)).item())
