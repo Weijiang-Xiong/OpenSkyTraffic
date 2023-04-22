@@ -3,14 +3,15 @@ import numpy as np
 import torch.nn as nn
 
 
-class LearnedPositionalEncoding(nn.Embedding):
+class LearnedPositionalEncoding(nn.Module):
     def __init__(self,d_model, dropout = 0.1,max_len = 500):
-        super().__init__(max_len, d_model)
+        super().__init__()
+        self.learned_pos = nn.Parameter(torch.rand(max_len, 1, d_model))
         self.dropout = nn.Dropout(p = dropout)
 
     def forward(self, x):
-        weight = self.weight.data.unsqueeze(1)
-        x = x + weight[:x.size(0),:]
+        # modified because the previous implementation (which call .data) will lose gradient 
+        x = x + self.learned_pos[:x.size(0), ...]
         return self.dropout(x)
 
 class PositionalEncoding(nn.Module):
