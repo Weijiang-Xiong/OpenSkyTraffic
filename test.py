@@ -1,30 +1,16 @@
 import util
 import argparse
 from model import *
-from engine import trainer
+from engine import Trainer
+from train import parse_arguments
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--device',type=str,default='cuda:1',help='')
-parser.add_argument('--data',type=str,default='data/metr',help='data path')
-parser.add_argument('--adjdata',type=str,default='data/sensor_graph/adj_mx.pkl',help='adj data path')
-parser.add_argument('--adjtype',type=str,default='doubletransition',help='adj type')
-parser.add_argument('--seq_length',type=int,default=12,help='')
-parser.add_argument('--nhid',type=int,default=64,help='')
-parser.add_argument('--in_dim',type=int,default=2,help='inputs dimension')
-parser.add_argument('--batch_size',type=int,default=32,help='batch size')
-parser.add_argument('--learning_rate',type=float,default=0.001,help='learning rate')
-parser.add_argument('--dropout',type=float,default=0.1,help='dropout rate')
-parser.add_argument('--weight_decay',type=float,default=0.0001,help='weight decay rate')
-parser.add_argument('--checkpoint',type=str,default="", help='')
-args = parser.parse_args()
-
-def main():
+def main(args):
     device = torch.device(args.device)
     sensor_ids, sensor_id_to_ind, adj_mx = util.load_adj(args.adjdata, args.adjtype)
     dataloader = util.load_dataset(args.data, args.batch_size, args.batch_size, args.batch_size)
     scaler = dataloader['scaler']
     supports = [torch.tensor(i).to(device) for i in adj_mx]
-    engine = trainer(scaler, args.in_dim, args.seq_length, args.nhid, args.dropout, args.learning_rate,
+    engine = Trainer(scaler, args.in_dim, args.pred_win, args.nhid, args.dropout, args.learning_rate,
                      args.weight_decay, args.device, supports)
     model = engine.model
     model.to(device)
@@ -65,4 +51,5 @@ def main():
     print(log.format(*util.metric(yhat,realy)))
 
 if __name__ == "__main__":
-    main()
+    args = parse_arguments()
+    main(args)

@@ -9,7 +9,6 @@ import torch
 import numpy as np 
 import torch.nn as nn
 
-
 class LearnedPositionalEncoding(nn.Module):
     def __init__(self,d_model, dropout = 0.1,max_len = 500):
         super().__init__()
@@ -54,17 +53,21 @@ class TemproalEmbedding(nn.Module):
         return x
 
 class TrafficTransformer(nn.Module):
-    def __init__(self,in_dim,layers=1,dropout=.1,heads=8):
+    def __init__(self, in_dim, enc_layers=1, dec_layers=1, dropout=.1,heads=4):
         super().__init__()
         self.heads = heads
         self.pos = PositionalEncoding(in_dim,dropout=dropout)
         self.lpos = LearnedPositionalEncoding(in_dim, dropout=dropout)
-        self.trans = nn.Transformer(in_dim, heads, 2, 6, in_dim*4, dropout=dropout)
+        # self.tf_encoder = build_transformer_encoder(num_layers=enc_layers, d_model=in_dim, num_head=heads, d_ff=in_dim*4, dropout=dropout)
+        # self.tf_decoder = build_transformer_decoder(num_layers=dec_layers, d_model=in_dim, num_head=heads, d_ff=in_dim*4, dropout=dropout)
+        self.trans = nn.Transformer(in_dim, heads, num_encoder_layers=enc_layers, num_decoder_layers=dec_layers, dim_feedforward=in_dim*4, dropout=dropout)
 
     def forward(self,input, mask):
-        x = input.permute(1,0,2) # (N, M, C) => (M, N, C)
+        x = input.permute(1,0,2) # (N, M, C) => (M, N, C), batch_first=False by default 
         x = self.pos(x)
         x = self.lpos(x)
+        # memory = self.tf_encoder(x, mask=None)
+        # output = self.tf_decoder(x, memory, tgt_mask=mask)
         x = self.trans(x,x,tgt_mask=mask) # TODO this is probably wrong because the second input should be query (if we don't do autoregressive prediction, like DETR)
         return x.permute(1,0,2)
 
@@ -75,34 +78,39 @@ class TrafficTransformer(nn.Module):
         return mask
 
 class TTNet(nn.Module):
-    def __init__(self, dropout=0.1, supports=None, in_dim=2, out_dim=12, hid_dim=32, layers=6):
+    def __init__(self, dropout=0.1, supports=None, in_dim=2, out_dim=12, hid_dim=32, enc_layers=6, dec_layers=6, heads=2):
         super(TTNet, self).__init__()
         self.start_conv = nn.Conv2d(in_channels=in_dim,
                                     out_channels=hid_dim,
                                     kernel_size=(1, 1))
         self.start_embedding = TemproalEmbedding(hid_dim, layers=3, dropout=dropout)
         self.end_conv = nn.Linear(hid_dim, out_dim)
-        self.network = TrafficTransformer(in_dim=hid_dim, layers=layers, dropout=dropout)
+        self.end_conv_var = nn.Linear(hid_dim, out_dim)
+        self.network = TrafficTransformer(in_dim=hid_dim, enc_layers=enc_layers, dec_layers=dec_layers, dropout=dropout, heads=heads)
 
-        mask0 = supports[0].detach()
-        mask1 = supports[1].detach()
-        mask = mask0 + mask1
-        out = 0
-        for i in range(1, 7):
-            out += mask ** i
-        self.mask = out == 0
+        mask = sum([s.detach() for s in supports])
+        # a True value in self.mask indicates the corresponding key will be ignored
+        self.mask = mask == 0
         
-        # parameter initialization
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
+        # mask0 = supports[0].detach()
+        # mask1 = supports[1].detach()
+        # mask = mask0 + mask1
+        # out = 0
+        # for i in range(1, 7):
+        #     out += mask ** i # useless because this is element-wise power not matrix power 
+        # self.mask = out == 0
+        
+        # # parameter initialization just use default initialization
+        # for p in self.parameters():
+        #     if p.dim() > 1:
+        #         nn.init.xavier_uniform_(p)
 
 
     def forward(self, input):
         # input shape: (N, C_in, M, T)
         x = self.start_conv(input) # out shape (N, C_hid, M, T)
         x = self.start_embedding(x)[..., -1] # out shape (N, C_hid, M), take the last step output
-        x = x.transpose(1, 2)
-        x = self.network(x, self.mask)
-        x = self.end_conv(x)
-        return x.transpose(1,2).unsqueeze(-1)
+        x = x.transpose(1, 2) # (N, C_hid, M) => (N, M, C_hid)
+        x = self.network(x, self.mask) # out shape (N, M, C_hid)
+        x = self.end_conv(x) # out shape (N, M, T)
+        return x.transpose(1,2).unsqueeze(-1) # (N, T, M, 1)
