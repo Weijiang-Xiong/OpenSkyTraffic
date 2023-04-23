@@ -15,7 +15,7 @@ parser.add_argument('--batch_size',type=int,default=32,help='batch size')
 parser.add_argument('--learning_rate',type=float,default=0.001,help='learning rate')
 parser.add_argument('--dropout',type=float,default=0.1,help='dropout rate')
 parser.add_argument('--weight_decay',type=float,default=0.0001,help='weight decay rate')
-parser.add_argument('--checkpoint',type=str,default="scratch/exp2/_epoch_16_1.62.pth", help='')
+parser.add_argument('--checkpoint',type=str,default="", help='')
 args = parser.parse_args()
 
 def main():
