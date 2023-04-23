@@ -58,16 +58,12 @@ class TrafficTransformer(nn.Module):
         self.heads = heads
         self.pos = PositionalEncoding(in_dim,dropout=dropout)
         self.lpos = LearnedPositionalEncoding(in_dim, dropout=dropout)
-        # self.tf_encoder = build_transformer_encoder(num_layers=enc_layers, d_model=in_dim, num_head=heads, d_ff=in_dim*4, dropout=dropout)
-        # self.tf_decoder = build_transformer_decoder(num_layers=dec_layers, d_model=in_dim, num_head=heads, d_ff=in_dim*4, dropout=dropout)
         self.trans = nn.Transformer(in_dim, heads, num_encoder_layers=enc_layers, num_decoder_layers=dec_layers, dim_feedforward=in_dim*4, dropout=dropout)
 
     def forward(self,input, mask):
         x = input.permute(1,0,2) # (N, M, C) => (M, N, C), batch_first=False by default 
         x = self.pos(x)
         x = self.lpos(x)
-        # memory = self.tf_encoder(x, mask=None)
-        # output = self.tf_decoder(x, memory, tgt_mask=mask)
         x = self.trans(x,x,tgt_mask=mask) # TODO this is probably wrong because the second input should be query (if we don't do autoregressive prediction, like DETR)
         return x.permute(1,0,2)
 
@@ -91,20 +87,6 @@ class TTNet(nn.Module):
         mask = sum([s.detach() for s in supports])
         # a True value in self.mask indicates the corresponding key will be ignored
         self.mask = mask == 0
-        
-        # mask0 = supports[0].detach()
-        # mask1 = supports[1].detach()
-        # mask = mask0 + mask1
-        # out = 0
-        # for i in range(1, 7):
-        #     out += mask ** i # useless because this is element-wise power not matrix power 
-        # self.mask = out == 0
-        
-        # # parameter initialization just use default initialization
-        # for p in self.parameters():
-        #     if p.dim() > 1:
-        #         nn.init.xavier_uniform_(p)
-
 
     def forward(self, input):
         # input shape: (N, C_in, M, T)
