@@ -23,7 +23,7 @@ class Trainer():
                                     weight_decay=args.weight_decay)
         self.loss = util.masked_mae
         self.scaler = scaler
-        self.clip = 3
+        self.clip = args.grad_clip
 
     def train(self, data, label):
         

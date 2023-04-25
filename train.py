@@ -155,6 +155,7 @@ def parse_arguments(input_args=None):
     parser.add_argument('--learning_rate', type=float, default=0.001, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.1, help='dropout rate')
     parser.add_argument('--weight_decay', type=float, default=0.0001, help='weight decay rate')
+    parser.add_argument("--grad_clip", type=float, default=3.0, help="clip gradients at this value")
     parser.add_argument('--print_every', type=int, default=1000, help='')
     parser.add_argument('--expid', type=int, default=1, help='experiment id')
     parser.add_argument('--save_dir', type=str, default='scratch/test/', help='save path')
