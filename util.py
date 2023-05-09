@@ -1,6 +1,8 @@
 import os
 import pickle
 import torch
+import logging 
+
 import numpy as np
 import scipy.sparse as sp
 from scipy.sparse import linalg
@@ -214,11 +216,11 @@ def metric(pred, real):
     return mae,mape,rmse
 
 
-def report_nan(res:torch.tensor):
+def report_nan(res:torch.tensor, use_logger=True):
+    logger = logging.getLogger("default")
     num_of_nan = torch.sum(torch.isnan(res)).item()
     if num_of_nan > 0:
-        print("number of nan in result: ", torch.sum(torch.isnan(res)).item())
-        
-def make_dir_if_not_exist(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
+        if not use_logger:
+            print("number of nan in result: {}".format(torch.sum(torch.isnan(res)).item()))
+        else:
+            logger.warning("number of nan in result: {}".format(torch.sum(torch.isnan(res)).item()))

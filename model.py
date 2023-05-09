@@ -74,8 +74,8 @@ class TrafficTransformer(nn.Module):
 
     def forward(self, x, mask):
         x = self.pos(x)
-        x = self.lpos(x)
-        x = self.trans(x, x, tgt_mask=mask)  # TODO this is probably wrong because the second input should be query (if we don't do autoregressive prediction, like DETR)
+        # x = self.lpos(x)
+        x = self.trans(x, x, tgt_mask=mask)  # TODO this is probably problematic because the second input should be query (if we don't do autoregressive prediction, like DETR)
         return x
 
     def _gen_mask(self, input):
@@ -85,9 +85,19 @@ class TrafficTransformer(nn.Module):
         return mask
 
 
-class TTNet(nn.Module):
-    def __init__(self, dropout=0.1, supports=None, in_dim=2, out_dim=12, rnn_layers=3, hid_dim=64, enc_layers=6, dec_layers=6, heads=2):
-        super(TTNet, self).__init__()
+class NetworkedTimeSeriesModel(nn.Module):
+    
+    def __init__(self, 
+                 dropout=0.1, 
+                 in_dim=2, 
+                 out_dim=12, 
+                 rnn_layers=3, 
+                 hid_dim=64, 
+                 enc_layers=6, 
+                 dec_layers=6, 
+                 heads=2):
+        
+        super(NetworkedTimeSeriesModel, self).__init__()
         self.feature_embedding = nn.Conv2d(in_channels=in_dim,
                                            out_channels=hid_dim,
                                            kernel_size=(1, 1))
@@ -95,11 +105,12 @@ class TTNet(nn.Module):
         self.mean_estimate = nn.Linear(hid_dim, out_dim)
         self.var_estimate = nn.Linear(hid_dim, out_dim)
         self.network = TrafficTransformer(in_dim=hid_dim, enc_layers=enc_layers, dec_layers=dec_layers, dropout=dropout, heads=heads)
-
-        mask = sum([s.detach() for s in supports])
+        
+    def set_fixed_mask(self, adj_mtxs):
+        mask = sum([s.detach() for s in adj_mtxs])
         # a True value in self.mask indicates the corresponding key will be ignored
         self.mask = mask == 0
-
+        
     def forward(self, input):
         # input shape: (N, C_in, M, T)
         x = self.feature_embedding(input)  # out shape (N, C_hid, M, T)
@@ -111,13 +122,29 @@ class TTNet(nn.Module):
 
         return mean, var  # (N, M, T)
 
+def build_model(args, adjacencies):
+    
+    model = NetworkedTimeSeriesModel(dropout=args.dropout,
+                    in_dim=args.in_dim, 
+                    out_dim=args.pred_win, 
+                    rnn_layers=args.rnn,
+                    hid_dim=args.hid_dim, 
+                    enc_layers=args.enc, 
+                    dec_layers=args.dec, 
+                    heads=args.nhead)
+    
+    model.set_fixed_mask(adjacencies)
+    model.to(torch.device(args.device))
+    
+    return model 
+
 def test_ttnet_forward():
     
     print("Testing TTNet forward pass...")
     N, C, M, T = 8, 2, 207, 12
     random_input = torch.rand((N, C, M, T))
     random_support = [torch.randint(0, 2, (M, M)).bool() for _ in range(2)]
-    model = TTNet(supports=random_support)
+    model = NetworkedTimeSeriesModel(supports=random_support)
     mean, var = model(random_input)
     assert mean.shape == (N, M, T)
     assert var.shape == (N, M, T)
