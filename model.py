@@ -74,7 +74,7 @@ class TrafficTransformer(nn.Module):
 
     def forward(self, x, mask):
         x = self.pos(x)
-        # x = self.lpos(x)
+        x = self.lpos(x)
         x = self.trans(x, x, tgt_mask=mask)  # TODO this is probably problematic because the second input should be query (if we don't do autoregressive prediction, like DETR)
         return x
 
