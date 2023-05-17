@@ -4,11 +4,14 @@
         C: channel dimension, feature dimension
         M: number of nodes (sensors)
 """
-
+import copy 
 import torch
 import numpy as np
 import torch.nn as nn
 
+from loss import GaussianNLLLoss
+from util import StandardScaler, default_metrics
+from events import get_event_storage
 
 class LearnedPositionalEncoding(nn.Module):
     
@@ -85,8 +88,9 @@ class TrafficTransformer(nn.Module):
         return mask
 
 
-class NetworkedTimeSeriesModel(nn.Module):
-    
+class NTSModel(nn.Module):
+    """ Networked Time Series  (NTS) Model
+    """
     def __init__(self, 
                  dropout=0.1, 
                  in_dim=2, 
@@ -95,9 +99,10 @@ class NetworkedTimeSeriesModel(nn.Module):
                  hid_dim=64, 
                  enc_layers=6, 
                  dec_layers=6, 
-                 heads=2):
+                 heads=2,
+                 datascalar=None):
         
-        super(NetworkedTimeSeriesModel, self).__init__()
+        super(NTSModel, self).__init__()
         self.feature_embedding = nn.Conv2d(in_channels=in_dim,
                                            out_channels=hid_dim,
                                            kernel_size=(1, 1))
@@ -105,46 +110,156 @@ class NetworkedTimeSeriesModel(nn.Module):
         self.mean_estimate = nn.Linear(hid_dim, out_dim)
         self.var_estimate = nn.Linear(hid_dim, out_dim)
         self.network = TrafficTransformer(in_dim=hid_dim, enc_layers=enc_layers, dec_layers=dec_layers, dropout=dropout, heads=heads)
+        self.loss = GaussianNLLLoss(reduction="mean")
+        self.datascalar:StandardScaler = datascalar if datascalar is not None else StandardScaler(50, 10)
         
+        self.record_auxiliary_metrics = True
+        self.metrics = dict()
+        
+    @property   
+    def device(self):
+        return list(self.parameters())[0].device
+
     def set_fixed_mask(self, adj_mtxs):
         mask = sum([s.detach() for s in adj_mtxs])
         # a True value in self.mask indicates the corresponding key will be ignored
         self.mask = mask == 0
         
-    def forward(self, input):
-        # input shape: (N, C_in, M, T)
-        x = self.feature_embedding(input)  # out shape (N, C_hid, M, T)
+    def forward(self, data, label=None):
+        """
+            time series forecasting task, 
+            data is assumed to have (N, C, M, T) shape (assumed to be unnormalized)
+            label is assumed to have (N, M, T) shape (assumed to be unnormalized)
+            
+            compute loss in training mode, predict future values in inference
+        """
+        
+        # normalize data here
+        data = self.datascalar.transform(data).to(self.device)
+        # and to label, if applicable 
+        if label is not None:
+            label = self.datascalar.transform(label).to(self.device)
+        
+        if self.training:
+            assert data is not None, "label should be provided for training"
+            return self.compute_loss(data, label)
+        else:
+            return self.inference(data, label)
+
+    def make_pred(self, data):
+        """ 
+            run a forward pass through the network 
+            data is of shape (N, C_in, M, T), assumed to be normalized 
+        """
+        x = self.feature_embedding(data)  # out shape (N, C_hid, M, T)
         x = self.temp_embedding(x)  # out shape (N, C_hid, M, T)
         x = x[..., -1].transpose(1, 2)  # (N, C_hid, M) => (N, M, C_hid)
         x = self.network(x, self.mask)  # out shape (N, M, C_hid)
+        
         mean = self.mean_estimate(x)  # out shape (N, M, T)
-        var = self.var_estimate(x)  # out shape (N, M, T)
+        logvar = self.var_estimate(x)  # out shape (N, M, T)
+        
+        return mean, logvar
 
-        return mean, var  # (N, M, T)
-
-def build_model(args, adjacencies):
     
-    model = NetworkedTimeSeriesModel(dropout=args.dropout,
+    def inference(self, data, label=None):
+        
+        """ if label is None, this is basically the same as self.make_pred 
+            one can use this as an alternative to writing torch.no_grad outside the model 
+            if label is provided, auxiliary metrics will be computed
+        """
+        
+        with torch.no_grad():
+            mean, logvar = self.make_pred(data)
+            
+        mean = self.datascalar.inverse_transform(mean)
+        logvar = self.datascalar.inverse_transform_logvar(logvar)
+        
+        if self.record_auxiliary_metrics and label is not None:
+            label = self.datascalar.inverse_transform(label)
+            self.metrics = self.compute_auxiliary_metrics(mean, label)
+        
+        self.metrics.update({"logvar": logvar})
+        
+        return mean
+        
+        
+    def compute_loss(self, data, label, scale_before_loss=True):
+        
+        mean, logvar = self.make_pred(data)
+        
+        if scale_before_loss:
+            # scale back the predictions and then calculate loss 
+            mean = self.datascalar.inverse_transform(mean)
+            label = self.datascalar.inverse_transform(label)
+            logvar = self.datascalar.inverse_transform_logvar(logvar)
+            loss = self.loss(mean, label, logvar)
+        else:
+            loss = self.loss(mean, label, logvar)
+            mean = self.datascalar.inverse_transform(mean)
+            label = self.datascalar.inverse_transform(label)
+            logvar = self.datascalar.inverse_transform_logvar(logvar)
+            
+        loss_dict = {"loss": loss}
+        
+        if self.record_auxiliary_metrics:
+            self.metrics = self.compute_auxiliary_metrics(mean, label)
+            
+        return loss_dict
+    
+    
+    def compute_auxiliary_metrics(self, pred, label):
+        
+        # prevent gradient calculation when providing auxiliary metrics in training mode
+        with torch.no_grad():
+            metrics = default_metrics(pred, label)
+            
+        return {k:v for k, v in metrics.items()}
+    
+    
+    def pop_auxiliary_metrics(self, scalar_only=True):
+        """ auxiliary metrics may also contain the log variance, 
+            so use scalar_only to control the behavior
+        """
+        if not self.record_auxiliary_metrics:
+            return {} 
+        
+        if scalar_only:
+            scalar_metrics = {k:v for k, v in self.metrics.items() if isinstance(v, (int, float))}
+        else:
+            scalar_metrics = self.metrics
+            
+        self.metrics = dict() 
+        return scalar_metrics
+    
+    def visualize(self, data, label):
+        preds = self.inference(data)
+        raise NotImplementedError 
+    
+def build_model(args, adjacencies, datascalar=None):
+    
+    model = NTSModel(dropout=args.dropout,
                     in_dim=args.in_dim, 
                     out_dim=args.pred_win, 
                     rnn_layers=args.rnn,
                     hid_dim=args.hid_dim, 
                     enc_layers=args.enc, 
                     dec_layers=args.dec, 
-                    heads=args.nhead)
+                    heads=args.nhead,
+                    datascalar=datascalar)
     
     model.set_fixed_mask(adjacencies)
     model.to(torch.device(args.device))
     
     return model 
 
-def test_ttnet_forward():
+def test_model_forward():
     
     print("Testing TTNet forward pass...")
     N, C, M, T = 8, 2, 207, 12
     random_input = torch.rand((N, C, M, T))
     random_support = [torch.randint(0, 2, (M, M)).bool() for _ in range(2)]
-    model = NetworkedTimeSeriesModel(supports=random_support)
+    model = NTSModel(supports=random_support)
     mean, var = model(random_input)
     assert mean.shape == (N, M, T)
     assert var.shape == (N, M, T)
@@ -174,4 +289,4 @@ def test_posenc():
 if __name__ == "__main__":
 
     test_posenc()
-    test_ttnet_forward()
+    test_model_forward()

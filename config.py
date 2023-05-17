@@ -1,5 +1,6 @@
 import os
 import argparse
+from event_logger import setup_logger
 
 def default_argument_parser(input_args=None):
 
@@ -55,5 +56,7 @@ def default_setup(args):
         such as checking directories and folders
     """
     make_dir_if_not_exist(args.save_dir)
+    logger = setup_logger(name="default", log_file="{}/experiment.log".format(args.save_dir))
+    logger.info("Using these configurations {}".format(args))
     
 

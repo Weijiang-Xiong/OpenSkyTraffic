@@ -44,6 +44,10 @@ class DataLoader(object):
                 end_ind = min(self.size, self.batch_size * (self.current_ind + 1))
                 x_i = self.xs[start_ind: end_ind, ...]
                 y_i = self.ys[start_ind: end_ind, ...]
+                
+                x_i = torch.Tensor(x_i).transpose(1, 3)
+                y_i = torch.Tensor(y_i).transpose(1, 3)[:, 0, :, :]
+                
                 yield (x_i, y_i)
                 self.current_ind += 1
 
@@ -64,7 +68,12 @@ class StandardScaler():
     def inverse_transform(self, data):
         return (data * self.std) + self.mean
 
-
+    def inverse_transform_logvar(self, logvar):
+        """ we scale the raw input x to zero mean and unit variance variable u using self.transform 
+            when we scale back, the log variance should be 
+            Var(x) = Var(u) * std**2 => log Var(x) = log(var(u)) + 2log(std)
+        """
+        return logvar + 2*np.log(self.std)
 
 def sym_adj(adj):
     """Symmetrically normalize adjacency matrix."""
@@ -151,8 +160,9 @@ def load_dataset(dataset_dir, batch_size, valid_batch_size= None, test_batch_siz
         data['y_' + category] = cat_data['y']
     scaler = StandardScaler(mean=data['x_train'][..., 0].mean(), std=data['x_train'][..., 0].std())
     # Data format
-    for category in ['train', 'val', 'test']:
-        data['x_' + category][..., 0] = scaler.transform(data['x_' + category][..., 0])
+    # # this is commented because it makes more sense to keep data and labe aligned (both unnormalized)
+    # for category in ['train', 'val', 'test']:
+    #     data['x_' + category][..., 0] = scaler.transform(data['x_' + category][..., 0])
     data['train_loader'] = DataLoader(data['x_train'], data['y_train'], batch_size)
     data['val_loader'] = DataLoader(data['x_val'], data['y_val'], valid_batch_size)
     data['test_loader'] = DataLoader(data['x_test'], data['y_test'], test_batch_size)
@@ -209,11 +219,13 @@ def masked_mape(preds, labels, null_val=np.nan):
     return torch.mean(loss)
 
 
-def metric(pred, real):
-    mae = masked_mae(pred,real,0.0).item()
-    mape = masked_mape(pred,real,0.0).item()
-    rmse = masked_rmse(pred,real,0.0).item()
-    return mae,mape,rmse
+def default_metrics(pred, label):
+    
+    mae = masked_mae(pred,label,0.0).item()
+    mape = masked_mape(pred,label,0.0).item()
+    rmse = masked_rmse(pred,label,0.0).item()
+    
+    return {"mae":mae, "mape":mape, "rmse":rmse}
 
 
 def report_nan(res:torch.tensor, use_logger=True):
