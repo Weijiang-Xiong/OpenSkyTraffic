@@ -1,12 +1,10 @@
 import torch
 import numpy as np
-import argparse
-import time
-import util
 
-from config import default_argument_parser, default_setup
-from engine import DefaultTrainer
-from model import build_model
+from netsanut import util
+from netsanut.config import default_argument_parser, default_setup
+from netsanut.engine import DefaultTrainer
+from netsanut.model import build_model
 
 def main(args):
     

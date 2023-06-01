@@ -4,14 +4,14 @@
         C: channel dimension, feature dimension
         M: number of nodes (sensors)
 """
-import copy 
+
 import torch
 import numpy as np
 import torch.nn as nn
 
-from loss import GeneralizedProbRegLoss
-from util import StandardScaler, default_metrics
-from events import get_event_storage
+from netsanut.loss import GeneralizedProbRegLoss
+from netsanut.util import StandardScaler, default_metrics
+from netsanut.events import get_event_storage
 
 class LearnedPositionalEncoding(nn.Module):
     

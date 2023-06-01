@@ -1,6 +1,7 @@
 import os
 import argparse
-from event_logger import setup_logger
+
+from netsanut.event_logger import setup_logger
 
 def default_argument_parser(input_args=None):
 

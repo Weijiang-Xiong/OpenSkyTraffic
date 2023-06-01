@@ -2,5 +2,6 @@
 *.h5
 data/sensor_graph
 scratch
-__*
+__pycache__*
 .vscode
+*.egg-info

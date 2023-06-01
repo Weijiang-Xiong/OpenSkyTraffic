@@ -7,10 +7,10 @@
 """
 import copy
 import traceback 
+import numpy as np
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 from typing import List, Optional, Tuple
 from collections import defaultdict
-import numpy as np
 
 _STORAGE_STACK = []
 

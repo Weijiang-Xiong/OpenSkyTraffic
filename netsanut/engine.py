@@ -1,17 +1,18 @@
 import os
 import time
-import glob
 import logging 
 
+from collections import defaultdict
+
+import numpy as np 
 import torch
 import torch.nn as nn 
 import torch.optim as optim
 
-import util
-from model import *
-from textwrap import dedent
-from events import EventStorage, get_event_storage
-from collections import defaultdict
+from netsanut import util
+from netsanut.model import NTSModel
+from netsanut.events import EventStorage
+
 
 class DefaultTrainer():
     """ The trainer takes care of the general logic in the training progress, such as 
