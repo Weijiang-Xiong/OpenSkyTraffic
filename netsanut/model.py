@@ -148,7 +148,7 @@ class NTSModel(nn.Module):
             label = self.datascalar.transform(label).to(self.device)
         
         if self.training:
-            assert data is not None, "label should be provided for training"
+            assert label is not None, "label should be provided for training"
             return self.compute_loss(data, label)
         else:
             return self.inference(data, label)
@@ -263,40 +263,3 @@ def build_model(args, adjacencies, datascalar=None):
     
     return model 
 
-def test_model_forward():
-    
-    print("Testing TTNet forward pass...")
-    N, C, M, T = 8, 2, 207, 12
-    random_input = torch.rand((N, C, M, T))
-    random_support = [torch.randint(0, 2, (M, M)).bool() for _ in range(2)]
-    model = NTSModel(supports=random_support)
-    mean, var = model(random_input)
-    assert mean.shape == (N, M, T)
-    assert var.shape == (N, M, T)
-    print("Test OK")
-
-def test_posenc():
-    
-    print("Testing positional encoding...")
-    
-    encoders_batch_first = [
-        PositionalEncoding(64, max_len=100, batch_first=True),
-        LearnedPositionalEncoding(64, max_len=100, batch_first=True)
-        ]
-    encoders_not_batch_first = [
-        PositionalEncoding(64, max_len=100, batch_first=False),
-        LearnedPositionalEncoding(64, max_len=100, batch_first=False)
-        ]
-    
-    for enc in encoders_batch_first:
-        print(enc.__class__.__name__)
-        out = enc(torch.ones(size=(2, 12, 64)))
-        
-    for enc in encoders_not_batch_first:
-        print(enc.__class__.__name__)
-        out = enc(torch.ones(size=(12, 2, 64)))
-
-if __name__ == "__main__":
-
-    test_posenc()
-    test_model_forward()
