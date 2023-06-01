@@ -79,7 +79,7 @@ class DefaultTrainer():
                 self.scheduler.step()
                 self.save_checkpoint(additional_note=round(validation_metrics["mae"], 2))
                 
-                self.logger.info("Epoch: {:03d}, Train Loss".format(epoch_num, train_metrics['loss']))
+                self.logger.info("Epoch: {:03d}, Train Loss {:.4f}".format(epoch_num, train_metrics['loss']))
                 self.logger.info("Train MAE: {:.4f}, Train MAPE: {:.4f}, Train RMSE: {:.4f}".format(
                     train_metrics['mae'], train_metrics['mape'], train_metrics['rmse']))
                 self.logger.info("Valid MAE: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}".format(
@@ -160,7 +160,7 @@ class DefaultTrainer():
             if verbose:
                 logger.info('Evaluate model on test data at {:d} time step'.format(i+1))
                 logger.info('Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'.format(
-                    i+1, aux_metrics['mae'], aux_metrics['mape'], aux_metrics['rmse']
+                    aux_metrics['mae'], aux_metrics['mape'], aux_metrics['rmse']
                     )
                 )
 
@@ -198,7 +198,9 @@ class DefaultTrainer():
             self.epoch_num = self.start_epoch
         else:
             self.logger.info("Loading model weights from {}".format(ckpt_path))
-            self.model.load_state_dict(state_dict['model'])
+            incompatible = self.model.load_state_dict(state_dict['model'], strict=False)
+            if incompatible is not None:
+                self.logger.info("Incompatible keys are : \n {}".format(incompatible))
             
         self.logger.info("Successfully loaded checkpoint file {}!".format(ckpt_path))
     
