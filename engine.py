@@ -169,7 +169,7 @@ class DefaultTrainer():
         if verbose:
             logger.info('On average over 12 different time steps')
             logger.info('Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'.format(
-                aux_metrics['mae'], aux_metrics['mape'], aux_metrics['rmse']
+                overall_metrics['mae'], overall_metrics['mape'], overall_metrics['rmse']
                 )
             )
         
