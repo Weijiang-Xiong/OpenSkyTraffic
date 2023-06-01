@@ -9,7 +9,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 
-from loss import GaussianNLLLoss
+from loss import GeneralizedProbRegLoss
 from util import StandardScaler, default_metrics
 from events import get_event_storage
 
@@ -100,7 +100,11 @@ class NTSModel(nn.Module):
                  enc_layers=6, 
                  dec_layers=6, 
                  heads=2,
-                 datascalar=None):
+                 datascalar=None,
+                 aleatoric=False,
+                 exponent=1,
+                 alpha=1.0,
+                 ignore_value=0.0):
         
         super(NTSModel, self).__init__()
         self.feature_embedding = nn.Conv2d(in_channels=in_dim,
@@ -110,9 +114,12 @@ class NTSModel(nn.Module):
         self.mean_estimate = nn.Linear(hid_dim, out_dim)
         self.var_estimate = nn.Linear(hid_dim, out_dim)
         self.network = TrafficTransformer(in_dim=hid_dim, enc_layers=enc_layers, dec_layers=dec_layers, dropout=dropout, heads=heads)
-        self.loss = GaussianNLLLoss(reduction="mean")
+        self.loss = GeneralizedProbRegLoss(aleatoric=aleatoric, 
+                                           exponent=exponent, 
+                                           alpha=alpha, 
+                                           ignore_value=ignore_value)
         self.datascalar:StandardScaler = datascalar if datascalar is not None else StandardScaler(50, 10)
-        
+        self.scale_before_loss = True
         self.record_auxiliary_metrics = True
         self.metrics = dict()
         
@@ -166,7 +173,7 @@ class NTSModel(nn.Module):
         
         """ if label is None, this is basically the same as self.make_pred 
             one can use this as an alternative to writing torch.no_grad outside the model 
-            if label is provided, auxiliary metrics will be computed
+            if label is provided, auxiliary metrics will be computed according to the flag `self.record_auxiliary_metrics`
         """
         
         with torch.no_grad():
@@ -184,11 +191,11 @@ class NTSModel(nn.Module):
         return mean
         
         
-    def compute_loss(self, data, label, scale_before_loss=True):
+    def compute_loss(self, data, label):
         
         mean, logvar = self.make_pred(data)
         
-        if scale_before_loss:
+        if self.scale_before_loss:
             # scale back the predictions and then calculate loss 
             mean = self.datascalar.inverse_transform(mean)
             label = self.datascalar.inverse_transform(label)
@@ -246,7 +253,10 @@ def build_model(args, adjacencies, datascalar=None):
                     enc_layers=args.enc, 
                     dec_layers=args.dec, 
                     heads=args.nhead,
-                    datascalar=datascalar)
+                    datascalar=datascalar,
+                    aleatoric=args.aleatoric,
+                    exponent=args.exponent,
+                    alpha=args.alpha)
     
     model.set_fixed_mask(adjacencies)
     model.to(torch.device(args.device))

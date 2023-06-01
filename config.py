@@ -21,6 +21,12 @@ def default_argument_parser(input_args=None):
     parser.add_argument('--nhead', type=int, default=2, help='number of heads in multi-head attention')
     parser.add_argument('--pred-win', type=int, default=12, help='number of time step to predict (depends on the dataset)')
     
+    # loss related arguments
+    parser.add_argument('--aleatoric', type=bool, default=False, help='whether to use aleatoric uncertainty in loss')
+    parser.add_argument('--exponent', type=int, default=1, help='exponent in the regression loss')
+    parser.add_argument('--alpha', type=float, default=1.0, help='regularization parameter, multiplied with logvar')
+    parser.add_argument('--ignore-value', type=float, default=0.0, help='the value to ignore in labels, e.g., 0.0')
+    
     # parameters related to optimizer and scheduler
     parser.add_argument('--max-epoch', type=int, default=30, help='number of training epochs')
     parser.add_argument('--batch-size', type=int, default=32, help='batch size')
