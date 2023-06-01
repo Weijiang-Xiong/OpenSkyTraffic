@@ -1,3 +1,6 @@
+""" modified from https://github.com/nnzhan/Graph-WaveNet/blob/master/util.py
+"""
+
 import os
 import pickle
 import torch
@@ -69,9 +72,23 @@ class StandardScaler():
         return (data * self.std) + self.mean
 
     def inverse_transform_logvar(self, logvar):
-        """ we scale the raw input x to zero mean and unit variance variable u using self.transform 
-            when we scale back, the log variance should be 
-            Var(x) = Var(u) * std**2 => log Var(x) = log(var(u)) + 2log(std)
+        
+        """ 
+            we scale the raw input x to zero mean and unit variance variable u using self.transform:
+        
+                u = (x - mean) / std 
+            
+            when we scale back, 
+            
+                x = u * std + mean 
+            
+            the variance should be
+            
+                Var(x) = Var(u) * std**2
+            
+            and the log variance should be:
+            
+                log Var(x) = log(Var(u)) + 2log(std)
         """
         return logvar + 2*np.log(self.std)
 

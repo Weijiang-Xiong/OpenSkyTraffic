@@ -1,8 +1,9 @@
 """
-    follow the logic in detectron2, but not as complete as it
+    Follow the logic in detectron2, but not as complete as it
     https://github.com/facebookresearch/detectron2/blob/main/detectron2/utils/events.py
-    A difference is, the training in detectron2 is counted by iteration, and there is 
-    no concept of epoch there. 是啊
+    A difference is, the training in detectron2 is counted by iteration, and there is no concept of epoch there. 
+    
+    This implementation will log per epoch.
 """
 import copy
 import traceback 
