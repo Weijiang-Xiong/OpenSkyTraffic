@@ -75,19 +75,12 @@ class StandardScaler():
         
         """ 
             we scale the raw input x to zero mean and unit variance variable u using self.transform:
-        
                 u = (x - mean) / std 
-            
             when we scale back, 
-            
                 x = u * std + mean 
-            
             the variance should be
-            
                 Var(x) = Var(u) * std**2
-            
             and the log variance should be:
-            
                 log Var(x) = log(Var(u)) + 2log(std)
         """
         return logvar + 2*np.log(self.std)
