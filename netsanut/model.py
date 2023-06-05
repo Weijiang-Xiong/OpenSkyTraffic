@@ -130,7 +130,7 @@ class NTSModel(nn.Module):
     def set_fixed_mask(self, adj_mtxs):
         mask = sum([s.detach() for s in adj_mtxs])
         # a True value in self.mask indicates the corresponding key will be ignored
-        self.mask = mask == 0
+        self.mask = (mask == 0).to(self.device)
         
     def forward(self, data, label=None):
         """
@@ -258,8 +258,8 @@ def build_model(args, adjacencies, datascalar=None):
                     exponent=args.exponent,
                     alpha=args.alpha)
     
-    model.set_fixed_mask(adjacencies)
     model.to(torch.device(args.device))
+    model.set_fixed_mask(adjacencies)
     
     return model 
 
