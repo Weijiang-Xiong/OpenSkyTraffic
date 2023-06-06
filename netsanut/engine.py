@@ -87,7 +87,6 @@ class DefaultTrainer():
                     train_metrics['mae'], train_metrics['mape'], train_metrics['rmse']))
                 self.logger.info("Valid MAE: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}".format(
                     validation_metrics['mae'], validation_metrics['mape'], validation_metrics['rmse']))
-                self.logger.info("Training Time: {:.4f}/epoch".format(self.storage.latest()['epoch_train_time'][0]))
             
             validation_loss_log = self.storage["mae_val"].values() # no need for iteration
             bestid = np.argmin(validation_loss_log)
