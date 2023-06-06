@@ -52,11 +52,11 @@ def tensor_collate(list_of_xy:List[Tuple[torch.Tensor]]) -> Tuple[torch.Tensor]:
     
     return torch.cat(xs, dim=0), torch.cat(ys, dim=0)
 
-def to_gpu(data:torch.Tensor, label:torch.Tensor) -> Tuple[torch.Tensor]:
+def to_contiguous(data:torch.Tensor, label:torch.Tensor) -> Tuple[torch.Tensor]:
     
-    return data.cuda().contiguous(), label[..., 0].cuda().contiguous()
+    return data.contiguous(), label[..., 0].contiguous()
 
-tensor_to_gpu = lambda list_of_xy: to_gpu(*tensor_collate(list_of_xy))
+tensor_to_contiguous = lambda list_of_xy: to_contiguous(*tensor_collate(list_of_xy))
 
 def build_trainvaltest_loaders(
     dataset,
@@ -68,9 +68,9 @@ def build_trainvaltest_loaders(
     valset = NetworkedTimeSeriesDataset(dataset, split='val', adj_type=adj_type)
     testset = NetworkedTimeSeriesDataset(dataset, split='test', adj_type=adj_type)
 
-    trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True, drop_last=True, collate_fn=tensor_to_gpu)
-    valloader = DataLoader(valset, batch_size=batch_size, shuffle=False, drop_last=False, collate_fn=tensor_to_gpu)
-    testloader = DataLoader(testset, batch_size=batch_size, shuffle=False, drop_last=False, collate_fn=tensor_to_gpu)
+    trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True, drop_last=True, collate_fn=tensor_to_contiguous)
+    valloader = DataLoader(valset, batch_size=batch_size, shuffle=False, drop_last=False, collate_fn=tensor_to_contiguous)
+    testloader = DataLoader(testset, batch_size=batch_size, shuffle=False, drop_last=False, collate_fn=tensor_to_contiguous)
     
     dataloaders = {'train': trainloader, 'val':valloader, 'test':testloader}
     metadata = {'adjacency': trainset.adjacency_matrix, 'mean': trainset.data_mean, 'std': trainset.data_std}

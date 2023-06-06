@@ -115,7 +115,7 @@ class DefaultTrainer():
         
         for data, label in self.train_val_test_loaders['train']:
             
-            self.optimizer.zero_grad()
+            data, label = data.cuda(), label.cuda() 
             
             loss_dict = self.model(data, label) # out shape (N, M, T)
             loss = sum(loss_dict.values())
@@ -124,6 +124,7 @@ class DefaultTrainer():
             if self.clip is not None:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip)
             self.optimizer.step()
+            self.optimizer.zero_grad()
             
             aux_metrics = self.model.pop_auxiliary_metrics() if getattr(self.model, "record_auxiliary_metrics", False) else dict()
             aux_metrics.update({k:v.item() for k, v in loss_dict.items()})
@@ -143,6 +144,9 @@ class DefaultTrainer():
         
         all_preds, all_labels = [], []
         for data, label in dataloader:
+            
+            data, label = data.cuda(), label.cuda() 
+            
             preds = model(data)
             
             all_preds.append(preds)
