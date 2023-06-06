@@ -19,14 +19,15 @@ def main(args):
     
     if args.eval_only:
         trainer.load_checkpoint(args.checkpoint)
-        trainer.evaluate(
+        eval_res = trainer.evaluate(
             trainer.model, 
             trainer.train_val_test_loaders['test'], 
         )
+        return eval_res
         
     return trainer.train()
     
 if __name__ == "__main__":
 
-    args = default_argument_parser("--eval-only --checkpoint scratch/test/ntsmodel_epoch_23_2.73.pth".split())
+    args = default_argument_parser()
     main(args)
