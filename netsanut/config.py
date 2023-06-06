@@ -38,7 +38,6 @@ def default_argument_parser(input_args=None):
     parser.add_argument('--grad-clip', type=float, default=3.0, help="clip gradients at this value")
     
     # training profiling, model saving and loading
-    parser.add_argument('--print-every', type=int, default=1000, help='')
     parser.add_argument('--save-dir', type=str, default='scratch/test/', help='save path')
     parser.add_argument('--checkpoint', type=str, default=None, help='checkpoint path')
     parser.add_argument('--eval-only', action="store_true", help="skip training and run evaluation only")
