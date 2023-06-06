@@ -239,4 +239,4 @@ class DefaultTrainer():
         save_file_name = self.format_file_path(self.epoch_num, additional_note)
             
         torch.save(state_dict, save_file_name)
-        self.logger.info("Checkpoint saved to {}".format(save_file_name))
+        self.logger.info("Epoch: {:03d}, Checkpoint saved to {}".format(self.epoch_num, save_file_name))
