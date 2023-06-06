@@ -10,7 +10,8 @@ import numpy as np
 import torch.nn as nn
 
 from netsanut.loss import GeneralizedProbRegLoss
-from netsanut.util import StandardScaler, default_metrics
+from netsanut.util import default_metrics
+from netsanut.data import StandardScaler
 from netsanut.events import get_event_storage
 
 class LearnedPositionalEncoding(nn.Module):
@@ -100,7 +101,7 @@ class NTSModel(nn.Module):
                  enc_layers=6, 
                  dec_layers=6, 
                  heads=2,
-                 datascalar=None,
+                 datascaler=None,
                  aleatoric=False,
                  exponent=1,
                  alpha=1.0,
@@ -118,7 +119,7 @@ class NTSModel(nn.Module):
                                            exponent=exponent, 
                                            alpha=alpha, 
                                            ignore_value=ignore_value)
-        self.datascalar:StandardScaler = datascalar if datascalar is not None else StandardScaler(50, 10)
+        self.datascaler:StandardScaler = datascaler if datascaler is not None else StandardScaler(50, 10)
         self.scale_before_loss = True
         self.record_auxiliary_metrics = True
         self.metrics = dict()
@@ -135,17 +136,17 @@ class NTSModel(nn.Module):
     def forward(self, data, label=None):
         """
             time series forecasting task, 
-            data is assumed to have (N, C, M, T) shape (assumed to be unnormalized)
-            label is assumed to have (N, M, T) shape (assumed to be unnormalized)
+            data is assumed to have (N, T, M, C) shape (assumed to be unnormalized)
+            label is assumed to have (N, T, M) shape (assumed to be unnormalized)
             
             compute loss in training mode, predict future values in inference
         """
         
         # normalize data here
-        data = self.datascalar.transform(data).to(self.device)
+        data = self.datascaler.transform(data)
         # and to label, if applicable 
         if label is not None:
-            label = self.datascalar.transform(label).to(self.device)
+            label = self.datascaler.transform(label)
         
         if self.training:
             assert label is not None, "label should be provided for training"
@@ -153,20 +154,21 @@ class NTSModel(nn.Module):
         else:
             return self.inference(data, label)
 
-    def make_pred(self, data):
+    def make_pred(self, x:torch.Tensor):
         """ 
             run a forward pass through the network 
-            data is of shape (N, C_in, M, T), assumed to be normalized 
+            data is of shape (N, T, M, C_in), assumed to be normalized 
         """
-        x = self.feature_embedding(data)  # out shape (N, C_hid, M, T)
+        x = x.permute((0, 3, 2, 1)) # N, T, M, C => N, C, M, T
+        x = self.feature_embedding(x)  # out shape (N, C_hid, M, T)
         x = self.temp_embedding(x)  # out shape (N, C_hid, M, T)
-        x = x[..., -1].transpose(1, 2)  # (N, C_hid, M) => (N, M, C_hid)
+        x = x[..., -1].permute((0, 2, 1))  # take output from last time step (N, C_hid, M) => (N, M, C_hid)
         x = self.network(x, self.mask)  # out shape (N, M, C_hid)
         
         mean = self.mean_estimate(x)  # out shape (N, M, T)
         logvar = self.var_estimate(x)  # out shape (N, M, T)
         
-        return mean, logvar
+        return mean.permute(0, 2, 1), logvar.permute(0, 2, 1)
 
     
     def inference(self, data, label=None):
@@ -179,11 +181,11 @@ class NTSModel(nn.Module):
         with torch.no_grad():
             mean, logvar = self.make_pred(data)
             
-        mean = self.datascalar.inverse_transform(mean)
-        logvar = self.datascalar.inverse_transform_logvar(logvar)
+        mean = self.datascaler.inverse_transform(mean)
+        logvar = self.datascaler.inverse_transform_logvar(logvar)
         
         if self.record_auxiliary_metrics and label is not None:
-            label = self.datascalar.inverse_transform(label)
+            label = self.datascaler.inverse_transform(label)
             self.metrics = self.compute_auxiliary_metrics(mean, label)
         
         self.metrics.update({"logvar": logvar})
@@ -197,15 +199,15 @@ class NTSModel(nn.Module):
         
         if self.scale_before_loss:
             # scale back the predictions and then calculate loss 
-            mean = self.datascalar.inverse_transform(mean)
-            label = self.datascalar.inverse_transform(label)
-            logvar = self.datascalar.inverse_transform_logvar(logvar)
+            mean = self.datascaler.inverse_transform(mean)
+            label = self.datascaler.inverse_transform(label)
+            logvar = self.datascaler.inverse_transform_logvar(logvar)
             loss = self.loss(mean, label, logvar)
         else:
             loss = self.loss(mean, label, logvar)
-            mean = self.datascalar.inverse_transform(mean)
-            label = self.datascalar.inverse_transform(label)
-            logvar = self.datascalar.inverse_transform_logvar(logvar)
+            mean = self.datascaler.inverse_transform(mean)
+            label = self.datascaler.inverse_transform(label)
+            logvar = self.datascaler.inverse_transform_logvar(logvar)
             
         loss_dict = {"loss": loss}
         
@@ -243,7 +245,7 @@ class NTSModel(nn.Module):
         preds = self.inference(data)
         raise NotImplementedError 
     
-def build_model(args, adjacencies, datascalar=None):
+def build_model(args, adjacencies, datascaler=None):
     
     model = NTSModel(dropout=args.dropout,
                     in_dim=args.in_dim, 
@@ -252,8 +254,8 @@ def build_model(args, adjacencies, datascalar=None):
                     hid_dim=args.hid_dim, 
                     enc_layers=args.enc, 
                     dec_layers=args.dec, 
-                    heads=args.nhead,
-                    datascalar=datascalar,
+                    heads=args.num_head,
+                    datascaler=datascaler,
                     aleatoric=args.aleatoric,
                     exponent=args.exponent,
                     alpha=args.alpha)

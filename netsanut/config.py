@@ -9,17 +9,16 @@ def default_argument_parser(input_args=None):
     
     # parameters related to data loading and saving
     parser.add_argument('--device', type=str, default='cuda', help='default to cuda')
-    parser.add_argument('--data', type=str, default='data/metr', help='data path')
-    parser.add_argument('--adjdata', type=str, default='data/sensor_graph/adj_mx.pkl', help='adj data path')
-    parser.add_argument('--adjtype', type=str, default='doubletransition', help='adj type')
+    parser.add_argument('--dataset', type=str, default='metr-la', help='data path')
+    parser.add_argument('--adj-type', type=str, default='doubletransition', help='adj type')
     
     # model related parameters 
-    parser.add_argument('--in_dim', type=int, default=2, help='inputs dimension')
+    parser.add_argument('--in-dim', type=int, default=2, help='inputs dimension')
     parser.add_argument('--rnn', type=int, default=3, help="number of rnn layers, for temporal encoding")
     parser.add_argument('--hid-dim', type=int, default=64, help='model dimension of transformer')
     parser.add_argument('--enc', type=int, default=2, help='number of Encoder layers')
     parser.add_argument('--dec', type=int, default=4, help='number of Decoder layers')
-    parser.add_argument('--nhead', type=int, default=2, help='number of heads in multi-head attention')
+    parser.add_argument('--num-head', type=int, default=2, help='number of heads in multi-head attention')
     parser.add_argument('--pred-win', type=int, default=12, help='number of time step to predict (depends on the dataset)')
     
     # loss related arguments

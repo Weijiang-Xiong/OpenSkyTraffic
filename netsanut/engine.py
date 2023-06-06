@@ -2,16 +2,19 @@ import os
 import time
 import logging 
 
+from typing import Dict
 from collections import defaultdict
 
 import numpy as np 
 import torch
 import torch.nn as nn 
 import torch.optim as optim
+from torch.utils.data import DataLoader
 
-from netsanut import util
+from netsanut.util import default_metrics
 from netsanut.model import NTSModel
 from netsanut.events import EventStorage
+from netsanut.data import StandardScaler
 
 
 class DefaultTrainer():
@@ -22,14 +25,13 @@ class DefaultTrainer():
             3. running optimizer and scheduler 
     """
     
-    def __init__(self, args, model:NTSModel, dataloader, datascaler):
+    def __init__(self, args, model:NTSModel, dataloaders:Dict[str, DataLoader]):
         
         self.logger = logging.getLogger("default")
         
         self.model = model
         
-        self.datascaler = datascaler
-        self.dataloader = dataloader
+        self.train_val_test_loaders = dataloaders
         
         self.optimizer = optim.Adam(self.model.parameters(), 
                                     lr=args.learning_rate,
@@ -71,7 +73,7 @@ class DefaultTrainer():
                 
                 # validation
                 ts = time.perf_counter()
-                validation_metrics = self.evaluate(self.model, self.dataloader['val_loader'])
+                validation_metrics = self.evaluate(self.model, self.train_val_test_loaders['val'])
                 te = time.perf_counter()
                 self.logger.info('Epoch: {:03d}, Inference Time: {:.4f} secs'.format(epoch_num, (te-ts)))
                 self.storage.put_scalar(name="epoch_inference_time", value=te-ts)
@@ -102,7 +104,7 @@ class DefaultTrainer():
             self.load_checkpoint(best_model_path, resume=False)
             
             return self.evaluate(self.model, 
-                                self.dataloader['test_loader'], 
+                                self.train_val_test_loaders['test'],
                                 verbose=True)
 
     def train_epoch(self):
@@ -111,8 +113,7 @@ class DefaultTrainer():
         
         epoch_log = defaultdict(list)
         
-        self.dataloader['train_loader'].shuffle()
-        for data, label in self.dataloader['train_loader'].get_iterator():
+        for data, label in self.train_val_test_loaders['train']:
             
             self.optimizer.zero_grad()
             
@@ -134,14 +135,14 @@ class DefaultTrainer():
         return overall_metrics
 
     @staticmethod
-    def evaluate(model:NTSModel, dataloader, verbose=False):
+    def evaluate(model:NTSModel, dataloader:DataLoader, verbose=False):
         
         logger = logging.getLogger("default")
 
         model.eval()
         
         all_preds, all_labels = [], []
-        for iteration, (data, label) in enumerate(dataloader.get_iterator()):
+        for data, label in dataloader:
             preds = model(data)
             
             all_preds.append(preds)
@@ -154,9 +155,9 @@ class DefaultTrainer():
             logger.info("The shape of predicted {} and label {}".format(all_preds.shape, all_labels.shape))
             
         for i in range(12): # number of predicted time step 
-            pred = all_preds[..., i]
-            real = all_labels[..., i]
-            aux_metrics = util.default_metrics(pred, real)
+            pred = all_preds[:, i, :]
+            real = all_labels[:, i, :]
+            aux_metrics = default_metrics(pred, real)
 
             if verbose:
                 logger.info('Evaluate model on test data at {:d} time step'.format(i+1))
@@ -165,7 +166,7 @@ class DefaultTrainer():
                     )
                 )
 
-        overall_metrics = util.default_metrics(all_preds, all_labels)
+        overall_metrics = default_metrics(all_preds, all_labels)
         
         if verbose:
             logger.info('On average over 12 different time steps')
