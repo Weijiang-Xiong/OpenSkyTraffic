@@ -1,10 +1,10 @@
-from netsanut.data import StandardScaler
+from netsanut.data import TensorDataScaler
 import torch 
 
 rand_data  = torch.rand((32, 12, 207, 2), requires_grad=False)
 data_dim = 0
 
-scaler = StandardScaler(torch.mean(rand_data, dim=(0, 1, 2)), torch.std(rand_data, dim=(0, 1, 2)), data_dim=data_dim)
+scaler = TensorDataScaler(torch.mean(rand_data, dim=(0, 1, 2)), torch.std(rand_data, dim=(0, 1, 2)), data_dim=data_dim)
 scaled_data = scaler.transform(rand_data.clone())
 assert torch.allclose(rand_data[..., 1], scaled_data[..., 1], atol=1e-7)
 

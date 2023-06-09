@@ -4,14 +4,14 @@ import numpy as np
 from netsanut.config import default_argument_parser, default_setup
 from netsanut.engine import DefaultTrainer
 from netsanut.model import build_model
-from netsanut.data import build_trainvaltest_loaders, StandardScaler
+from netsanut.data import build_trainvaltest_loaders, TensorDataScaler
 
 def main(args):
     
     default_setup(args)
     
     dataloaders, metadata = build_trainvaltest_loaders(args.dataset, args.batch_size, args.adj_type)
-    scaler = StandardScaler(mean=metadata['mean'], std=metadata['std'])
+    scaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'])
 
     model = build_model(args, metadata['adjacency'], scaler)
     

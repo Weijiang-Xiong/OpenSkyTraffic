@@ -1,7 +1,7 @@
 import torch
 from typing import List
 
-class StandardScaler:
+class TensorDataScaler:
     """
     normalize the data, a simplified version of sklearn.preprocessing.StandardScaler
     """
@@ -13,7 +13,7 @@ class StandardScaler:
         self.std = std[data_dim]
         self.inv_std = 1.0 / self.std
         
-    def transform(self, data, only_return_data=False):
+    def transform(self, data):
         
         if data.dim() == 4: # assume N, T, M, C
             data[..., self.data_dim] = (data[..., self.data_dim] - self.mean) * self.inv_std

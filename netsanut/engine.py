@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from netsanut.util import default_metrics
 from netsanut.model import NTSModel
 from netsanut.events import EventStorage
-from netsanut.data import StandardScaler
+from netsanut.data import TensorDataScaler
 
 
 class DefaultTrainer():

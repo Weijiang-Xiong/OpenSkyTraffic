@@ -11,7 +11,7 @@ import torch.nn as nn
 
 from netsanut.loss import GeneralizedProbRegLoss
 from netsanut.util import default_metrics
-from netsanut.data import StandardScaler
+from netsanut.data import TensorDataScaler
 from netsanut.events import get_event_storage
 
 class LearnedPositionalEncoding(nn.Module):
@@ -119,7 +119,7 @@ class NTSModel(nn.Module):
                                            exponent=exponent, 
                                            alpha=alpha, 
                                            ignore_value=ignore_value)
-        self.datascaler:StandardScaler = datascaler if datascaler is not None else StandardScaler(50, 10)
+        self.datascaler:TensorDataScaler = datascaler if datascaler is not None else TensorDataScaler(50, 10)
         self.scale_before_loss = True
         self.record_auxiliary_metrics = True
         self.metrics = dict()
@@ -144,9 +144,6 @@ class NTSModel(nn.Module):
         
         # normalize data here
         data = self.datascaler.transform(data)
-        # and to label, if applicable 
-        if label is not None:
-            label = self.datascaler.transform(label)
         
         if self.training:
             assert label is not None, "label should be provided for training"
@@ -158,6 +155,7 @@ class NTSModel(nn.Module):
         """ 
             run a forward pass through the network 
             data is of shape (N, T, M, C_in), assumed to be normalized 
+            output shape (N, T, M)
         """
         x = x.permute((0, 3, 2, 1)) # N, T, M, C => N, C, M, T
         x = self.feature_embedding(x)  # out shape (N, C_hid, M, T)
@@ -185,7 +183,6 @@ class NTSModel(nn.Module):
         logvar = self.datascaler.inverse_transform_logvar(logvar)
         
         if self.record_auxiliary_metrics and label is not None:
-            label = self.datascaler.inverse_transform(label)
             self.metrics = self.compute_auxiliary_metrics(mean, label)
         
         self.metrics.update({"logvar": logvar})
@@ -197,17 +194,10 @@ class NTSModel(nn.Module):
         
         mean, logvar = self.make_pred(data)
         
-        if self.scale_before_loss:
-            # scale back the predictions and then calculate loss 
-            mean = self.datascaler.inverse_transform(mean)
-            label = self.datascaler.inverse_transform(label)
-            logvar = self.datascaler.inverse_transform_logvar(logvar)
-            loss = self.loss(mean, label, logvar)
-        else:
-            loss = self.loss(mean, label, logvar)
-            mean = self.datascaler.inverse_transform(mean)
-            label = self.datascaler.inverse_transform(label)
-            logvar = self.datascaler.inverse_transform_logvar(logvar)
+        # scale back the predictions and then calculate loss 
+        mean = self.datascaler.inverse_transform(mean)
+        logvar = self.datascaler.inverse_transform_logvar(logvar)
+        loss = self.loss(mean, label, logvar)
             
         loss_dict = {"loss": loss}
         
