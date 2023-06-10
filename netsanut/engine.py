@@ -12,7 +12,6 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from netsanut.util import default_metrics
-from netsanut.model import NTSModel
 from netsanut.events import EventStorage
 from netsanut.data import TensorDataScaler
 
@@ -25,7 +24,7 @@ class DefaultTrainer():
             3. running optimizer and scheduler 
     """
     
-    def __init__(self, args, model:NTSModel, dataloaders:Dict[str, DataLoader]):
+    def __init__(self, args, model:nn.Module, dataloaders:Dict[str, DataLoader]):
         
         self.logger = logging.getLogger("default")
         
@@ -135,7 +134,7 @@ class DefaultTrainer():
         return overall_metrics
 
     @staticmethod
-    def evaluate(model:NTSModel, dataloader:DataLoader, verbose=False):
+    def evaluate(model:nn.Module, dataloader:DataLoader, verbose=False):
         
         logger = logging.getLogger("default")
 
