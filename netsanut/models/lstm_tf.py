@@ -105,7 +105,8 @@ class NTSModel(nn.Module):
                  aleatoric=False,
                  exponent=1,
                  alpha=1.0,
-                 ignore_value=0.0):
+                 ignore_value=0.0,
+                 **kwargs):
         
         super(NTSModel, self).__init__()
         self.feature_embedding = nn.Conv2d(in_channels=in_dim,
@@ -119,7 +120,7 @@ class NTSModel(nn.Module):
                                            exponent=exponent, 
                                            alpha=alpha, 
                                            ignore_value=ignore_value)
-        self.datascaler:TensorDataScaler = datascaler if datascaler is not None else TensorDataScaler(50, 10)
+        self.datascaler:TensorDataScaler = datascaler if datascaler is not None else TensorDataScaler([50, 0.0], [10, 0.0])
         self.scale_before_loss = True
         self.record_auxiliary_metrics = True
         self.metrics = dict()
@@ -235,23 +236,28 @@ class NTSModel(nn.Module):
         preds = self.inference(data)
         raise NotImplementedError 
     
-def build_model(args, adjacencies, datascaler=None):
+    def adapt_to_metadata(self, metadata):
+        
+        self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'])
+        self.set_fixed_mask(metadata['adjacency'])
     
-    model = NTSModel(dropout=args.dropout,
-                    in_dim=args.in_dim, 
-                    out_dim=args.pred_win, 
-                    rnn_layers=args.rnn,
-                    hid_dim=args.hid_dim, 
-                    enc_layers=args.enc, 
-                    dec_layers=args.dec, 
-                    heads=args.num_head,
-                    datascaler=datascaler,
-                    aleatoric=args.aleatoric,
-                    exponent=args.exponent,
-                    alpha=args.alpha)
+# def build_model(args, adjacencies, datascaler=None):
     
-    model.to(torch.device(args.device))
-    model.set_fixed_mask(adjacencies)
+#     model = NTSModel(dropout=args.dropout,
+#                     in_dim=args.in_dim, 
+#                     out_dim=args.pred_win, 
+#                     rnn_layers=args.rnn,
+#                     hid_dim=args.hid_dim, 
+#                     enc_layers=args.enc, 
+#                     dec_layers=args.dec, 
+#                     heads=args.num_head,
+#                     datascaler=datascaler,
+#                     aleatoric=args.aleatoric,
+#                     exponent=args.exponent,
+#                     alpha=args.alpha)
     
-    return model 
+#     model.to(torch.device(args.device))
+#     model.set_fixed_mask(adjacencies)
+    
+#     return model 
 

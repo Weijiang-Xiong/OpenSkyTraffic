@@ -24,7 +24,7 @@ class DefaultTrainer():
             3. running optimizer and scheduler 
     """
     
-    def __init__(self, args, model:nn.Module, dataloaders:Dict[str, DataLoader]):
+    def __init__(self, cfg, model:nn.Module, dataloaders:Dict[str, DataLoader]):
         
         self.logger = logging.getLogger("default")
         
@@ -33,22 +33,19 @@ class DefaultTrainer():
         self.train_val_test_loaders = dataloaders
         
         self.optimizer = optim.Adam(self.model.parameters(), 
-                                    lr=args.learning_rate,
-                                    weight_decay=args.weight_decay)
+                                    lr=cfg.optimizer.learning_rate,
+                                    weight_decay=cfg.optimizer.weight_decay)
         self.scheduler = optim.lr_scheduler.MultiStepLR(self.optimizer, 
-                                                        [int(args.max_epoch*ms) for ms in args.lr_milestone], 
-                                                        gamma=args.lr_decrease)
-        self.clip = args.grad_clip
+                                                        [int(cfg.optimizer.max_epoch*ms) for ms in cfg.optimizer.lr_milestone], 
+                                                        gamma=cfg.optimizer.lr_decrease)
+        self.clip = cfg.optimizer.grad_clip
 
         self.start_epoch = 0 # start epoch (may not be zero if resume from previous training)
         self.epoch_num = self.start_epoch
-        self.max_epoch = args.max_epoch # max training epoch
+        self.max_epoch = cfg.optimizer.max_epoch # max training epoch
         self.storage:EventStorage
         
-        self.save_dir = args.save_dir if getattr(args, 'save_dir', None) else "./checkpoint"
-        
-        if args.resume or args.load_weights:
-            self.load_checkpoint(args.checkpoint, resume=args.resume)
+        self.save_dir = cfg.train.output_dir if getattr(cfg.train, 'output_dir', None) else "./checkpoint"
 
 
     def train(self):
@@ -187,7 +184,7 @@ class DefaultTrainer():
             resume (bool, optional): If set to true, then load everything from the checkpoint, and resume from previous training. Defaults to False, and only load the model weights
         """
         if not os.path.exists(ckpt_path):
-            self.logger.warning("File not exists, skip loading {}!".format(ckpt_path))
+            self.logger.info("Checkpoint does not exist, train from scratch instead. Given Path: {}".format(ckpt_path if ckpt_path else None))
             return 
         
         state_dict:dict = torch.load(ckpt_path)
