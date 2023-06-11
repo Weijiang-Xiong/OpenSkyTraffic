@@ -9,8 +9,8 @@ class TensorDataScaler:
     def __init__(self, mean, std, data_dim:int=0):
             
         self.data_dim = data_dim
-        self.mean = mean[data_dim]
-        self.std = std[data_dim]
+        self.mean = torch.tensor(mean)[data_dim]
+        self.std = torch.tensor(std)[data_dim]
         self.inv_std = 1.0 / self.std
         
     def transform(self, data):
