@@ -16,5 +16,6 @@ setup(
     "torchvision",
     "matplotlib",
     "numpy",
+    "omegaconf"
     ],
 )
