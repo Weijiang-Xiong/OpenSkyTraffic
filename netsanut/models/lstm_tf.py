@@ -246,24 +246,3 @@ class TTNet(nn.Module):
         
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'])
         self.set_fixed_mask(metadata['adjacency'])
-    
-# def build_model(args, adjacencies, datascaler=None):
-    
-#     model = NTSModel(dropout=args.dropout,
-#                     in_dim=args.in_dim, 
-#                     out_dim=args.pred_win, 
-#                     rnn_layers=args.rnn,
-#                     hid_dim=args.hid_dim, 
-#                     enc_layers=args.enc, 
-#                     dec_layers=args.dec, 
-#                     heads=args.num_head,
-#                     datascaler=datascaler,
-#                     aleatoric=args.aleatoric,
-#                     exponent=args.exponent,
-#                     alpha=args.alpha)
-    
-#     model.to(torch.device(args.device))
-#     model.set_fixed_mask(adjacencies)
-    
-#     return model 
-
