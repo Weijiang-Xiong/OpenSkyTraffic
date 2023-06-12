@@ -1,5 +1,5 @@
 import torch 
-from netsanut.models.lstm_tf import NTSModel, PositionalEncoding, LearnedPositionalEncoding
+from netsanut.models.lstm_tf import TTNet, PositionalEncoding, LearnedPositionalEncoding
 
 def test_model_forward():
     
@@ -7,7 +7,7 @@ def test_model_forward():
     N, C, M, T = 8, 2, 207, 12
     random_input = torch.rand((N, T, M, C))
     adjacencies = [torch.randint(0, 2, (M, M)).bool() for _ in range(2)]
-    model = NTSModel().eval()
+    model = TTNet().eval()
     model.set_fixed_mask(adjacencies)
     mean = model(random_input)
     var = model.pop_auxiliary_metrics()

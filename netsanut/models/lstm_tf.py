@@ -31,7 +31,9 @@ class LearnedPositionalEncoding(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    
+    """ modified from Annotated transformer, with batch first flag: 
+        https://nlp.seas.harvard.edu/2018/04/03/attention.html#positional-encoding
+    """
     def __init__(self, d_model, dropout=0.1, max_len=500, batch_first=True):
         
         super(PositionalEncoding, self).__init__()
@@ -89,8 +91,12 @@ class TrafficTransformer(nn.Module):
         return mask
 
 
-class NTSModel(nn.Module):
-    """ Networked Time Series  (NTS) Model
+class TTNet(nn.Module):
+    """ Traffic Transformer Network modified from, code partly rewritten, fixed a few bugs ... 
+        https://github.com/R0oup1iao/Traffic-Transformer
+        
+        Please note this repo is a different method from "Traffic transformer: Capturing the continuity and
+        periodicity of time series for traffic forecasting" <https://onlinelibrary.wiley.com/doi/pdf/10.1111/tgis.12644>
     """
     def __init__(self, 
                  dropout=0.1, 
@@ -108,7 +114,7 @@ class NTSModel(nn.Module):
                  ignore_value=0.0,
                  **kwargs):
         
-        super(NTSModel, self).__init__()
+        super(TTNet, self).__init__()
         self.feature_embedding = nn.Conv2d(in_channels=in_dim,
                                            out_channels=hid_dim,
                                            kernel_size=(1, 1))

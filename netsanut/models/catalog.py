@@ -1,10 +1,10 @@
 import torch 
 import torch.nn as nn 
-from .lstm_tf import NTSModel
+from .lstm_tf import TTNet
 from omegaconf import DictConfig
 
 MODEL_CATALOG = dict()
-MODEL_CATALOG['lstm_tf'] = NTSModel
+MODEL_CATALOG['lstm_tf'] = TTNet
 
 def build_model(cfg: DictConfig) -> nn.Module:
     """ Instantiate a model with the class retrieved from `MODEL_CATALOG` using `cfg.model.name`
