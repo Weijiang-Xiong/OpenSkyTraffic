@@ -1,13 +1,13 @@
 import os
 import time
-import logging 
+import logging
 
 from typing import Dict
 from collections import defaultdict
 
-import numpy as np 
+import numpy as np
 import torch
-import torch.nn as nn 
+import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
@@ -23,42 +23,46 @@ class DefaultTrainer():
             2. save and load checkpoint, resume from previous training
             3. running optimizer and scheduler 
     """
-    
-    def __init__(self, cfg, model:nn.Module, dataloaders:Dict[str, DataLoader]):
-        
+
+    def __init__(self, cfg, model: nn.Module, dataloaders: Dict[str, DataLoader]):
+
         self.logger = logging.getLogger("default")
-        
+
         self.model = model
-        
+
         self.train_val_test_loaders = dataloaders
-        
-        self.optimizer = optim.Adam(self.model.parameters(), 
-                                    lr=cfg.optimizer.learning_rate,
-                                    weight_decay=cfg.optimizer.weight_decay)
-        self.scheduler = optim.lr_scheduler.MultiStepLR(self.optimizer, 
-                                                        [int(cfg.optimizer.max_epoch*ms) for ms in cfg.optimizer.lr_milestone], 
-                                                        gamma=cfg.optimizer.lr_decrease)
+
+        self.optimizer = optim.Adam(
+            self.model.parameters(),
+            lr=cfg.optimizer.learning_rate,
+            weight_decay=cfg.optimizer.weight_decay
+        )
+        self.scheduler = optim.lr_scheduler.MultiStepLR(
+            self.optimizer,
+            [int(cfg.train.max_epoch*ms) for ms in cfg.optimizer.lr_milestone],
+            gamma=cfg.optimizer.lr_decrease
+        )
+
         self.clip = cfg.optimizer.grad_clip
 
-        self.start_epoch = 0 # start epoch (may not be zero if resume from previous training)
+        self.start_epoch = 0  # start epoch (may not be zero if resume from previous training)
         self.epoch_num = self.start_epoch
-        self.max_epoch = cfg.optimizer.max_epoch # max training epoch
-        self.storage:EventStorage
-        
+        self.max_epoch = cfg.train.max_epoch  # max training epoch
+        self.storage: EventStorage
+
         self.save_dir = cfg.train.output_dir if getattr(cfg.train, 'output_dir', None) else "./checkpoint"
 
-
     def train(self):
-        
+
         self.logger.info("start training...")
         self.logger.info("The model structure \n {}".format(self.model))
-        
+
         with EventStorage() as self.storage:
             for epoch_num in range(self.start_epoch, self.max_epoch):
-                
+
                 self.epoch_num = epoch_num
                 self.storage.iteration = epoch_num
-                
+
                 # training
                 ts = time.perf_counter()
                 train_metrics = self.train_epoch()
@@ -66,7 +70,7 @@ class DefaultTrainer():
                 self.logger.info('Epoch: {:03d}, Training Time: {:.4f} secs'.format(epoch_num, (te-ts)))
                 self.storage.put_scalar(name="epoch_train_time", value=te-ts)
                 self.storage.put_scalars(**train_metrics, suffix="train")
-                
+
                 # validation
                 ts = time.perf_counter()
                 validation_metrics = self.evaluate(self.model, self.train_val_test_loaders['val'])
@@ -74,86 +78,85 @@ class DefaultTrainer():
                 self.logger.info('Epoch: {:03d}, Inference Time: {:.4f} secs'.format(epoch_num, (te-ts)))
                 self.storage.put_scalar(name="epoch_inference_time", value=te-ts)
                 self.storage.put_scalars(**validation_metrics, suffix="val")
-                
+
                 self.scheduler.step()
                 self.save_checkpoint(additional_note=round(validation_metrics["mae"], 2))
-                
+
                 self.logger.info("Epoch: {:03d}, Train Loss {:.4f}".format(epoch_num, train_metrics['loss']))
                 self.logger.info("Train MAE: {:.4f}, Train MAPE: {:.4f}, Train RMSE: {:.4f}".format(
                     train_metrics['mae'], train_metrics['mape'], train_metrics['rmse']))
                 self.logger.info("Valid MAE: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}".format(
                     validation_metrics['mae'], validation_metrics['mape'], validation_metrics['rmse']))
-            
-            validation_loss_log = self.storage["mae_val"].values() # no need for iteration
+
+            validation_loss_log = self.storage["mae_val"].values()  # no need for iteration
             bestid = np.argmin(validation_loss_log)
 
-            
             self.logger.info("Training finished")
             self.logger.info("The valid loss on best model is {}".format(round(validation_loss_log[bestid], 2)))
             self.logger.info("Average Training Time: {:.4f} secs/epoch".format(np.mean(self.storage["epoch_train_time"].values())))
             self.logger.info("Average Inference Time: {:.4f} secs/epoch".format(np.mean(self.storage["epoch_inference_time"].values())))
-            
+
             # evaluate the best model on the test set
-            best_model_path = self.format_file_path(list(range(self.start_epoch, self.max_epoch))[bestid], 
+            best_model_path = self.format_file_path(list(range(self.start_epoch, self.max_epoch))[bestid],
                                                     additional_note=round(validation_loss_log[bestid], 2))
             self.load_checkpoint(best_model_path, resume=False)
-            
-            return self.evaluate(self.model, 
-                                self.train_val_test_loaders['test'],
-                                verbose=True)
+
+            return self.evaluate(self.model,
+                                 self.train_val_test_loaders['test'],
+                                 verbose=True)
 
     def train_epoch(self):
-        
+
         self.model.train()
-        
+
         epoch_log = defaultdict(list)
-        
+
         for data, label in self.train_val_test_loaders['train']:
-            
-            data, label = data.cuda(), label.cuda() 
-            
-            loss_dict = self.model(data, label) # out shape (N, M, T)
+
+            data, label = data.cuda(), label.cuda()
+
+            loss_dict = self.model(data, label)  # out shape (N, M, T)
             loss = sum(loss_dict.values())
-            loss.backward() 
-            
+            loss.backward()
+
             if self.clip is not None:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip)
             self.optimizer.step()
             self.optimizer.zero_grad()
-            
+
             aux_metrics = self.model.pop_auxiliary_metrics() if getattr(self.model, "record_auxiliary_metrics", False) else dict()
-            aux_metrics.update({k:v.item() for k, v in loss_dict.items()})
+            aux_metrics.update({k: v.item() for k, v in loss_dict.items()})
             for key, value in aux_metrics.items():
                 epoch_log[key].append(value)
-        
-        overall_metrics = {key:np.mean(value) for key, value in epoch_log.items()}
-        
+
+        overall_metrics = {key: np.mean(value) for key, value in epoch_log.items()}
+
         return overall_metrics
 
     @staticmethod
-    def evaluate(model:nn.Module, dataloader:DataLoader, verbose=False):
-        
+    def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False):
+
         logger = logging.getLogger("default")
 
         model.eval()
-        
+
         all_preds, all_labels = [], []
         for data, label in dataloader:
-            
-            data, label = data.cuda(), label.cuda() 
-            
+
+            data, label = data.cuda(), label.cuda()
+
             preds = model(data)
-            
+
             all_preds.append(preds)
             all_labels.append(label)
 
         all_preds = torch.cat(all_preds, dim=0).cpu()
         all_labels = torch.cat(all_labels, dim=0).cpu()
-        
+
         if verbose:
             logger.info("The shape of predicted {} and label {}".format(all_preds.shape, all_labels.shape))
-            
-        for i in range(12): # number of predicted time step 
+
+        for i in range(12):  # number of predicted time step
             pred = all_preds[:, i, :]
             real = all_labels[:, i, :]
             aux_metrics = default_metrics(pred, real)
@@ -162,21 +165,21 @@ class DefaultTrainer():
                 logger.info('Evaluate model on test data at {:d} time step'.format(i+1))
                 logger.info('Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'.format(
                     aux_metrics['mae'], aux_metrics['mape'], aux_metrics['rmse']
-                    )
+                )
                 )
 
         overall_metrics = default_metrics(all_preds, all_labels)
-        
+
         if verbose:
             logger.info('On average over 12 different time steps')
             logger.info('Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'.format(
                 overall_metrics['mae'], overall_metrics['mape'], overall_metrics['rmse']
-                )
             )
-        
+            )
+
         return overall_metrics
 
-    def load_checkpoint(self, ckpt_path:str, resume=False):
+    def load_checkpoint(self, ckpt_path: str, resume=False):
         """ load a checkpoint that contains model, optimizer, scheduler and epoch number 
 
         Args:
@@ -185,54 +188,54 @@ class DefaultTrainer():
         """
         if not os.path.exists(ckpt_path):
             self.logger.info("Checkpoint does not exist, train from scratch instead. Given Path: {}".format(ckpt_path if ckpt_path else None))
-            return 
-        
-        state_dict:dict = torch.load(ckpt_path)
-        
-        if resume: # load everything
+            return
+
+        state_dict: dict = torch.load(ckpt_path)
+
+        if resume:  # load everything
             self.logger.info("Resuming from checkpoint {}".format(ckpt_path))
             self.model.load_state_dict(state_dict['model'])
             self.optimizer.load_state_dict(state_dict['optimizer'])
             self.scheduler.load_state_dict(state_dict['scheduler'])
-            # the model is saved after `epoch_num`, so start from the next one 
-            self.start_epoch = state_dict['epoch_num'] + 1 
+            # the model is saved after `epoch_num`, so start from the next one
+            self.start_epoch = state_dict['epoch_num'] + 1
             self.epoch_num = self.start_epoch
         else:
             self.logger.info("Loading model weights from {}".format(ckpt_path))
             incompatible = self.model.load_state_dict(state_dict['model'], strict=False)
             if incompatible is not None:
                 self.logger.info("Incompatible keys are : \n {}".format(incompatible))
-            
+
         self.logger.info("Successfully loaded checkpoint file {}!".format(ckpt_path))
-    
+
     def format_file_path(self, epoch_num, additional_note=None):
-        
+
         save_file_name = "{}/{}_epoch_{}".format(self.save_dir, self.model.__class__.__name__.lower(), epoch_num)
-        
+
         if additional_note is not None:
             save_file_name += "_{}".format(additional_note)
-        
+
         save_file_name += ".pth"
-        
+
         return save_file_name
 
-    def save_checkpoint(self, additional_note:str=None):
-        
+    def save_checkpoint(self, additional_note: str = None):
+
         if not isinstance(self.model, nn.Module):
             self.logger.warning("The model is not properly initialized, will save None to state dict")
         if not isinstance(self.optimizer, optim.Optimizer):
             self.logger.warning("The optimizer is not properly initialized, will save None to state dict")
         if not isinstance(self.scheduler, optim.lr_scheduler.LRScheduler):
             self.logger.warning("The scheduler is not properly initialized, will save None to state dict")
-            
+
         state_dict = {
             "model": self.model.state_dict() if isinstance(self.model, nn.Module) else None,
             "optimizer": self.optimizer.state_dict() if isinstance(self.optimizer, optim.Optimizer) else None,
             "scheduler": self.scheduler.state_dict() if isinstance(self.scheduler, optim.lr_scheduler.LRScheduler) else None,
             "epoch_num": self.epoch_num,
         }
-        
+
         save_file_name = self.format_file_path(self.epoch_num, additional_note)
-            
+
         torch.save(state_dict, save_file_name)
         self.logger.info("Epoch: {:03d}, Checkpoint saved to {}".format(self.epoch_num, save_file_name))

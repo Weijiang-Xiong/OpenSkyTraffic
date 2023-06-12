@@ -1,6 +1,7 @@
 from omegaconf import OmegaConf
 
 train = OmegaConf.create({
+    "max_epoch": 30,
     "output_dir": "scratch/test", 
     "checkpoint": "",
     "device": "cuda"
@@ -13,7 +14,6 @@ data = OmegaConf.create({
 })
 
 optimizer = OmegaConf.create({
-    "max_epoch": 30,
     "learning_rate": 0.001,
     "lr_milestone": [0.7, 0.85],
     "lr_decrease": 0.1,
