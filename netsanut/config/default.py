@@ -4,13 +4,14 @@ import argparse
 
 from omegaconf import OmegaConf, DictConfig
 from netsanut.event_logger import setup_logger
+from .loader import ConfigLoader
 
-def default_argument_parser(input_args=None) -> argparse.ArgumentParser:
+def default_argument_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(epilog=f"""
-Example usage:
+An example to train with `LSTM_TF_stable.py` and apply overrides to max_epoch and batch_size
 
-python {sys.argv[0]} --config-file config/LSTM_TF_stable.py
+python {sys.argv[0]} --config-file config/LSTM_TF_stable.py train.max_epoch=30 data.batch_size=64
 
 """)
 
@@ -39,5 +40,6 @@ def default_setup(cfg: DictConfig, args):
     logger.info("Command Line Arguments: {}".format(args))
     logger.info("Start Training with the following configurations:")
     logger.info(OmegaConf.to_yaml(cfg))
+    ConfigLoader.save_cfg(cfg, "{}/config.py".format(save_dir))
     
     
