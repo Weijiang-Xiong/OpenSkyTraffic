@@ -6,13 +6,15 @@
 
 import os 
 import uuid
+import logging
 import importlib
 import builtins 
 from contextlib import contextmanager
 from omegaconf import OmegaConf, DictConfig, ListConfig
 from typing import List
 
-    
+logger = logging.getLogger("default")
+
 _CFG_PACKAGE_NAME = "netsanut._cfg_loader"
 
 def _random_package_name(filename):
@@ -125,6 +127,9 @@ class ConfigLoader:
             },
             flags={"allow_objects": True},
         )
+        
+        logger.info("Config loaded from {}".format(filename))
+        
         return ret
     
     @staticmethod
@@ -157,7 +162,57 @@ class ConfigLoader:
     
     @staticmethod
     def save_cfg(cfg, filename:str = None):
-        """ simply convert the cfg to a python dict and format it
+        """ convert the cfg to a python dict and format it
         """
-        pass 
-    
+        if not filename.endswith(".py"):
+            filename += ".py"
+            logger.info("Only py files are supported for config, renaming the file to .py")
+        
+        def dict_to_str(dictionary, key_indent=1):
+            
+            """ 
+                format a dictionary config to the following 
+                
+                train = {
+                    'checkpoint': '',
+                    'device': 'cuda',
+                    'output_dir': 'scratch/test'
+                    'data': {
+                        'adj_type': 'doubletransition',
+                        'batch_size': 32,
+                        'dataset': 'metr-la'
+                    } 
+                } 
+
+                data = {
+                    'adj_type': 'doubletransition',
+                    'batch_size': 32,
+                    'dataset': 'metr-la'
+                } 
+
+            """
+            out_string = ""
+            out_string += "{\n"
+            
+            for key, value in dictionary.items():
+                out_string += "".join(["\t" for _ in range(key_indent)])
+                
+                if isinstance(value, dict):
+                    # don't call repr for the second argument because the braces { } and indents needs to be 
+                    # recognized as the codes of a dictionary value, not string like '{' '}' '\t' '\n'
+                    out_string += "{}: {},\n".format(repr(key), dict_to_str(value, key_indent=key_indent+1))
+                else:
+                    # use repr to keep the quotation marks of the returned string
+                    out_string += "{}: {},\n".format(repr(key), repr(value))
+                    
+            out_string += "".join(["\t" for _ in range(key_indent-1)])
+            out_string += "}"
+            
+            return out_string
+
+        with open(filename, "w") as f:
+            cfg_dict = OmegaConf.to_container(cfg)
+            for key, value in cfg_dict.items():
+                f.write("{} = {} \n\n".format(key, dict_to_str(value)))
+        
+        logger.info("Config saved to {}".format(filename))
