@@ -14,50 +14,11 @@ from netsanut.util import default_metrics
 from netsanut.data import TensorDataScaler
 from netsanut.events import get_event_storage
 
-class LearnedPositionalEncoding(nn.Module):
-    
-    def __init__(self, d_model, dropout=0.1, max_len=500, batch_first=True):
-        super().__init__()
-        self.batch_first = batch_first
-        # the input dimension is (batch_size, seq_len, feature_dim) if batch_first is True
-        self.batch_dim, self.att_dim = (0, 1) if batch_first else (1, 0)
-        self.encoding_dict = nn.Parameter(torch.rand(size=(max_len, d_model)))
-        self.dropout = nn.Dropout(p=dropout)
+from .common import PositionalEncoding, LearnedPositionalEncoding
 
-    def forward(self, x):
-        encoding = self.encoding_dict[:x.size(self.att_dim), :].unsqueeze(self.batch_dim)
-        x = x + encoding
-        return self.dropout(x)
-
-
-class PositionalEncoding(nn.Module):
-    """ modified from Annotated transformer, with batch first flag: 
-        https://nlp.seas.harvard.edu/2018/04/03/attention.html#positional-encoding
-    """
-    def __init__(self, d_model, dropout=0.1, max_len=500, batch_first=True):
-        
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('encoding_dict', pe)
-        
-        self.batch_first = batch_first
-        self.batch_dim, self.att_dim = (0, 1) if batch_first else (1, 0)
-        
-    def forward(self, x):
-        encoding = self.encoding_dict[:x.size(self.att_dim), :].unsqueeze(self.batch_dim)
-        x = x + encoding
-        return self.dropout(x)
-
-
-class TemproalEmbedding(nn.Module):
+class TemporalEmbedding(nn.Module):
     def __init__(self, in_dim, layers=1, dropout=.1):
-        super(TemproalEmbedding, self).__init__()
+        super(TemporalEmbedding, self).__init__()
         self.rnn = nn.LSTM(input_size=in_dim, hidden_size=in_dim, num_layers=layers, dropout=dropout, batch_first=True)
 
     def forward(self, input):
@@ -118,7 +79,7 @@ class TTNet(nn.Module):
         self.feature_embedding = nn.Conv2d(in_channels=in_dim,
                                            out_channels=hid_dim,
                                            kernel_size=(1, 1))
-        self.temp_embedding = TemproalEmbedding(hid_dim, layers=rnn_layers, dropout=dropout)
+        self.temp_embedding = TemporalEmbedding(hid_dim, layers=rnn_layers, dropout=dropout)
         self.mean_estimate = nn.Linear(hid_dim, out_dim)
         self.var_estimate = nn.Linear(hid_dim, out_dim)
         self.network = TrafficTransformer(in_dim=hid_dim, enc_layers=enc_layers, dec_layers=dec_layers, dropout=dropout, heads=heads)
