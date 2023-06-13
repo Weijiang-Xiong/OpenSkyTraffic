@@ -49,6 +49,8 @@ class GeneralizedProbRegLoss(nn.Module):
         
         loss = self.nan_to_num(loss)
         
+        # the masking part is modified from DCRNN 
+        # https://github.com/liyaguang/DCRNN/blob/master/lib/metrics.py#L75
         if self.ignore_value is not None:
             mask = (label != self.ignore_value).type(torch.float32)
             mask /= torch.mean(mask)
