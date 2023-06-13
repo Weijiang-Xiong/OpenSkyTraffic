@@ -1,7 +1,6 @@
-from omegaconf import OmegaConf
-from .base_cfg import train, data, optimizer
+from .common_cfg import train, data, optimizer, test
 
-model = OmegaConf.create({
+model = {
     # these are information about the model
     "name": "lstm_tf",
     "device": "cuda",
@@ -18,4 +17,4 @@ model = OmegaConf.create({
     "exponent": 1,
     "alpha": 1.0,
     "ignore_value": 0.0
-})
+}
