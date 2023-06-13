@@ -163,6 +163,5 @@ cython_debug/
 *.h5
 *.pkl
 *.pth
-data/sensor_graph
 scratch
 .vscode
