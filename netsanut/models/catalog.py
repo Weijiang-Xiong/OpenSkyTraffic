@@ -1,6 +1,6 @@
 import torch 
 import torch.nn as nn 
-from .lstm_tf import TTNet
+from .ttnet import TTNet
 from omegaconf import DictConfig
 
 MODEL_CATALOG = dict()

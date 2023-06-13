@@ -1,5 +1,5 @@
 import torch 
-from netsanut.models.lstm_tf import TTNet, PositionalEncoding, LearnedPositionalEncoding
+from netsanut.models.ttnet import TTNet, PositionalEncoding, LearnedPositionalEncoding
 
 def test_model_forward():
     

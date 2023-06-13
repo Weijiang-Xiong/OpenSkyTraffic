@@ -1,2 +1,2 @@
-from .lstm_tf import TTNet
+from .ttnet import TTNet
 from .catalog import build_model
