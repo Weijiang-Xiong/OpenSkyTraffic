@@ -1,4 +1,4 @@
-from .common_cfg import train, data, optimizer, test
+from .common_cfg import train, data, optimizer
 
 model = {
     # these are information about the model
