@@ -15,10 +15,11 @@ class LearnedPositionalEncoding(nn.Module):
         self.batch_first = batch_first
         # the input dimension is (batch_size, seq_len, feature_dim) if batch_first is True
         self.batch_dim, self.att_dim = (0, 1) if batch_first else (1, 0)
-        if init_method == 'zero':
-            init_values = torch.zeros(size=(max_len, d_model))
-        else: # elif init_method == 'rand'
-            init_values = torch.rand(size=(max_len, d_model))
+        match init_method:
+            case 'zero':
+                init_values = torch.zeros(size=(max_len, d_model))
+            case _: # elif init_method == 'rand'
+                init_values = torch.rand(size=(max_len, d_model))
         self.encoding_dict = nn.Parameter(init_values)
         self.dropout = nn.Dropout(p=dropout)
 
