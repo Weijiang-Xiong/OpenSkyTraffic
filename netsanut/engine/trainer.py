@@ -2,7 +2,7 @@ import os
 import time
 import logging
 
-from typing import Dict
+from typing import Dict, List
 from collections import defaultdict
 
 import numpy as np
@@ -15,8 +15,52 @@ from netsanut.util import default_metrics
 from netsanut.events import EventStorage
 from netsanut.data import TensorDataScaler
 
+class HookBase:
+    """ This class is put here not hooks.py because the type hints creates a circular dependency
+        a walk-around is use string 
+        things will work like:
+    
+        hook.before_train() 
+        for epoch in range(max_epoch):
+            hook.before_epoch()
+            for data in dataloader: 
+                hook.before_step()
+                trainer.run_step() 
+                hook.after_step() 
+            hook.after_epoch()
+        hook.after_train()
+        
+        Note: 
+            1. the loop over dataloader will be defined in trainer.train_epoch()
+            2. hook.after_backward() will be called within the run_step
+    """
+    
+    def __init__(self) -> None:
+        pass
+    
+    def before_train(self, trainer: "DefaultTrainer"):
+        pass 
+    
+    def after_train(self, trainer: "DefaultTrainer"):
+        pass 
+    
+    def before_epoch(self, trainer: "DefaultTrainer"):
+        pass 
+    
+    def after_epoch(self, trainer: "DefaultTrainer"):
+        pass 
+    
+    def before_step(self, trainer: "DefaultTrainer"):
+        pass 
+    
+    def after_step(self, trainer: "DefaultTrainer"):
+        pass
+    
+    def after_backward(self, trainer: "DefaultTrainer"):
+        pass 
+    
 
-class DefaultTrainer():
+class DefaultTrainer:
     """ The trainer takes care of the general logic in the training progress, such as 
             1. train on trainset, validate on validation set, and log the best performance
                on validation set, evaluate it on test set
@@ -37,29 +81,36 @@ class DefaultTrainer():
             lr=cfg.optimizer.learning_rate,
             weight_decay=cfg.optimizer.weight_decay
         )
+        self.clip = cfg.optimizer.grad_clip
+        
         self.scheduler = optim.lr_scheduler.MultiStepLR(
             self.optimizer,
             [int(cfg.train.max_epoch*ms) for ms in cfg.scheduler.lr_milestone],
             gamma=cfg.scheduler.lr_decrease
         )
 
-        self.clip = cfg.optimizer.grad_clip
-
+        self._hooks: List[HookBase] = self.register_hooks(cfg)
+        
+        self.epoch_num: int 
         self.start_epoch = 0  # start epoch (may not be zero if resume from previous training)
-        self.epoch_num = self.start_epoch
         self.max_epoch = cfg.train.max_epoch  # max training epoch
+        
         self.storage: EventStorage
-
         self.save_dir = cfg.train.output_dir if getattr(cfg.train, 'output_dir', None) else "./checkpoint"
-
+        
     def train(self):
 
         self.logger.info("start training...")
         self.logger.info("The model structure \n {}".format(self.model))
 
         with EventStorage() as self.storage:
+            
+            self.before_train()
+            
             for epoch_num in range(self.start_epoch, self.max_epoch):
-
+                
+                self.before_epoch()
+                
                 self.epoch_num = epoch_num
                 self.storage.iteration = epoch_num
 
@@ -88,6 +139,8 @@ class DefaultTrainer():
                 self.logger.info("Valid MAE: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}".format(
                     validation_metrics['mae'], validation_metrics['mape'], validation_metrics['rmse']))
 
+                self.after_epoch()
+                
             validation_loss_log = self.storage["mae_val"].values()  # no need for iteration
             bestid = np.argmin(validation_loss_log)
 
@@ -101,6 +154,8 @@ class DefaultTrainer():
                                                     additional_note=round(validation_loss_log[bestid], 2))
             self.load_checkpoint(best_model_path, resume=False)
 
+            self.after_train()
+            
             return self.evaluate(self.model,
                                  self.train_val_test_loaders['test'],
                                  verbose=True)
@@ -112,13 +167,17 @@ class DefaultTrainer():
         epoch_log = defaultdict(list)
 
         for data, label in self.train_val_test_loaders['train']:
-
+            
+            self.before_step()
+            
             data, label = data.cuda(), label.cuda()
 
             loss_dict = self.model(data, label)  # out shape (N, M, T)
             loss = sum(loss_dict.values())
             loss.backward()
 
+            self.after_backward()
+            
             if self.clip is not None:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip)
             self.optimizer.step()
@@ -128,6 +187,8 @@ class DefaultTrainer():
             aux_metrics.update({k: v.item() for k, v in loss_dict.items()})
             for key, value in aux_metrics.items():
                 epoch_log[key].append(value)
+            
+            self.after_step()
 
         overall_metrics = {key: np.mean(value) for key, value in epoch_log.items()}
 
@@ -199,7 +260,6 @@ class DefaultTrainer():
             self.scheduler.load_state_dict(state_dict['scheduler'])
             # the model is saved after `epoch_num`, so start from the next one
             self.start_epoch = state_dict['epoch_num'] + 1
-            self.epoch_num = self.start_epoch
         else:
             self.logger.info("Loading model weights from {}".format(ckpt_path))
             incompatible = self.model.load_state_dict(state_dict['model'], strict=False)
@@ -239,3 +299,35 @@ class DefaultTrainer():
 
         torch.save(state_dict, save_file_name)
         self.logger.info("Epoch: {:03d}, Checkpoint saved to {}".format(self.epoch_num, save_file_name))
+
+    def register_hooks(self, cfg):
+        return [] 
+    
+    
+    def before_train(self):
+        for hook in self._hooks:
+            hook.before_train(self)
+    
+    def after_train(self):
+        for hook in self._hooks:
+            hook.after_train(self) 
+    
+    def before_epoch(self):
+        for hook in self._hooks:
+            hook.before_epoch(self) 
+    
+    def after_epoch(self):
+        for hook in self._hooks:
+            hook.after_epoch(self) 
+    
+    def before_step(self):
+        for hook in self._hooks:
+            hook.before_step(self) 
+    
+    def after_step(self):
+        for hook in self._hooks:
+            hook.after_step(self) 
+    
+    def after_backward(self):
+        for hook in self._hooks:
+            hook.after_backward(self) 
