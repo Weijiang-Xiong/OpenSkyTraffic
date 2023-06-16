@@ -5,13 +5,21 @@ import torch
 import torch.nn as nn 
 
 class LearnedPositionalEncoding(nn.Module):
-    
-    def __init__(self, d_model, dropout=0.1, max_len=500, batch_first=True):
+    """ implement learned positional encoding layer
+
+        Assumed input shape: (batch_size, seq_len, feature_dim) if `batch_first` is `True`,
+        otherwise it will be (seq_len, batch_size, feature_dim)
+    """
+    def __init__(self, d_model, dropout=0.1, batch_first=True, max_len=500, init_method='rand'):
         super().__init__()
         self.batch_first = batch_first
         # the input dimension is (batch_size, seq_len, feature_dim) if batch_first is True
         self.batch_dim, self.att_dim = (0, 1) if batch_first else (1, 0)
-        self.encoding_dict = nn.Parameter(torch.rand(size=(max_len, d_model)))
+        if init_method == 'zero':
+            init_values = torch.zeros(size=(max_len, d_model))
+        else: # elif init_method == 'rand'
+            init_values = torch.rand(size=(max_len, d_model))
+        self.encoding_dict = nn.Parameter(init_values)
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x):
@@ -23,6 +31,9 @@ class LearnedPositionalEncoding(nn.Module):
 class PositionalEncoding(nn.Module):
     """ modified from Annotated transformer, with batch first flag: 
         https://nlp.seas.harvard.edu/2018/04/03/attention.html#positional-encoding
+
+        Assumed input shape: (batch_size, seq_len, feature_dim) if `batch_first` is `True`,
+        otherwise it will be (seq_len, batch_size, feature_dim)
     """
     def __init__(self, d_model, dropout=0.1, max_len=500, batch_first=True):
         
