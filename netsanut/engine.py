@@ -39,8 +39,8 @@ class DefaultTrainer():
         )
         self.scheduler = optim.lr_scheduler.MultiStepLR(
             self.optimizer,
-            [int(cfg.train.max_epoch*ms) for ms in cfg.optimizer.lr_milestone],
-            gamma=cfg.optimizer.lr_decrease
+            [int(cfg.train.max_epoch*ms) for ms in cfg.scheduler.lr_milestone],
+            gamma=cfg.scheduler.lr_decrease
         )
 
         self.clip = cfg.optimizer.grad_clip

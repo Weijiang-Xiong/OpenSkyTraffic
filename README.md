@@ -1,9 +1,24 @@
-# Netsanut: Networked Time Series Analysis for Urban Transportation
+## Netsanut: Networked Time Series Analysis for Urban Transportation
+
+### Installation
+
+```bash
+python -m pip install -e .
+```
+
+### Dataset Preparation
+
+METR-LA and PEMS-BAY can be downloaded from DCRNN
+
+UTD19 can be downloaded from https://www.research-collection.ethz.ch/handle/20.500.11850/437802
+
 
 TODO:
 
-- [ ] try to adapt the lazy call system from  detectron2
-- [ ] improve documentation
+* [ ] complete the NetsFormer model
+* [ ] Add a two stage trainer to train deterministic part first and then variance prediction
+* [ ] add processing for UTD19
+* [ ] adapt the lazy call system from  detectron2
 
 
 
