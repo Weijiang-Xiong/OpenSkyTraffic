@@ -120,6 +120,7 @@ class DefaultTrainer:
                 te = time.perf_counter()
                 self.logger.info('Epoch: {:03d}, Training Time: {:.4f} secs'.format(epoch_num, (te-ts)))
                 self.storage.put_scalar(name="epoch_train_time", value=te-ts)
+                self.storage.put_scalar(name="lr", value=self.optimizer.param_groups[0]['lr'])
                 self.storage.put_scalars(**train_metrics, suffix="train")
 
                 # validation
