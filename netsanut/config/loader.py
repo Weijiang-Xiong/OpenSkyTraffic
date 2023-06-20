@@ -157,6 +157,12 @@ class ConfigLoader:
                 value = eval(value, {})
             except NameError:
                 pass
+            except SyntaxError:
+                # in case of checkpoint, the '.' in the file name will cause a syntax error
+                if os.path.isfile(value) and "checkpoint" in key:
+                    pass 
+                else:
+                    raise 
             safe_update(cfg, key, value)
         
         return cfg 
