@@ -21,7 +21,9 @@ from netsanut.data import TensorDataScaler
 from .common import LearnedPositionalEncoding, PositionalEncoding
 
 
-# TODO replace shape manipulations with einops https://einops.rocks/
+import warnings
+warnings.filterwarnings("ignore")
+
 class DividedTimeSpaceAttentionLayer(nn.Module):
 
     """
@@ -113,7 +115,7 @@ class NeTSFormer(nn.Module):
     def __init__(self,
                  in_dim: int = 2,
                  hid_dim: int = 64,
-                 ff_dim: int = 512,
+                 ff_dim: int = 256,
                  out_dim: int = 12,
                  nhead: int = 2,
                  dropout: int = 0.1,
@@ -125,7 +127,8 @@ class NeTSFormer(nn.Module):
                  aleatoric: bool = False,
                  exponent: int = 1,
                  alpha: float = 1.0,
-                 ignore_value: float = 0.0) -> None:
+                 ignore_value: float = 0.0,
+                 **kwargs) -> None:
 
         super().__init__()
         
