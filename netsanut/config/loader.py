@@ -149,6 +149,8 @@ class ConfigLoader:
                     )
             OmegaConf.update(cfg, key, value, merge=True)
             
+        # TODO https://github.com/facebookresearch/detectron2/blob/main/detectron2/config/lazy.py#L346
+        # use hydra to parse the overrides
         for o in overrides:
             key, value = o.split("=")
             try:

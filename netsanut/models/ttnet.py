@@ -16,6 +16,9 @@ from netsanut.events import get_event_storage
 
 from .common import PositionalEncoding, LearnedPositionalEncoding
 
+import warnings
+warnings.filterwarnings("ignore")
+
 class TemporalEmbedding(nn.Module):
     def __init__(self, in_dim, layers=1, dropout=.1):
         super(TemporalEmbedding, self).__init__()

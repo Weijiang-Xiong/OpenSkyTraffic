@@ -2,7 +2,10 @@ train = {
     "max_epoch": 30,
     "output_dir": "scratch/debug", 
     "checkpoint": "",
-    "device": "cuda"
+    "device": "cuda",
+    # select model by validation set performance, and test the best model
+    # will test the final model if set to False
+    "test_best_ckpt": True, 
 }
 
 data = {
