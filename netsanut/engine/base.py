@@ -1,0 +1,182 @@
+import os
+import time
+import logging
+from collections import defaultdict
+from typing import Dict, List, Optional
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+from torch.utils.data import DataLoader
+from netsanut.events import EventStorage
+
+
+class HookBase:
+    """ This class is put here not hooks.py because the type hints creates a circular dependency
+        a walk-around is use string 
+        things will work like:
+    
+        hook.before_train() 
+        for epoch in range(max_epoch):
+            hook.before_epoch()
+            for data in dataloader: 
+                hook.before_step()
+                trainer.run_step() 
+                hook.after_step() 
+            hook.after_epoch()
+        hook.after_train()
+        
+        Note: 
+            1. the loop over dataloader will be defined in trainer.train_epoch()
+            2. hook.after_backward() will be called within the run_step
+            3. resume will be called in trainer.load_checkpoint()
+    """
+
+    def __init__(self) -> None:
+        pass
+
+    def before_train(self, trainer: "TrainerBase"):
+        pass
+
+    def after_train(self, trainer: "TrainerBase"):
+        pass
+
+    def before_epoch(self, trainer: "TrainerBase"):
+        pass
+
+    def after_epoch(self, trainer: "TrainerBase"):
+        pass
+
+    def before_step(self, trainer: "TrainerBase"):
+        pass
+
+    def after_step(self, trainer: "TrainerBase"):
+        pass
+
+    def after_backward(self, trainer: "TrainerBase"):
+        pass
+
+    def load_state_dict(self, state_dict):
+        pass
+
+
+class TrainerBase:
+
+    """ A base trainer class that:
+            1. runs a training loop
+            2. calls hooks
+        
+        It also has interface for checkpoint loading and saving, but not implementation
+    """
+
+    def __init__(self) -> None:
+
+        self.logger: logging.Logger
+
+        self.model: nn.Module
+        self.train_val_test_loaders: Dict[str, DataLoader]
+        self.optimizer: optim.Optimizer
+        self.scheduler: Optional[optim.lr_scheduler.LRScheduler]
+
+        self._hooks: List[HookBase] = []
+        self.epoch_num: int
+        self.start_epoch: int
+        self.max_epoch: int
+        self.storage: EventStorage
+        self.save_dir: str
+
+    def train(self):
+
+        self.logger.info("start training...")
+        self.logger.info("The model structure \n {}".format(self.model))
+
+        with EventStorage() as self.storage:
+
+            self.before_train()
+
+            for self.epoch_num in range(self.start_epoch, self.max_epoch):
+                self.before_epoch()
+                self.train_epoch()
+                self.after_epoch()
+
+            self.after_train()
+
+    def train_epoch(self):
+
+        self.model.train()
+
+        loss_log = defaultdict(list)
+
+        for data, label in self.train_val_test_loaders['train']:
+
+            self.before_step()
+
+            data, label = data.cuda(), label.cuda()
+
+            loss_dict = self.model(data, label)
+            loss = sum(loss_dict.values())
+            loss.backward()
+            self.after_backward()
+
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+            for k, v in loss_dict.items():
+                loss_log[k].append(v.item())
+
+            self.after_step()
+
+        self.storage.put_scalars(**{key: np.mean(value) for key, value in loss_log.items()})
+
+    @staticmethod
+    def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False):
+        raise NotImplementedError
+
+    def load_checkpoint(self, ckpt_path: str, resume=False):
+        raise NotImplementedError
+
+    def save_checkpoint(self, additional_note: str = None):
+        raise NotImplementedError
+
+    def register_hooks(self, hooks: List[HookBase]):
+        """ The hooks will be called in the same order as they are registered
+            It's possible to add a priority attribute for each method, and sort the hooks according to priority.
+            But this will introduce too much overhead.
+        """
+        self._hooks.extend(hooks)
+
+    def build_hooks(self, cfg) -> List[HookBase]:
+
+        raise NotImplementedError
+
+    def before_train(self):
+        for hook in self._hooks:
+            hook.before_train(self)
+
+    def after_train(self):
+        self.storage.iteration = self.epoch_num
+        for hook in self._hooks:
+            hook.after_train(self)
+
+    def before_epoch(self):
+        self.storage.iteration = self.epoch_num
+        for hook in self._hooks:
+            hook.before_epoch(self)
+
+    def after_epoch(self):
+        for hook in self._hooks:
+            hook.after_epoch(self)
+
+    def before_step(self):
+        for hook in self._hooks:
+            hook.before_step(self)
+
+    def after_step(self):
+        for hook in self._hooks:
+            hook.after_step(self)
+
+    def after_backward(self):
+        for hook in self._hooks:
+            hook.after_backward(self)
