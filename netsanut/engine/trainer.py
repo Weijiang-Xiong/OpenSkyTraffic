@@ -186,6 +186,7 @@ class DefaultTrainer(TrainerBase):
             hooks.MetricLogger(),
             hooks.TestHook(),
             hooks.GradientClipper(clip_value=cfg.optimizer.grad_clip),
+            hooks.PlotTrainingLog()
         ]
         
         return ret

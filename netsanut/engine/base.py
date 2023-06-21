@@ -86,7 +86,18 @@ class TrainerBase:
         self.max_epoch: int
         self.storage: EventStorage
         self.save_dir: str
+        
+        # these are related to logging within an epoch
+        self.batch_idx: int  # the index of current training batch (to compute progress)
 
+    @property
+    def dataset_len(self):
+        return len(self.train_val_test_loaders['train'])
+    
+    @property
+    def epoch_progress(self):
+        return (self.batch_idx + 1) / self.dataset_len
+    
     def train(self):
 
         self.logger.info("start training...")
@@ -107,9 +118,9 @@ class TrainerBase:
 
         self.model.train()
 
-        loss_log = defaultdict(list)
+        self.loss_log = defaultdict(list)
 
-        for data, label in self.train_val_test_loaders['train']:
+        for self.batch_idx, (data, label) in enumerate(self.train_val_test_loaders['train']):
 
             self.before_step()
 
@@ -124,11 +135,11 @@ class TrainerBase:
             self.optimizer.zero_grad()
 
             for k, v in loss_dict.items():
-                loss_log[k].append(v.item())
+                self.loss_log[k].append(v.item())
 
             self.after_step()
 
-        self.storage.put_scalars(**{key: np.mean(value) for key, value in loss_log.items()})
+        self.storage.put_scalars(**{key: np.mean(value) for key, value in self.loss_log.items()})
 
     @staticmethod
     def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False):
