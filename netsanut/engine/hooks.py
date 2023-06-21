@@ -5,6 +5,10 @@ from collections import Counter, defaultdict
 from typing import List
 
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set_style("darkgrid")
+
 import torch
 import torch.optim as optim
 
@@ -146,6 +150,7 @@ class CheckpointSaver(HookBase):
             trainer.logger.info("Copying the model to {}".format(copy_path))
             
         if self.test_best_ckpt:
+            trainer.logger.info("Loading the model from {}".format(self.best_ckpt_path))
             trainer.load_checkpoint(self.best_ckpt_path, resume=False)
         
 
@@ -165,7 +170,7 @@ class MetricLogger(HookBase):
         trainer.logger.info("Train MAE: {:.4f}, Train MAPE: {:.4f}, Train RMSE: {:.4f}".format(
             latest_log["mae_train"][0], latest_log["mape_train"][0], latest_log["rmse_train"][0]))
         trainer.logger.info("Valid MAE: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}".format(
-            latest_log["mae_val"][0], latest_log["mae_val"][0], latest_log["mae_val"][0]))
+            latest_log["mae_val"][0], latest_log["mape_val"][0], latest_log["rmse_val"][0]))
 
     def after_train(self, trainer: TrainerBase):
 
@@ -203,3 +208,30 @@ class GradientClipper(HookBase):
         
         if self.clip_value is not None:
             torch.nn.utils.clip_grad_norm_(trainer.model.parameters(), self.clip_value)
+            
+            
+class PlotTrainingLog(HookBase):
+    
+    def __init__(self, dpi=300) -> None:
+        super().__init__()
+        self.dpi = dpi
+    
+    def after_train(self, trainer: TrainerBase):
+        stored_data = trainer.storage._history
+        for key, value in stored_data.items():
+            value_epoch = np.array(value.data())
+            if len(value_epoch) == 1:
+                continue
+            value, epoch = value_epoch[:, 0], value_epoch[:, 1]
+            
+            fig, ax = plt.subplots() 
+            ax.plot(epoch, value, label=key)
+            ax.set_xlabel("Epoch")
+            ax.set_ylabel(key)
+            ax.set_title("The progress of {} during training".format(key))
+            ax.legend()
+            
+            save_name = "log_{}".format(key)
+            fig.tight_layout()
+            fig.savefig("{}/{}.pdf".format(trainer.save_dir, save_name), dpi=self.dpi)
+            
