@@ -165,7 +165,7 @@ class MetricLogger(HookBase):
         trainer.logger.info("Train MAE: {:.4f}, Train MAPE: {:.4f}, Train RMSE: {:.4f}".format(
             latest_log["mae_train"][0], latest_log["mape_train"][0], latest_log["rmse_train"][0]))
         trainer.logger.info("Valid MAE: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}".format(
-            latest_log["mae_val"][0], latest_log["mae_val"][0], latest_log["mae_val"][0]))
+            latest_log["mae_val"][0], latest_log["mape_val"][0], latest_log["rmse_val"][0]))
 
     def after_train(self, trainer: TrainerBase):
 
