@@ -8,7 +8,7 @@
 
     Output shape: (N, T, M, C_out), where C_out is out dimension, squeezed to (N, T, M) if C_out is 1
 """
-
+import copy
 import torch
 import torch.nn as nn
 
@@ -101,9 +101,17 @@ class SpatialDecoder(nn.Module):
         
     def forward(self, query, memory, mask):
         layer: nn.TransformerDecoderLayer
+        x = query
         for layer in self.layers:
-            x = layer(query, memory, mask)
+            x = layer(x, memory, mask)
         return x 
+
+def get_trivial_forward():
+    
+    def trivial_forward(x: torch.Tensor):
+        return x
+    
+    return copy.deepcopy(trivial_forward)
 
 class NeTSFormer(nn.Module):
 
@@ -128,13 +136,17 @@ class NeTSFormer(nn.Module):
                  exponent: int = 1,
                  alpha: float = 1.0,
                  ignore_value: float = 0.0,
+                 se_type: str = "learned", # encoding related
+                 se_init: str = "rand",
+                 te_type: str = "fixed",
+                 te_init: str = "",
                  **kwargs) -> None:
 
         super().__init__()
         
         self.feature_embedding = nn.Conv2d(in_dim, hid_dim, kernel_size=(1, 1))
-        self.spatial_encoding     = LearnedPositionalEncoding(hid_dim, dropout)
-        self.temporal_encoding    = LearnedPositionalEncoding(hid_dim, dropout)
+        self.spatial_encoding     = self.build_encoding_layer(hid_dim, dropout, se_type, se_init)
+        self.temporal_encoding    = self.build_encoding_layer(hid_dim, dropout, te_type, te_init)
         
         self.encoder = SpatialTemporalEncoder(
             num_layers=encoder_layers,
@@ -289,3 +301,13 @@ class NeTSFormer(nn.Module):
         mask = sum([s.detach() for s in metadata['adjacency']])
         # a True value in self.mask indicates the corresponding key will be ignored
         self.mask = (mask == 0).to(self.device)
+    
+    @staticmethod 
+    def build_encoding_layer(hid_dim, dropout, encoding_type:str, init_method="rand"):
+        match encoding_type:
+            case "learned":
+                return LearnedPositionalEncoding(hid_dim, dropout, init_method=init_method)
+            case "fixed":
+                return PositionalEncoding(hid_dim, dropout)
+            case "None" | "none" | "" | None:
+                return get_trivial_forward()

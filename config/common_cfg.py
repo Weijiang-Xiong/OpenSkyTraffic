@@ -16,7 +16,6 @@ data = {
 
 optimizer = {
     "learning_rate": 0.001,
-    "dropout": 0.1,
     "weight_decay": 0.0001,
     "grad_clip": 3.0
 }

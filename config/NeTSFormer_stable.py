@@ -15,6 +15,11 @@ model = {
     "encoder_layers":2,
     "decoder_layers": 2,
     "time_first": True,
+    # type of positional encoding, "learned", "fixed" (not learned) or "None" (no encoding)
+    "se_type": "learned", # spatial encoding
+    "se_init": "rand", # initialization method of spatial encoding, "rand" for random init, "zero" for zero init
+    "te_type": "fixed", # temporal encoding
+    "te_init": "",
     # these are related to loss
     "reduction": "mean",
     "aleatoric": False, 
