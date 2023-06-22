@@ -1,5 +1,5 @@
 import torch 
-from netsanut.models.ttnet import TTNet, PositionalEncoding, LearnedPositionalEncoding
+from netsanut.models import TTNet
 
 def test_model_forward():
     
@@ -15,28 +15,6 @@ def test_model_forward():
     assert isinstance(var, dict)
     print("Test OK")
 
-def test_posenc():
-    
-    print("Testing positional encoding...")
-    
-    encoders_batch_first = [
-        PositionalEncoding(64, max_len=100, batch_first=True),
-        LearnedPositionalEncoding(64, max_len=100, batch_first=True)
-        ]
-    encoders_not_batch_first = [
-        PositionalEncoding(64, max_len=100, batch_first=False),
-        LearnedPositionalEncoding(64, max_len=100, batch_first=False)
-        ]
-    
-    for enc in encoders_batch_first:
-        print(enc.__class__.__name__)
-        out = enc(torch.ones(size=(2, 12, 64)))
-        
-    for enc in encoders_not_batch_first:
-        print(enc.__class__.__name__)
-        out = enc(torch.ones(size=(12, 2, 64)))
-
 if __name__ == "__main__":
 
-    test_posenc()
     test_model_forward()

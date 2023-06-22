@@ -3,6 +3,7 @@
 
 import torch 
 import torch.nn as nn 
+from einops import repeat
 
 class LearnedPositionalEncoding(nn.Module):
     """ implement learned positional encoding layer
@@ -27,6 +28,15 @@ class LearnedPositionalEncoding(nn.Module):
         encoding = self.encoding_dict[:x.size(self.att_dim), :].unsqueeze(self.batch_dim)
         x = x + encoding
         return self.dropout(x)
+    
+    def encodings(self, x):
+        """ return the encodings vectors for the input, shape will be the same as input
+        """
+        encoding = self.encoding_dict[:x.size(self.att_dim), :].unsqueeze(self.batch_dim)
+        # repeat along the batch dimension
+        encoding = repeat(encoding, 'N M C -> (N r) M C', r=x.size(0))
+
+        return encoding
 
 
 class PositionalEncoding(nn.Module):
@@ -55,3 +65,12 @@ class PositionalEncoding(nn.Module):
         encoding = self.encoding_dict[:x.size(self.att_dim), :].unsqueeze(self.batch_dim)
         x = x + encoding
         return self.dropout(x)
+    
+    def encodings(self, x):
+        """ return the encodings vectors for the input, shape will be the same as input
+        """
+        encoding = self.encoding_dict[:x.size(self.att_dim), :].unsqueeze(self.batch_dim)
+        # repeat along the batch dimension
+        encoding = repeat(encoding, 'N M C -> (N r) M C', r=x.size(0))
+
+        return encoding

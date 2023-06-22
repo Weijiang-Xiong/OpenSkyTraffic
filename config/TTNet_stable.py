@@ -2,7 +2,7 @@ from .common_cfg import train, data, optimizer, scheduler
 
 model = {
     # these are information about the model
-    "name": "lstm_tf",
+    "name": "ttnet",
     "device": "cuda",
     # these are model parameters
     "in_dim": 2, 
