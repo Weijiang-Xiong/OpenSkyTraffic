@@ -144,6 +144,8 @@ class NeTSFormer(nn.Module):
 
         super().__init__()
         
+        self.sto_layers = list()
+        
         self.feature_embedding = nn.Conv2d(in_dim, hid_dim, kernel_size=(1, 1))
         self.spatial_encoding     = self.build_encoding_layer(hid_dim, dropout, se_type, se_init)
         self.temporal_encoding    = self.build_encoding_layer(hid_dim, dropout, te_type, te_init)
@@ -167,6 +169,7 @@ class NeTSFormer(nn.Module):
         
         self.pred_mean = nn.Linear(in_features=hid_dim, out_features=out_dim)
         self.pred_var = nn.Linear(in_features=hid_dim, out_features=out_dim)
+        self.sto_layers.append("pred_var")
         
         self.datascaler: TensorDataScaler
         self.loss = GeneralizedProbRegLoss(
@@ -311,3 +314,21 @@ class NeTSFormer(nn.Module):
                 return PositionalEncoding(hid_dim, dropout)
             case "None" | "none" | "" | None:
                 return get_trivial_forward()
+            
+    def det_and_sto_params(self):
+        
+        det_params, sto_params = [], []
+        
+        for m_name, module in self.named_children():
+            for p_name, param in module.named_parameters(remove_duplicate=True, recurse=True):
+                if not param.requires_grad:
+                    continue
+            
+                if m_name in self.sto_layers:
+                    sto_params.append(("{}.{}".format(m_name, p_name), param))
+                else:
+                    det_params.append(("{}.{}".format(m_name, p_name), param))
+        
+        
+        return {"det_params": [param for _, param in det_params],
+                "sto_params": [param for _, param in sto_params]}
