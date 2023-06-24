@@ -167,12 +167,12 @@ class TrainerBase:
             hook.before_train(self)
 
     def after_train(self):
-        self.storage.iteration = self.epoch_num
+        self.storage.epoch_num = self.epoch_num
         for hook in self._hooks:
             hook.after_train(self)
 
     def before_epoch(self):
-        self.storage.iteration = self.epoch_num
+        self.storage.epoch_num = self.epoch_num
         for hook in self._hooks:
             hook.before_epoch(self)
 
