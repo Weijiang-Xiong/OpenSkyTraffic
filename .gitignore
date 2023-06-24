@@ -166,3 +166,4 @@ cython_debug/
 scratch
 .vscode
 datasets/utd19
+__NO_GIT*
