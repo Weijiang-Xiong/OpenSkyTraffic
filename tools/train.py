@@ -49,5 +49,5 @@ def main(args):
     
 if __name__ == "__main__":
 
-    args = default_argument_parser().parse_args("--config-file config/NeTSFormer_stable.py".split())
+    args = default_argument_parser().parse_args()
     main(args)
