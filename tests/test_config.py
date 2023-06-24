@@ -12,4 +12,4 @@ except:
 
 print(OmegaConf.to_yaml(cfg))
 # note the type safe config will not be preserved, as it requires omegaconf 
-ConfigLoader.save_cfg(cfg, "tests/saved_config.py")
+ConfigLoader.save_cfg(cfg, "tests/__NO_GIT_saved_config.py")

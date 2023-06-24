@@ -2,7 +2,7 @@ import os
 import time
 import shutil
 from collections import Counter, defaultdict
-from typing import List
+from typing import List, Callable
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -43,29 +43,31 @@ class EpochTimer(HookBase):
     
 class ValidationHook(HookBase):
     # TODO add eval period option
-    def __init__(self) -> None:
+    def __init__(self, eval_function:Callable) -> None:
         super().__init__()
+        self.eval_function = eval_function
     
     def after_epoch(self, trainer: TrainerBase):
         ts = time.perf_counter()
-        validation_metrics = trainer.evaluate(trainer.model, trainer.train_val_test_loaders['val'])
+        validation_metrics = self.eval_function(trainer.model)
         te = time.perf_counter()
         trainer.storage.put_scalar(name="epoch_inference_time", value=te-ts)
         trainer.storage.put_scalars(**validation_metrics, suffix="val")
 
 class TestHook(HookBase):
     
-    def __init__(self) -> None:
+    def __init__(self, eval_function:Callable) -> None:
         super().__init__()
+        self.eval_function = eval_function
 
     def after_train(self, trainer: TrainerBase):
         ts = time.perf_counter()
-        test_metrics = trainer.evaluate(trainer.model, trainer.train_val_test_loaders['test'], verbose=True)
+        test_metrics = self.eval_function(trainer.model)
         te = time.perf_counter()
         trainer.storage.put_scalar(name="final_test_time", value=te-ts)
         trainer.storage.put_scalars(**test_metrics, suffix="test")
 
-class LRScheduler(HookBase):
+class StepBasedLRScheduler(HookBase):
     """ 
         adapted from detectron2.engine.hooks.LRScheduler
         Scheduler is an optional part in the training, some people use and some don't.
@@ -76,37 +78,18 @@ class LRScheduler(HookBase):
         
     def before_train(self, trainer: TrainerBase):
         trainer.scheduler = self.scheduler
-        self._best_param_group_id = LRScheduler.get_best_param_group_id(trainer.optimizer)
-        
-    def after_epoch(self, trainer: TrainerBase):
-        # NOTE this could be problematic if different parameters have different learning rates 
-        lr = trainer.scheduler.optimizer.param_groups[self._best_param_group_id]['lr']
+        for scaler in trainer.scheduler.lr_lambdas:
+            scaler.to_iteration_based(trainer.dataset_len)
+            
+    def after_step(self, trainer: TrainerBase):
+        lrs = [group['lr'] for group in trainer.scheduler.optimizer.param_groups]
         trainer.scheduler.step()
-        trainer.storage.put_scalar("lr", lr)
+        for idx, lr in enumerate(lrs):
+            trainer.storage.put_scalar("lr_group_{}".format(idx), lr)
     
     def load_state_dict(self, state_dict):
         self.scheduler.load_state_dict(state_dict['scheduler'])
     
-    @staticmethod
-    def get_best_param_group_id(optimizer):
-        
-        # NOTE: some heuristics on what LR to summarize
-        # summarize the param group with most parameters
-        largest_group = max(len(g["params"]) for g in optimizer.param_groups)
-
-        if largest_group == 1:
-            # If all groups have one parameter,
-            # then find the most common initial LR, and use it for summary
-            lr_count = Counter([g["lr"] for g in optimizer.param_groups])
-            lr = lr_count.most_common()[0][0]
-            for i, g in enumerate(optimizer.param_groups):
-                if g["lr"] == lr:
-                    return i
-        else:
-            for i, g in enumerate(optimizer.param_groups):
-                if len(g["params"]) == largest_group:
-                    return i
-                
                 
 class CheckpointSaver(HookBase):
     

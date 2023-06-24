@@ -3,7 +3,9 @@
     https://github.com/facebookresearch/detectron2/blob/main/detectron2/utils/events.py
     A difference is, the training in detectron2 is counted by iteration, and there is no concept of epoch there. 
     
-    This implementation will log per epoch.
+    This implementation will treat the epoch as a real value by counting an epoch_num (int) and an epoch_progress (float). 
+    For example, when the training has gone through half of the training dataset in the first epoch, epoch_num will be 0, and epoch_progress will be 0.5. 
+    Then, all logged scalar values will be paired as (value, epoch_num + epoch_progress).
 """
 import copy
 import traceback 
@@ -104,8 +106,9 @@ class EventStorage:
             3. auxiliary metrics or other variable of interests
     """
     
-    def __init__(self, start_iter=0) -> None:
-        self._iteration = start_iter
+    def __init__(self, start_epoch=0) -> None:
+        self._epoch_num = start_epoch
+        self._epoch_progress = 0.0 
         self._history = defaultdict(HistoryBuffer)
         self._latest_scalars = dict()
         
@@ -128,8 +131,8 @@ class EventStorage:
         if suffix is not None:
             name += '_{}'.format(suffix)
             
-        self._latest_scalars[name] = (value, self.iteration)
-        self._history[name].update(float(value), self._iteration)
+        self._latest_scalars[name] = (value, self.epoch_num + self.epoch_progress)
+        self._history[name].update(float(value), self._epoch_num + self.epoch_progress)
 
     def put_scalars(self, suffix=None, **kwargs):
         for k, v in kwargs.items():
@@ -139,15 +142,23 @@ class EventStorage:
         return self._latest_scalars
             
     @property
-    def iteration(self):
-        return self._iteration
+    def epoch_num(self):
+        return self._epoch_num
     
-    @iteration.setter
-    def iteration(self, val):
-        self._iteration = int(val)
+    @epoch_num.setter
+    def epoch_num(self, val):
+        self._epoch_num = int(val)
+        
+    @property
+    def epoch_progress(self):
+        return self._epoch_progress
     
+    @epoch_progress.setter
+    def epoch_progress(self, val:float):
+        self._epoch_progress = float(val)
+        
     def step(self):
-        self._iteration += 1
+        self._epoch_num += 1
         
     def __getitem__(self, key):
         return self._history[key]

@@ -1,23 +1,16 @@
 import os
+import copy 
 import time
 import logging
 
 from typing import Dict, List, Optional
 from collections import defaultdict
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from netsanut.engine.base import HookBase
-
-from netsanut.util import default_metrics
-from netsanut.events import EventStorage
-from netsanut.data import TensorDataScaler
-
-from . import hooks
-from .base import HookBase, TrainerBase
+from .base import TrainerBase
 
 class DefaultTrainer(TrainerBase):
     """ The trainer takes care of the general logic in the training progress, such as 
@@ -27,19 +20,15 @@ class DefaultTrainer(TrainerBase):
             3. running optimizer and scheduler 
     """
 
-    def __init__(self, cfg, model: nn.Module, dataloaders: Dict[str, DataLoader]):
+    def __init__(self, cfg, model: nn.Module, dataloader: DataLoader, optimizer: optim.Optimizer):
         
         super().__init__() 
         
         self.logger = logging.getLogger("default")
 
         self.model = model
-
-        self.train_val_test_loaders = dataloaders
-
-        self.optimizer = self.build_optimizer(self.model.parameters(), cfg)
-
-        self.register_hooks(self.build_hooks(cfg))
+        self.dataloader = dataloader
+        self.optimizer = optimizer
         
         self.start_epoch = 0  # start epoch (may not be zero if resume from previous training)
         self.max_epoch = cfg.train.max_epoch  # max training epoch
@@ -47,51 +36,15 @@ class DefaultTrainer(TrainerBase):
         self.save_dir = cfg.train.output_dir if getattr(cfg.train, 'output_dir', None) else "./checkpoint"
 
     @staticmethod
-    def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False):
-
+    def load_file(ckpt_path:str) -> dict:
         logger = logging.getLogger("default")
+        if not os.path.exists(ckpt_path):
+            logger.info("Checkpoint does not exist, train from scratch instead. Given Path: {}".format(ckpt_path if ckpt_path else None))
+            return
 
-        model.eval()
-
-        all_preds, all_labels = [], []
-        for data, label in dataloader:
-
-            data, label = data.cuda(), label.cuda()
-
-            preds = model(data)
-
-            all_preds.append(preds)
-            all_labels.append(label)
-
-        all_preds = torch.cat(all_preds, dim=0).cpu()
-        all_labels = torch.cat(all_labels, dim=0).cpu()
-
-        if verbose:
-            logger.info("The shape of predicted {} and label {}".format(all_preds.shape, all_labels.shape))
-
-        for i in range(12):  # number of predicted time step
-            pred = all_preds[:, i, :]
-            real = all_labels[:, i, :]
-            aux_metrics = default_metrics(pred, real)
-
-            if verbose:
-                logger.info('Evaluate model on test data at {:d} time step'.format(i+1))
-                logger.info('Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'.format(
-                    aux_metrics['mae'], aux_metrics['mape'], aux_metrics['rmse']
-                )
-                )
-
-        overall_metrics = default_metrics(all_preds, all_labels)
-
-        if verbose:
-            logger.info('On average over 12 different time steps')
-            logger.info('Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'.format(
-                overall_metrics['mae'], overall_metrics['mape'], overall_metrics['rmse']
-            )
-            )
-
-        return overall_metrics
-
+        state_dict: dict = torch.load(ckpt_path)
+        return state_dict
+        
     def load_checkpoint(self, ckpt_path: str, resume=False):
         """ load a checkpoint that contains model, optimizer, scheduler and epoch number 
 
@@ -99,11 +52,10 @@ class DefaultTrainer(TrainerBase):
             ckpt_path (str): the path to the checkpoint
             resume (bool, optional): If set to true, then load everything from the checkpoint, and resume from previous training. Defaults to False, and only load the model weights
         """
-        if not os.path.exists(ckpt_path):
-            self.logger.info("Checkpoint does not exist, train from scratch instead. Given Path: {}".format(ckpt_path if ckpt_path else None))
-            return
-
-        state_dict: dict = torch.load(ckpt_path)
+        state_dict = self.load_file(ckpt_path)
+        
+        if state_dict is None:
+            return 
 
         if resume:  # load everything
             self.logger.info("Resuming from checkpoint {}".format(ckpt_path))
@@ -154,39 +106,3 @@ class DefaultTrainer(TrainerBase):
         torch.save(state_dict, save_path)
         self.logger.info("Epoch: {:03d}, Checkpoint saved to {}".format(self.epoch_num, save_path))
         return save_path
-    
-    @staticmethod
-    def build_scheduler(optimizer, cfg):
-        
-        milestones=[int(cfg.train.max_epoch*ms) for ms in cfg.scheduler.lr_milestone]
-        gamma=cfg.scheduler.lr_decrease
-        scheduler = optim.lr_scheduler.MultiStepLR(
-            optimizer,
-            milestones=milestones,
-            gamma=gamma
-        )
-        return scheduler
-    
-    @staticmethod
-    def build_optimizer(params, cfg):
-        optimizer = optim.Adam(
-            params,
-            lr=cfg.optimizer.learning_rate,
-            weight_decay=cfg.optimizer.weight_decay
-        )
-        return optimizer
-    
-    def build_hooks(self, cfg) -> List[HookBase]:
-        ret = [
-            hooks.EpochTimer(),
-            hooks.TrainMetricRecorder(),
-            hooks.LRScheduler(scheduler=self.build_scheduler(self.optimizer, cfg)),
-            hooks.ValidationHook(),
-            hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
-            hooks.MetricLogger(),
-            hooks.TestHook(),
-            hooks.GradientClipper(clip_value=cfg.optimizer.grad_clip),
-            hooks.PlotTrainingLog()
-        ]
-        
-        return ret

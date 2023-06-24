@@ -2,9 +2,11 @@ import torch
 import numpy as np
 
 from netsanut.config import default_argument_parser, default_setup, ConfigLoader
-from netsanut.engine import DefaultTrainer
+from netsanut.engine import DefaultTrainer, hooks
 from netsanut.models import build_model
 from netsanut.data import build_trainvaltest_loaders
+from netsanut.evaluation import evaluate
+from netsanut.solver import build_optimizer, build_scheduler
 
 def main(args):
     
@@ -16,20 +18,36 @@ def main(args):
     model = build_model(cfg.model)
     model.adapt_to_metadata(metadata)
     
-    trainer = DefaultTrainer(cfg, model, dataloaders)
-    trainer.load_checkpoint(cfg.train.checkpoint, resume=args.resume)
-        
     if args.eval_only:
-        trainer.load_checkpoint(cfg.train.checkpoint)
-        eval_res = trainer.evaluate(
-            trainer.model, 
-            trainer.train_val_test_loaders['test'], 
+        state_dict = DefaultTrainer.load_file(ckpt_path=cfg.train.checkpoint)
+        model.load_state_dict(state_dict['model'])
+        eval_res = evaluate(
+            model, 
+            dataloaders['test'], 
+            verbose=True
         )
         return eval_res
+    else:
+        optimizer = build_optimizer(model, cfg.optimizer)
+        scheduler = build_scheduler(optimizer, cfg)
         
-    return trainer.train()
+        trainer = DefaultTrainer(cfg, model, dataloaders['train'], optimizer)
+        trainer.load_checkpoint(cfg.train.checkpoint, resume=args.resume)
+        trainer.register_hooks([
+            hooks.EpochTimer(),
+            hooks.TrainMetricRecorder(),
+            hooks.StepBasedLRScheduler(scheduler=scheduler),
+            hooks.ValidationHook(lambda m: evaluate(m, dataloaders['val'])),
+            hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
+            hooks.MetricLogger(),
+            hooks.TestHook(lambda m: evaluate(m, dataloaders['test'], True)),
+            hooks.GradientClipper(clip_value=cfg.optimizer.grad_clip),
+            hooks.PlotTrainingLog()
+        ])
+        
+        return trainer.train()
     
 if __name__ == "__main__":
 
-    args = default_argument_parser().parse_args()
+    args = default_argument_parser().parse_args("--config-file config/NeTSFormer_stable.py".split())
     main(args)

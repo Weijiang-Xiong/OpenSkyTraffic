@@ -76,9 +76,9 @@ class TrainerBase:
         self.logger: logging.Logger
 
         self.model: nn.Module
-        self.train_val_test_loaders: Dict[str, DataLoader]
+        self.dataloader: DataLoader
         self.optimizer: optim.Optimizer
-        self.scheduler: Optional[optim.lr_scheduler.LRScheduler]
+        self.scheduler: Optional[optim.lr_scheduler.LambdaLR]
 
         self._hooks: List[HookBase] = []
         self.epoch_num: int
@@ -92,7 +92,7 @@ class TrainerBase:
 
     @property
     def dataset_len(self):
-        return len(self.train_val_test_loaders['train'])
+        return len(self.dataloader)
     
     @property
     def epoch_progress(self):
@@ -120,7 +120,7 @@ class TrainerBase:
 
         self.loss_log = defaultdict(list)
 
-        for self.batch_idx, (data, label) in enumerate(self.train_val_test_loaders['train']):
+        for self.batch_idx, (data, label) in enumerate(self.dataloader):
 
             self.before_step()
 
@@ -167,12 +167,12 @@ class TrainerBase:
             hook.before_train(self)
 
     def after_train(self):
-        self.storage.iteration = self.epoch_num
+        self.storage.epoch_num = self.epoch_num
         for hook in self._hooks:
             hook.after_train(self)
 
     def before_epoch(self):
-        self.storage.iteration = self.epoch_num
+        self.storage.epoch_num = self.epoch_num
         for hook in self._hooks:
             hook.before_epoch(self)
 
@@ -181,10 +181,12 @@ class TrainerBase:
             hook.after_epoch(self)
 
     def before_step(self):
+        self.storage.epoch_progress = self.epoch_progress
         for hook in self._hooks:
             hook.before_step(self)
 
     def after_step(self):
+        self.storage.epoch_progress = self.epoch_progress
         for hook in self._hooks:
             hook.after_step(self)
 

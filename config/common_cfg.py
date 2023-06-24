@@ -21,6 +21,10 @@ optimizer = {
 }
 
 scheduler = {
+    # decrease learning rate when training reaches proportions of train.max_epoch
     "lr_milestone": [0.7, 0.85],
-    "lr_decrease": 0.1,
+    # multiply the learning rate by lr_decrease at each milestone
+    "lr_decrease": 0.1, 
+    # gradually increase the learning rate in warmup epochs 
+    "warmup": 1.0,
 }
