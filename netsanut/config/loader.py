@@ -5,6 +5,8 @@
 """
 
 import os 
+import abc
+import ast
 import uuid
 import logging
 import importlib
@@ -12,11 +14,57 @@ import builtins
 from contextlib import contextmanager
 from omegaconf import OmegaConf, DictConfig, ListConfig
 from typing import List
+from dataclasses import is_dataclass
+from .utils import _convert_target_to_string
 
 logger = logging.getLogger("default")
 
 _CFG_PACKAGE_NAME = "netsanut._cfg_loader"
 
+class LazyCall:
+    """
+    Wrap a callable so that when it's called, the call will not be executed,
+    but returns a dict that describes the call.
+
+    LazyCall object has to be called with only keyword arguments. Positional
+    arguments are not yet supported.
+
+    Examples:
+    ::
+        from detectron2.config import instantiate, LazyCall
+
+        layer_cfg = LazyCall(nn.Conv2d)(in_channels=32, out_channels=32)
+        layer_cfg.out_channels = 64   # can edit it afterwards
+        layer = instantiate(layer_cfg)
+    """
+
+    def __init__(self, target):
+        if not (callable(target) or isinstance(target, (str, abc.Mapping))):
+            raise TypeError(
+                f"target of LazyCall must be a callable or defines a callable! Got {target}"
+            )
+        self._target = target
+
+    def __call__(self, **kwargs):
+        if is_dataclass(self._target):
+            # omegaconf object cannot hold dataclass type
+            # https://github.com/omry/omegaconf/issues/784
+            target = _convert_target_to_string(self._target)
+        else:
+            target = self._target
+        kwargs["_target_"] = target
+
+        return DictConfig(content=kwargs, flags={"allow_objects": True})
+
+def _validate_py_syntax(filename):
+    # see also https://github.com/open-mmlab/mmcv/blob/master/mmcv/utils/config.py
+    with open(filename, "r") as f:
+        content = f.read()
+    try:
+        ast.parse(content)
+    except SyntaxError as e:
+        raise SyntaxError(f"Config file {filename} has syntax error!") from e
+    
 def _random_package_name(filename):
     # generate a random package name when loading config files
     return _CFG_PACKAGE_NAME + str(uuid.uuid4())[:4] + "." + os.path.basename(filename)
@@ -79,6 +127,7 @@ Within a config file, relative import can only import other config files.
             and (globals.get("__package__", "") or "").startswith(_CFG_PACKAGE_NAME)
         ):
             cur_file = find_relative_file(globals["__file__"], name, level)
+            _validate_py_syntax(cur_file)
             spec = importlib.machinery.ModuleSpec(
                 _random_package_name(cur_file), None, origin=cur_file
             )
@@ -102,7 +151,7 @@ class ConfigLoader:
 
     @staticmethod
     def load_from_file(filename):
-        
+        _validate_py_syntax(filename)
         with _patch_import():
             # Record the filename
             module_namespace = {
