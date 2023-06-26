@@ -6,6 +6,7 @@ train = {
     # select model by validation set performance, and test the best model
     # will test the final model if set to False
     "test_best_ckpt": True, 
+    "grad_clip": 3.0
 }
 
 data = {
@@ -15,12 +16,14 @@ data = {
 }
 
 optimizer = {
-    "learning_rate": 0.001,
+    "type": "adam",
+    "lr": 0.001,
     "weight_decay": 0.0001,
-    "grad_clip": 3.0
 }
 
 scheduler = {
+    "start": 0,
+    "end": "${..train.max_epoch}",
     # decrease learning rate when training reaches proportions of train.max_epoch
     "lr_milestone": [0.7, 0.85],
     # multiply the learning rate by lr_decrease at each milestone

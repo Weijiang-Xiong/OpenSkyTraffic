@@ -9,6 +9,8 @@
     Output shape: (N, T, M, C_out), where C_out is out dimension, squeezed to (N, T, M) if C_out is 1
 """
 import copy
+import logging
+
 import torch
 import torch.nn as nn
 
@@ -23,6 +25,8 @@ from .common import LearnedPositionalEncoding, PositionalEncoding
 
 import warnings
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger("default")
 
 class DividedTimeSpaceAttentionLayer(nn.Module):
 
@@ -315,7 +319,7 @@ class NeTSFormer(nn.Module):
             case "None" | "none" | "" | None:
                 return get_trivial_forward()
             
-    def det_and_sto_params(self):
+    def get_param_groups(self):
         
         det_params, sto_params = [], []
         
@@ -330,5 +334,11 @@ class NeTSFormer(nn.Module):
                     det_params.append(("{}.{}".format(m_name, p_name), param))
         
         
-        return {"det_params": [param for _, param in det_params],
-                "sto_params": [param for _, param in sto_params]}
+        return {"det": [param for _, param in det_params],
+                "sto": [param for _, param in sto_params]}
+        
+    def adapt_to_new_config(self, config):
+        
+        self.loss = GeneralizedProbRegLoss(**config.loss)
+        logger.info("Using new loss function:")
+        logger.info("{}".format(self.loss))

@@ -29,19 +29,21 @@ def main(args):
         return eval_res
     else:
         optimizer = build_optimizer(model, cfg.optimizer)
-        scheduler = build_scheduler(optimizer, cfg)
+        scheduler = build_scheduler(optimizer, cfg.scheduler)
         
         trainer = DefaultTrainer(cfg, model, dataloaders['train'], optimizer)
         trainer.load_checkpoint(cfg.train.checkpoint, resume=args.resume)
         trainer.register_hooks([
             hooks.EpochTimer(),
+            hooks.TrainingStageManager(getattr(cfg.train, "milestone", None), 
+                                       getattr(cfg.train, "milestone_cfg", None)),
             hooks.TrainMetricRecorder(),
             hooks.StepBasedLRScheduler(scheduler=scheduler),
             hooks.ValidationHook(lambda m: evaluate(m, dataloaders['val'])),
             hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
             hooks.MetricLogger(),
             hooks.TestHook(lambda m: evaluate(m, dataloaders['test'], True)),
-            hooks.GradientClipper(clip_value=cfg.optimizer.grad_clip),
+            hooks.GradientClipper(clip_value=cfg.train.grad_clip),
             hooks.PlotTrainingLog()
         ])
         
