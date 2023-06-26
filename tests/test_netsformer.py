@@ -28,3 +28,10 @@ pred = model(rand_input, rand_label)
 metrics = model.pop_auxiliary_metrics(scalar_only=False)
 assert pred.shape == (N, T, M)
 assert metrics['logvar'].shape == (N, T, M)
+
+param_groups = model.det_and_sto_params()
+all_params = set(model.parameters())
+assert sum([len(g) for g in param_groups.values()]) == len(all_params)
+for group_name, group_params in param_groups.items():
+    for param in group_params:
+        assert param in all_params

@@ -4,6 +4,7 @@ from typing import Any
 from collections import Counter
 from bisect import bisect_right
 
+from omegaconf import OmegaConf, DictConfig
 class WarmupMultiStepScaler:
     
     def __init__(self, start:int, end:int, milestones:list, gamma:float=0.1, warmup:float=None) -> None:
@@ -43,14 +44,31 @@ class WarmupMultiStepScaler:
             
         return lr_scale
 
-def build_scheduler(optimizer, cfg):
+def build_scheduler(optimizer, cfg: DictConfig):
     
-    scaler = WarmupMultiStepScaler(
-        start=getattr(cfg.scheduler, "start", 0), 
-        end=getattr(cfg.scheduler, "end", cfg.train.max_epoch), 
-        milestones=[int(cfg.train.max_epoch*ms) for ms in cfg.scheduler.lr_milestone], 
-        gamma=cfg.scheduler.lr_decrease, 
-        warmup=cfg.scheduler.warmup)
+    cfg = cfg.copy()
+    
+    def get_scaler(cfg):
+        return WarmupMultiStepScaler(
+            start=cfg.start, 
+            end=cfg.end, 
+            milestones=[cfg.start + (cfg.end - cfg.start)*ms
+                        for ms in cfg.lr_milestone], 
+            gamma=cfg.lr_decrease, 
+            warmup=cfg.warmup)
+        
+    config_groups = cfg.pop("groups", None)
+
+    if config_groups is not None:
+        # pop group-specific configs so the remainders are common configs
+        group_specific_config = {g:OmegaConf.to_container(cfg.pop(g)) for g in config_groups}
+        # override common config with group-specific configs
+        for g in config_groups:
+            group_specific_config[g] = OmegaConf.merge(cfg.copy(), group_specific_config[g])
+        # create a scaler for each of the group
+        scaler = [get_scaler(group_specific_config[g]) for g in config_groups]
+    else:
+        scaler = get_scaler(cfg)
     
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=scaler)
     

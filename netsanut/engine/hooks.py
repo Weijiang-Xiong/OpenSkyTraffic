@@ -2,12 +2,13 @@ import os
 import time
 import shutil
 from collections import Counter, defaultdict
-from typing import List, Callable
+from typing import Dict, List, Tuple, Callable
 
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set_style("darkgrid")
+from omegaconf import DictConfig
 
 import torch
 import torch.optim as optim
@@ -40,7 +41,22 @@ class EpochTimer(HookBase):
     def after_epoch(self, trainer: TrainerBase):
         self.te = time.perf_counter()
         trainer.storage.put_scalar(name="epoch_train_time", value=self.te-self.ts)
+
+class TrainingStageManager(HookBase):
     
+    def __init__(self, milestone: int=None, config:Dict[int, DictConfig]=None) -> None:
+        super().__init__()
+        self.milestone = milestone
+        self.config = config
+        
+    def before_epoch(self, trainer: TrainerBase):
+        
+        if self.milestone is None:
+            return 
+        
+        if trainer.epoch_num == self.milestone:
+            trainer.model.adapt_to_new_config(self.config.model)
+
 class ValidationHook(HookBase):
     # TODO add eval period option
     def __init__(self, eval_function:Callable) -> None:
@@ -147,9 +163,13 @@ class MetricLogger(HookBase):
     def after_epoch(self, trainer: TrainerBase):
         
         latest_log = trainer.storage.latest()
-        trainer.logger.info('Epoch: {:03d}, Training Time: {:.4f} secs'.format(trainer.epoch_num, latest_log["epoch_train_time"][0]))
-        trainer.logger.info('Epoch: {:03d}, Inference Time: {:.4f} secs'.format(trainer.epoch_num, latest_log["epoch_inference_time"][0]))
-        trainer.logger.info("Epoch: {:03d}, Train Loss {:.4f}".format(trainer.epoch_num, latest_log["loss"][0]))
+        trainer.logger.info('Epoch: {:03d}, Training Time: {:.4f} secs Inference Time: {:.4f} secs Train Loss {:.4f}'.format(
+            trainer.epoch_num, 
+            latest_log["epoch_train_time"][0], 
+            latest_log["epoch_inference_time"][0],
+            latest_log["loss"][0]
+            )
+        )
         trainer.logger.info("Train MAE: {:.4f}, Train MAPE: {:.4f}, Train RMSE: {:.4f}".format(
             latest_log["mae_train"][0], latest_log["mape_train"][0], latest_log["rmse_train"][0]))
         trainer.logger.info("Valid MAE: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}".format(
@@ -179,6 +199,8 @@ class TrainMetricRecorder(HookBase):
     def after_epoch(self, trainer: TrainerBase):
         train_epoch_metrics = {key: np.mean(value) for key, value in self.epoch_log.items()}
         trainer.storage.put_scalars(suffix="train", **train_epoch_metrics)
+        for key, value in self.epoch_log.items():
+            value.clear()
 
 class GradientClipper(HookBase):
     

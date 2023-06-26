@@ -14,6 +14,7 @@ class LearnedPositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, batch_first=True, max_len=500, init_method='rand'):
         super().__init__()
         self.batch_first = batch_first
+        self.init_method = init_method
         # the input dimension is (batch_size, seq_len, feature_dim) if batch_first is True
         self.batch_dim, self.att_dim = (0, 1) if batch_first else (1, 0)
         match init_method:
@@ -37,6 +38,11 @@ class LearnedPositionalEncoding(nn.Module):
         encoding = repeat(encoding, 'N M C -> (N r) M C', r=x.size(0))
 
         return encoding
+    
+    def extra_repr(self) -> str:
+        return "d_model={}, max_len={}, init_method={}".format(
+            self.encoding_dict.size(1), self.encoding_dict.size(0), repr(self.init_method)
+        )
 
 
 class PositionalEncoding(nn.Module):
@@ -74,3 +80,14 @@ class PositionalEncoding(nn.Module):
         encoding = repeat(encoding, 'N M C -> (N r) M C', r=x.size(0))
 
         return encoding
+    
+    def extra_repr(self) -> str:
+        return "d_model={}, max_len={}".format(
+            self.encoding_dict.size(1), self.encoding_dict.size(0)
+        )
+
+if __name__ =="__main__":
+    pe = LearnedPositionalEncoding(64)
+    print(pe)
+    pe = PositionalEncoding(64)
+    print(pe)
