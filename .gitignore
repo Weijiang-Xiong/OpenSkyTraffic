@@ -167,5 +167,5 @@ scratch
 .vscode
 datasets/*
 # ignore everything but allow this readme to appear in git
-!datasets/readme.md 
+!datasets/README.md 
 __NO_GIT*
