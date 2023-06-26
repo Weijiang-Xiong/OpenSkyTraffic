@@ -179,7 +179,7 @@ class ConfigLoader:
         
         logger.info("Config loaded from {}".format(filename))
         
-        return ret
+        return OmegaConf.resolve(ret)
     
     @staticmethod
     def apply_overrides(cfg, overrides: List[str]):
