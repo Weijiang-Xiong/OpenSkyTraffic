@@ -14,7 +14,7 @@ import logging
 import torch
 import torch.nn as nn
 
-from typing import List
+from typing import List, Tuple, Dict, Callable
 from einops import rearrange
 
 from netsanut.loss import GeneralizedProbRegLoss
@@ -54,19 +54,19 @@ class DividedTimeSpaceAttentionLayer(nn.Module):
             batch_first=True
         )
 
-    def forward(self, x, mask=None):
+    def forward(self, x:torch.Tensor, s_mask=None, t_mask=None) -> torch.Tensor:
         N, T, M, C = x.shape 
         if self.time_first:
             x = rearrange(x, 'N T M C -> (N M) T C')
-            x = self.temporal_attention(x, mask)
+            x = self.temporal_attention(x, t_mask)
             x = rearrange(x, '(N M) T C -> (N T) M C', M=M)
-            x = self.space_attention(x, mask)
+            x = self.space_attention(x, s_mask)
             x = rearrange(x, '(N T) M C -> N T M C', N=N)
         else:
             x = rearrange(x, 'N T M C -> (N T) M C')
-            x = self.space_attention(x, mask)
+            x = self.space_attention(x, s_mask)
             x = rearrange(x, '(N T) M C -> (N M) T C', T=T)
-            x = self.temporal_attention(x, mask)
+            x = self.temporal_attention(x, t_mask)
             x = rearrange(x, '(N M) T C -> N T M C', N=N)
         return x 
 
@@ -83,13 +83,48 @@ class SpatialTemporalEncoder(nn.Module):
                 time_first
             ) for _ in range(num_layers)])
         
-    def forward(self, x, mask=None):
+    def forward(self, x, s_mask=None, t_mask=None) -> torch.Tensor:
         layer: DividedTimeSpaceAttentionLayer
         for layer in self.layers:
-            x = layer(x, mask)
+            x = layer(x, s_mask, t_mask)
         return x 
 
+class MLP(nn.Module):
+    
+    def __init__(self, in_dim, hid_dim, out_dim) -> None:
+        super().__init__()
+        self.linear1 = nn.Linear(in_dim, hid_dim)
+        self.linear2 = nn.Linear(hid_dim, out_dim)
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        
+        return self.linear2(self.linear1(x))
 
+class TemporalAggregate(nn.Module):
+    
+    def __init__(self, in_dim:int, out_dim:int=1, mode='linear') -> None:
+        super().__init__()
+        self.in_dim = in_dim
+        self.mode = mode
+        assert mode in ['linear', 'last', 'avg']
+        match mode:
+            case 'linear':
+                self.agg = nn.Conv2d(in_channels=in_dim, out_channels=out_dim, kernel_size=(1,1))
+            case 'last':
+                self.agg = lambda x: x[:, -1, ...]
+            case 'avg':
+                self.agg = lambda x: torch.mean(x, 1)
+                
+    def forward(self, x:torch.Tensor) -> torch.Tensor:
+        
+        # 'N T M C -> N M C'
+        x = self.agg(x)
+        
+        return x.squeeze()
+    
+    def extra_repr(self) -> str:
+        return "in_dim={}, "
+        
 class SpatialDecoder(nn.Module):
     """ stack a few transformer decoder layers, implementation is different from nn.TransformerDecoder
     """
@@ -103,14 +138,14 @@ class SpatialDecoder(nn.Module):
             batch_first=True
         ) for _ in range(num_layers)])
         
-    def forward(self, query, memory, mask):
+    def forward(self, query, memory, mask) -> torch.Tensor:
         layer: nn.TransformerDecoderLayer
         x = query
         for layer in self.layers:
             x = layer(x, memory, mask)
         return x 
 
-def get_trivial_forward():
+def get_trivial_forward() -> Callable:
     
     def trivial_forward(x: torch.Tensor):
         return x
@@ -128,12 +163,14 @@ class NeTSFormer(nn.Module):
                  in_dim: int = 2,
                  hid_dim: int = 64,
                  ff_dim: int = 256,
-                 out_dim: int = 12,
+                 hist_len: int = 12,
+                 pred_len: int = 12,
                  nhead: int = 2,
                  dropout: int = 0.1,
                  encoder_layers: int = 2,
                  decoder_layers: int = 2,
                  time_first: bool = True,
+                 temp_aggregate: str = "linear",
                  auxiliary_metrics: bool = True, 
                  reduction: str = "mean",  # loss related
                  aleatoric: bool = False,
@@ -162,7 +199,7 @@ class NeTSFormer(nn.Module):
             dropout=dropout,
             time_first=time_first
         )
-        self.temporal_aggregate = lambda x: torch.mean(x, 1) # simply take the mean
+        self.temporal_aggregate = TemporalAggregate(in_dim=hist_len, mode=temp_aggregate) # reduce time dimension
         self.decoder = SpatialDecoder(
             num_layers=decoder_layers,
             hid_dim=hid_dim,
@@ -171,8 +208,8 @@ class NeTSFormer(nn.Module):
             dropout=dropout,
         )
         
-        self.pred_mean = nn.Linear(in_features=hid_dim, out_features=out_dim)
-        self.pred_var = nn.Linear(in_features=hid_dim, out_features=out_dim)
+        self.pred_mean = nn.Linear(in_features=hid_dim, out_features=pred_len)
+        self.pred_var = nn.Linear(in_features=hid_dim, out_features=pred_len)
         self.sto_layers.append("pred_var")
         
         self.datascaler: TensorDataScaler
@@ -190,7 +227,7 @@ class NeTSFormer(nn.Module):
     def device(self):
         return list(self.parameters())[0].device
         
-    def forward(self, data, label=None):
+    def forward(self, data, label=None) -> torch.Tensor:
         """
             time series forecasting task, 
             data is assumed to have (N, T, M, C) shape (assumed to be unnormalized)
@@ -208,7 +245,7 @@ class NeTSFormer(nn.Module):
         else:
             return self.inference(data, label)
 
-    def make_pred(self, x:torch.Tensor):
+    def make_pred(self, x:torch.Tensor) -> Tuple[torch.Tensor]:
         """ 
             run a forward pass through the network 
             data is of shape (N, T, M, C_in), assumed to be normalized 
@@ -233,7 +270,7 @@ class NeTSFormer(nn.Module):
         return mean, logvar
 
     
-    def inference(self, data, label=None):
+    def inference(self, data, label=None) -> torch.Tensor:
         
         """ if label is None, this is basically the same as self.make_pred 
             one can use this as an alternative to writing torch.no_grad outside the model 
@@ -254,7 +291,7 @@ class NeTSFormer(nn.Module):
         return mean
         
         
-    def compute_loss(self, data, label):
+    def compute_loss(self, data, label) -> Dict[str, torch.Tensor]:
         
         mean, logvar = self.make_pred(data)
         
@@ -271,7 +308,7 @@ class NeTSFormer(nn.Module):
         return loss_dict
     
     
-    def compute_auxiliary_metrics(self, pred, label):
+    def compute_auxiliary_metrics(self, pred, label) -> Dict[str, torch.Tensor]:
         
         # prevent gradient calculation when providing auxiliary metrics in training mode
         with torch.no_grad():
@@ -280,7 +317,7 @@ class NeTSFormer(nn.Module):
         return {k:v for k, v in metrics.items()}
     
     
-    def pop_auxiliary_metrics(self, scalar_only=True):
+    def pop_auxiliary_metrics(self, scalar_only=True) -> Dict[str, float|torch.Tensor]:
         """ auxiliary metrics may also contain the log variance, 
             so use scalar_only to control the behavior
         """
@@ -299,7 +336,7 @@ class NeTSFormer(nn.Module):
         preds = self.inference(data)
         raise NotImplementedError 
     
-    def adapt_to_metadata(self, metadata):
+    def adapt_to_metadata(self, metadata) -> None:
         
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'])
         # adjacency can be one or multiple adjacency matrices 
@@ -310,7 +347,7 @@ class NeTSFormer(nn.Module):
         self.mask = (mask == 0).to(self.device)
     
     @staticmethod 
-    def build_encoding_layer(hid_dim, dropout, encoding_type:str, init_method="rand"):
+    def build_encoding_layer(hid_dim, dropout, encoding_type:str, init_method="rand") -> nn.Module | Callable:
         match encoding_type:
             case "learned":
                 return LearnedPositionalEncoding(hid_dim, dropout, init_method=init_method)
@@ -319,7 +356,7 @@ class NeTSFormer(nn.Module):
             case "None" | "none" | "" | None:
                 return get_trivial_forward()
             
-    def get_param_groups(self):
+    def get_param_groups(self) -> Dict[str, List[nn.Parameter]]:
         
         det_params, sto_params = [], []
         
@@ -337,7 +374,7 @@ class NeTSFormer(nn.Module):
         return {"det": [param for _, param in det_params],
                 "sto": [param for _, param in sto_params]}
         
-    def adapt_to_new_config(self, config):
+    def adapt_to_new_config(self, config) -> None:
         
         self.loss = GeneralizedProbRegLoss(**config.loss)
         logger.info("Using new loss function:")

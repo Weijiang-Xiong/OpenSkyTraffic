@@ -1,5 +1,6 @@
 import torch 
 from netsanut.models import NeTSFormer
+from netsanut.models.netsformer import TemporalAggregate
 from einops import rearrange
 
 device = torch.device("cuda")
@@ -29,9 +30,14 @@ metrics = model.pop_auxiliary_metrics(scalar_only=False)
 assert pred.shape == (N, T, M)
 assert metrics['logvar'].shape == (N, T, M)
 
-param_groups = model.det_and_sto_params()
+param_groups = model.get_param_groups()
 all_params = set(model.parameters())
 assert sum([len(g) for g in param_groups.values()]) == len(all_params)
 for group_name, group_params in param_groups.items():
     for param in group_params:
         assert param in all_params
+
+for mode in ['linear', 'last', 'avg']:        
+    agg = TemporalAggregate(in_dim=T, mode=mode).to(device)
+    out = agg(rand_input)
+    assert out.shape == (N, M, C)
