@@ -1,4 +1,5 @@
-from .common_cfg import train, data, optimizer, scheduler
+from .common_cfg import train, data, scheduler
+from .common_cfg import adam as optimizer
 
 train.model_arch = "netsformer"
 model = {
@@ -9,7 +10,8 @@ model = {
     "in_dim": 2, 
     "hid_dim": 64,
     "ff_dim": 256,
-    "out_dim": 12,
+    "hist_len": 12,
+    "pred_len": 12,
     "nhead": 2,
     "dropout": 0.1,
     "encoder_layers":2,

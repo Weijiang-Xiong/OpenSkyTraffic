@@ -21,16 +21,14 @@ optimizer = {
     # if there is only one group, then "groups" should be set to `None`
     # and no group-specific hyper-parameters should exists in the config
     "groups": ["det", "sto"],
-    # group-specific hyper-parameters
-    "det": {
-        "lr": 0.001,
-    },
+    # group-specific hyper-parameters, will override common specific ones
     "sto": {
-        "lr": 0.001,
+        "lr": 0.002,
     },
     # common hyper-parameters
-    # all of them will be unpacked to initialize the optimizer
+    "lr": 0.001,
     "weight_decay": 0.0001,
+    "betas": (0.9, 0.999)
 }
 
 scheduler = {

@@ -1,4 +1,5 @@
-from .common_cfg import train, data, optimizer, scheduler
+from .common_cfg import train, data, scheduler
+from .common_cfg import adam as optimizer
 
 model = {
     # these are information about the model

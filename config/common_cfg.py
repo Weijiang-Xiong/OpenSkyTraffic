@@ -15,10 +15,24 @@ data = {
     "batch_size": 32,
 }
 
-optimizer = {
+adam = {
     "type": "adam",
-    "lr": 0.001,
-    "weight_decay": 0.0001,
+    "lr": 1e-3,
+    "weight_decay": 1e-4,
+    "betas": (0.9, 0.999)
+}
+
+adamw = {
+    "type": "adamw",
+    "lr": 1e-3,
+    "weight_decay": 1e-4,
+    "betas": (0.9, 0.999)
+}
+
+sgd = {
+    "type": "sgd",
+    "lr": 1e-2,
+    "momentum": 0.9
 }
 
 scheduler = {
