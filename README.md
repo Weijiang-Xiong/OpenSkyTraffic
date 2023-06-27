@@ -2,30 +2,29 @@
 
 ### Installation
 
+We assume there is a conda environment called `pytorch` with [PyTorch](https://pytorch.org/get-started/locally/) correctly installed.
+
 ```bash
+git clone https://github.com/Weijiang-Xiong/netsanut.git
 python -m pip install -e .
 ```
 
 ### Dataset Preparation
 
-METR-LA and PEMS-BAY can be downloaded from DCRNN
+Please follow the [readme file](datasets/README.md) in `datasets` folder.
 
-UTD19 can be downloaded from https://www.research-collection.ethz.ch/handle/20.500.11850/437802
+### TODO
 
-TODO:
-
-* [ ] complete the NetsFormer model
-* [ ] Add a two stage trainer to train deterministic part first and then variance prediction
+* [X] complete the NetsFormer model
+* [X] Add a two stage trainer to train deterministic part first and then variance prediction
+* [ ] visualization of prediction results
 * [ ] adapt he data processing from [LargeST](https://github.com/liuxu77/LargeST)
 * [ ] add processing for UTD19
 * [ ] change the spatial positional encoding into longitude and latitude-based, like vision transformer
 * [ ] adapt the lazy call system from  detectron2
 
-### Credits
+### Reference
 
-Modified from [Traffic Transformer](https://github.com/R0oup1iao/Traffic-Transformer).
+The structure and code framework (config, logging, trainer-hooks, etc.) follows [detectron2](https://github.com/facebookresearch/detectron2).
 
-How it works:
-
-1. process fixed time dimension with LSTM and take the last memory
-2. Use adjacency matrix as decoder mask in transformer
+The model in `netsanut/models/ttnet.py` is modified from [Traffic Transformer](https://github.com/R0oup1iao/Traffic-Transformer).
