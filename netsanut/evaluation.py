@@ -1,14 +1,14 @@
 import logging
-from typing import Tuple
+from typing import Dict
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from netsanut.util import default_metrics
+from collections import defaultdict
 
-
-def inference_on_dataset(model:nn.Module, dataloader:DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
+def inference_on_dataset(model:nn.Module, dataloader:DataLoader) -> Dict[str, torch.Tensor]:
     """ run inference of the model on the dataloader
         concatenate all predictions and corresponding labels.
         
@@ -16,26 +16,24 @@ def inference_on_dataset(model:nn.Module, dataloader:DataLoader) -> Tuple[torch.
     """
     model.eval()
 
-    all_preds, all_labels = [], []
-    for data, label in dataloader:
+    all_res = defaultdict(list)
+    for data in dataloader:
+        result_dict = model(data)
+        for dictionary in [data, result_dict]:
+            for key, value in dictionary.items():
+                all_res[key].append(value)
 
-        data, label = data.cuda(), label.cuda()
-
-        preds = model(data)
-
-        all_preds.append(preds)
-        all_labels.append(label)
-
-    all_preds = torch.cat(all_preds, dim=0).cpu()
-    all_labels = torch.cat(all_labels, dim=0).cpu()
+    for key, value in all_res.items():
+        all_res[key] = torch.cat(value, dim=0).detach().cpu()
     
-    return all_preds, all_labels
+    return all_res
 
-def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False):
+def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False) -> Dict[str, float]:
 
     logger = logging.getLogger("default")
     
-    all_preds, all_labels = inference_on_dataset(model, dataloader)
+    all_res = inference_on_dataset(model, dataloader)
+    all_preds, all_labels = all_res['pred'], all_res['target']
 
     if verbose:
         logger.info("The shape of predicted {} and label {}".format(all_preds.shape, all_labels.shape))

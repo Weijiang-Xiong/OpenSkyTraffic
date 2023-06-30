@@ -120,13 +120,11 @@ class TrainerBase:
 
         self.loss_log = defaultdict(list)
 
-        for self.batch_idx, (data, label) in enumerate(self.dataloader):
+        for self.batch_idx, data in enumerate(self.dataloader):
 
             self.before_step()
 
-            data, label = data.cuda(), label.cuda()
-
-            loss_dict = self.model(data, label)
+            loss_dict = self.model(data)
             loss = sum(loss_dict.values())
             loss.backward()
             self.after_backward()

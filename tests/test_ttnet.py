@@ -1,20 +1,30 @@
 import torch 
 from netsanut.models import TTNet
 
-def test_model_forward():
+device = torch.device("cuda")
     
-    print("Testing TTNet forward pass...")
-    N, C, M, T = 8, 2, 207, 12
-    random_input = torch.rand((N, T, M, C))
-    adjacencies = [torch.randint(0, 2, (M, M)).bool() for _ in range(2)]
-    model = TTNet().eval()
-    model.set_fixed_mask(adjacencies)
-    mean = model(random_input)
-    var = model.pop_auxiliary_metrics()
-    assert mean.shape == (N, T, M)
-    assert isinstance(var, dict)
-    print("Test OK")
+print("Testing TTNet forward pass...")
+N, T, M, C = 32, 12, 211, 2
+rand_input = torch.rand(size=(N, T, M, C), device=device)
+rand_label = torch.rand(size=(N, T, M), device=device)
+rand_data = {'source': rand_input, 'target': rand_label}
 
-if __name__ == "__main__":
+adjacencies = [torch.randint(0, 2, (M, M)).bool() for _ in range(2)]
+model = TTNet().to(device).eval()
+model.set_fixed_mask(adjacencies)
 
-    test_model_forward()
+model.train()
+loss_dict = model(rand_data)
+loss = sum(loss_dict.values())
+loss.backward()
+
+model.eval()
+result_dict = model(rand_data)
+metrics = model.pop_auxiliary_metrics(scalar_only=False)
+assert result_dict['pred'].shape == (N, T, M)
+assert result_dict['logvar'].shape == (N, T, M)
+assert isinstance(metrics, dict)
+
+print("Num Params. {:.2f}M".format(model.num_params/1e6))
+print("Test OK")
+

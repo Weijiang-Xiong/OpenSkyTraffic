@@ -14,21 +14,24 @@ in_reshape = rand_input.clone().permute((0, 2, 1, 3)).reshape(N*M, T, C)
 assert in_rearrange.shape == in_reshape.shape 
 assert torch.allclose(in_rearrange, in_reshape)
 
+rand_data = {'source': rand_input, 'target': rand_label}
+
 model = NeTSFormer().to(device)
 model.adapt_to_metadata({'adjacency': [torch.randint(0, 5, size=(M, M)) for _ in range(2)],
                          'mean': torch.tensor([0.0, 0.0]),
                          'std': torch.tensor([1.0, 0.0])})
 
 model.train()
-loss_dict = model(rand_input, rand_label)
+loss_dict = model(rand_data)
 loss = sum(loss_dict.values())
 loss.backward()
 
 model.eval()
-pred = model(rand_input, rand_label)
+result_dict = model(rand_data)
 metrics = model.pop_auxiliary_metrics(scalar_only=False)
-assert pred.shape == (N, T, M)
-assert metrics['logvar'].shape == (N, T, M)
+assert result_dict['pred'].shape == (N, T, M)
+assert result_dict['logvar'].shape == (N, T, M)
+assert isinstance(metrics, dict)
 
 param_groups = model.get_param_groups()
 all_params = set(model.parameters())
@@ -41,3 +44,5 @@ for mode in ['linear', 'last', 'avg']:
     agg = TemporalAggregate(in_dim=T, mode=mode).to(device)
     out = agg(rand_input)
     assert out.shape == (N, M, C)
+
+print("Num Params. {:.2f}M".format(model.num_params/1e6))

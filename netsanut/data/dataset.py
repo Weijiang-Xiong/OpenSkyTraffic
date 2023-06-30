@@ -54,7 +54,7 @@ def tensor_collate(list_of_xy:List[Tuple[torch.Tensor]]) -> Tuple[torch.Tensor]:
 
 def to_contiguous(data:torch.Tensor, label:torch.Tensor) -> Tuple[torch.Tensor]:
     
-    return data.contiguous(), label[..., 0].contiguous()
+    return {"source": data.contiguous(), "target": label[..., 0].contiguous()}
 
 tensor_to_contiguous = lambda list_of_xy: to_contiguous(*tensor_collate(list_of_xy))
 

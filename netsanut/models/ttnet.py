@@ -15,6 +15,7 @@ from netsanut.data import TensorDataScaler
 from netsanut.events import get_event_storage
 
 from .common import PositionalEncoding, LearnedPositionalEncoding
+from .base import BaseModel
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -55,7 +56,7 @@ class TrafficTransformer(nn.Module):
         return mask
 
 
-class TTNet(nn.Module):
+class TTNet(BaseModel):
     """ Traffic Transformer Network modified from, code partly rewritten, fixed a few bugs ... 
         https://github.com/R0oup1iao/Traffic-Transformer
         
@@ -94,33 +95,13 @@ class TTNet(nn.Module):
         self.scale_before_loss = True
         self.record_auxiliary_metrics = True
         self.metrics = dict()
-        
-    @property   
-    def device(self):
-        return list(self.parameters())[0].device
+
 
     def set_fixed_mask(self, adj_mtxs):
         mask = sum([s.detach() for s in adj_mtxs])
         # a True value in self.mask indicates the corresponding key will be ignored
         self.mask = (mask == 0).to(self.device)
-        
-    def forward(self, data, label=None):
-        """
-            time series forecasting task, 
-            data is assumed to have (N, T, M, C) shape (assumed to be unnormalized)
-            label is assumed to have (N, T, M) shape (assumed to be unnormalized)
-            
-            compute loss in training mode, predict future values in inference
-        """
-        
-        # normalize data here
-        data = self.datascaler.transform(data)
-        
-        if self.training:
-            assert label is not None, "label should be provided for training"
-            return self.compute_loss(data, label)
-        else:
-            return self.inference(data, label)
+
 
     def make_pred(self, x:torch.Tensor):
         """ 
@@ -140,7 +121,7 @@ class TTNet(nn.Module):
         return mean.permute(0, 2, 1), logvar.permute(0, 2, 1)
 
     
-    def inference(self, data, label=None):
+    def inference(self, source, target=None):
         
         """ if label is None, this is basically the same as self.make_pred 
             one can use this as an alternative to writing torch.no_grad outside the model 
@@ -148,63 +129,32 @@ class TTNet(nn.Module):
         """
         
         with torch.no_grad():
-            mean, logvar = self.make_pred(data)
+            mean, logvar = self.make_pred(source)
             
         mean = self.datascaler.inverse_transform(mean)
         logvar = self.datascaler.inverse_transform_logvar(logvar)
         
-        if self.record_auxiliary_metrics and label is not None:
-            self.metrics = self.compute_auxiliary_metrics(mean, label)
+        if self.record_auxiliary_metrics and target is not None:
+            self.metrics = self.compute_auxiliary_metrics(mean, target)
         
-        self.metrics.update({"logvar": logvar})
-        
-        return mean
+        return {"pred": mean, "logvar": logvar}
         
         
-    def compute_loss(self, data, label):
+    def compute_loss(self, source, target):
         
-        mean, logvar = self.make_pred(data)
+        mean, logvar = self.make_pred(source)
         
         # scale back the predictions and then calculate loss 
         mean = self.datascaler.inverse_transform(mean)
         logvar = self.datascaler.inverse_transform_logvar(logvar)
-        loss = self.loss(mean, label, logvar)
+        loss = self.loss(mean, target, logvar)
             
         loss_dict = {"loss": loss}
         
         if self.record_auxiliary_metrics:
-            self.metrics = self.compute_auxiliary_metrics(mean, label)
+            self.metrics = self.compute_auxiliary_metrics(mean, target)
             
         return loss_dict
-    
-    
-    def compute_auxiliary_metrics(self, pred, label):
-        
-        # prevent gradient calculation when providing auxiliary metrics in training mode
-        with torch.no_grad():
-            metrics = default_metrics(pred, label)
-            
-        return {k:v for k, v in metrics.items()}
-    
-    
-    def pop_auxiliary_metrics(self, scalar_only=True):
-        """ auxiliary metrics may also contain the log variance, 
-            so use scalar_only to control the behavior
-        """
-        if not self.record_auxiliary_metrics:
-            return {} 
-        
-        if scalar_only:
-            scalar_metrics = {k:v for k, v in self.metrics.items() if isinstance(v, (int, float))}
-        else:
-            scalar_metrics = self.metrics
-            
-        self.metrics = dict() 
-        return scalar_metrics
-    
-    def visualize(self, data, label):
-        preds = self.inference(data)
-        raise NotImplementedError 
     
     def adapt_to_metadata(self, metadata):
         

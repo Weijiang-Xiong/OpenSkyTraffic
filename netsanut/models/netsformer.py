@@ -21,7 +21,7 @@ from netsanut.loss import GeneralizedProbRegLoss
 from netsanut.util import default_metrics
 from netsanut.data import TensorDataScaler
 from .common import LearnedPositionalEncoding, PositionalEncoding
-
+from .base import BaseModel
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -153,7 +153,7 @@ def get_trivial_forward() -> Callable:
     
     return copy.deepcopy(trivial_forward)
 
-class NeTSFormer(nn.Module):
+class NeTSFormer(BaseModel):
 
     """ Networked Time Series Prediction with Transformer
 
@@ -223,28 +223,6 @@ class NeTSFormer(nn.Module):
         )
         self.record_auxiliary_metrics = auxiliary_metrics
         self.metrics = dict()
-        
-    @property   
-    def device(self):
-        return list(self.parameters())[0].device
-        
-    def forward(self, data, label=None) -> torch.Tensor:
-        """
-            time series forecasting task, 
-            data is assumed to have (N, T, M, C) shape (assumed to be unnormalized)
-            label is assumed to have (N, T, M) shape (assumed to be unnormalized)
-            
-            compute loss in training mode, predict future values in inference
-        """
-        
-        # normalize data here
-        data = self.datascaler.transform(data)
-        
-        if self.training:
-            assert label is not None, "label should be provided for training"
-            return self.compute_loss(data, label)
-        else:
-            return self.inference(data, label)
 
     def make_pred(self, x:torch.Tensor) -> Tuple[torch.Tensor]:
         """ 
@@ -287,9 +265,7 @@ class NeTSFormer(nn.Module):
         if self.record_auxiliary_metrics and label is not None:
             self.metrics = self.compute_auxiliary_metrics(mean, label)
         
-        self.metrics.update({"logvar": logvar})
-        
-        return mean
+        return {"pred": mean, "logvar": logvar}
         
         
     def compute_loss(self, data, label) -> Dict[str, torch.Tensor]:
@@ -308,34 +284,6 @@ class NeTSFormer(nn.Module):
             
         return loss_dict
     
-    
-    def compute_auxiliary_metrics(self, pred, label) -> Dict[str, torch.Tensor]:
-        
-        # prevent gradient calculation when providing auxiliary metrics in training mode
-        with torch.no_grad():
-            metrics = default_metrics(pred, label)
-            
-        return {k:v for k, v in metrics.items()}
-    
-    
-    def pop_auxiliary_metrics(self, scalar_only=True) -> Dict[str, float|torch.Tensor]:
-        """ auxiliary metrics may also contain the log variance, 
-            so use scalar_only to control the behavior
-        """
-        if not self.record_auxiliary_metrics:
-            return {} 
-        
-        if scalar_only:
-            scalar_metrics = {k:v for k, v in self.metrics.items() if isinstance(v, (int, float))}
-        else:
-            scalar_metrics = self.metrics
-            
-        self.metrics = dict() 
-        return scalar_metrics
-    
-    def visualize(self, data, label):
-        preds = self.inference(data)
-        raise NotImplementedError 
     
     def adapt_to_metadata(self, metadata) -> None:
         
