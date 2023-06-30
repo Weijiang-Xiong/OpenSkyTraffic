@@ -1,4 +1,6 @@
 import logging
+from typing import Tuple
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -6,10 +8,12 @@ from torch.utils.data import DataLoader
 from netsanut.util import default_metrics
 
 
-def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False):
-
-    logger = logging.getLogger("default")
-
+def inference_on_dataset(model:nn.Module, dataloader:DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
+    """ run inference of the model on the dataloader
+        concatenate all predictions and corresponding labels.
+        
+        Returns: predictions, labels
+    """
     model.eval()
 
     all_preds, all_labels = [], []
@@ -24,6 +28,14 @@ def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False):
 
     all_preds = torch.cat(all_preds, dim=0).cpu()
     all_labels = torch.cat(all_labels, dim=0).cpu()
+    
+    return all_preds, all_labels
+
+def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False):
+
+    logger = logging.getLogger("default")
+    
+    all_preds, all_labels = inference_on_dataset(model, dataloader)
 
     if verbose:
         logger.info("The shape of predicted {} and label {}".format(all_preds.shape, all_labels.shape))
