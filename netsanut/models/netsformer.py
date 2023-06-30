@@ -120,10 +120,11 @@ class TemporalAggregate(nn.Module):
         # 'N T M C -> N M C'
         x = self.agg(x)
         
-        return x.squeeze()
+        # only squeeze the time dimension, as N could be 1 in the last test batch
+        return x.squeeze(1)
     
     def extra_repr(self) -> str:
-        return "in_dim={}, "
+        return "in_dim={}, mode={}".format(self.in_dim, self.mode)
         
 class SpatialDecoder(nn.Module):
     """ stack a few transformer decoder layers, implementation is different from nn.TransformerDecoder
@@ -170,7 +171,7 @@ class NeTSFormer(nn.Module):
                  encoder_layers: int = 2,
                  decoder_layers: int = 2,
                  time_first: bool = True,
-                 temp_aggregate: str = "linear",
+                 temp_aggregate: str = "avg",
                  auxiliary_metrics: bool = True, 
                  reduction: str = "mean",  # loss related
                  aleatoric: bool = False,
