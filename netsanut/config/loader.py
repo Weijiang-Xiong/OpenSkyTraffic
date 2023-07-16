@@ -178,9 +178,7 @@ class ConfigLoader:
         )
         
         logger.info("Config loaded from {}".format(filename))
-        
-        OmegaConf.resolve(ret)
-        
+                
         return ret
     
     @staticmethod

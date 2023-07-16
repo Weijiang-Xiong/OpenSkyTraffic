@@ -41,5 +41,6 @@ def default_setup(cfg: DictConfig, args):
     logger.info("Start Training with the following configurations:")
     logger.info(OmegaConf.to_yaml(cfg))
     ConfigLoader.save_cfg(cfg, "{}/config.py".format(save_dir))
+    OmegaConf.resolve(cfg)
     
     
