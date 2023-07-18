@@ -6,8 +6,7 @@ from typing import Dict, List, Tuple, Callable
 
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-sns.set_style("darkgrid")
+
 from omegaconf import DictConfig
 
 import torch
@@ -17,17 +16,6 @@ from netsanut.engine.base import TrainerBase
 
 from .base import HookBase, TrainerBase
 
-
-class UncertaintyTraining(HookBase):
-    
-    
-    def __init__(self) -> None:
-        super().__init__()
-    
-    def before_train(self, trainer: TrainerBase):
-        return
-    
-    
 class EpochTimer(HookBase):
     
     def __init__(self) -> None:
@@ -44,10 +32,11 @@ class EpochTimer(HookBase):
 
 class TrainingStageManager(HookBase):
     
-    def __init__(self, milestone: int=None, config:Dict[int, DictConfig]=None) -> None:
+    def __init__(self, milestone: int=None, config:Dict[int, DictConfig]=None, from_best=False) -> None:
         super().__init__()
         self.milestone = milestone
-        self.config = config
+        self.config = config # the new config to use at the milestone epoch
+        self.from_best = from_best # whether to load the model with best validation loss 
         
     def before_epoch(self, trainer: TrainerBase):
         
@@ -56,7 +45,12 @@ class TrainingStageManager(HookBase):
         
         if trainer.epoch_num == self.milestone:
             trainer.model.adapt_to_new_config(self.config.model)
-
+            if self.from_best:
+                trainer.logger.info("Train uncertainty part based on previous best")
+                ckpthook = [h for h in trainer._hooks if isinstance(h, CheckpointSaver)][0]
+                trainer.load_checkpoint(ckpthook.best_ckpt_path, resume=False)
+                
+                
 class ValidationHook(HookBase):
     # TODO add eval period option
     def __init__(self, eval_function:Callable) -> None:
@@ -116,6 +110,7 @@ class CheckpointSaver(HookBase):
         self.metric = metric
         self.lowest_loss = np.inf
         self.best_ckpt_path = ""
+        self.last_ckpt_path = ""
         self.test_best_ckpt = test_best_ckpt
         
     def after_epoch(self, trainer: TrainerBase):
@@ -131,27 +126,30 @@ class CheckpointSaver(HookBase):
             latest_loss, latest_epoch = metric_tuple
         
         note = '{}_{}'.format(self.metric, round(latest_loss, 2))
-        save_path = trainer.save_checkpoint(additional_note=note)
+        self.last_ckpt_path = trainer.save_checkpoint(additional_note=note)
         
         if latest_loss < self.lowest_loss:
             self.lowest_loss = latest_loss
-            self.best_ckpt_path = save_path
-    
+            self.best_ckpt_path = self.last_ckpt_path
+        
     def after_train(self, trainer: TrainerBase):
         
-        trainer.logger.info("The valid loss on best model is {}".format(round(self.lowest_loss, 2)))
+        trainer.logger.info("The best achieved validation loss is {}".format(round(self.lowest_loss, 2)))
         
         # copy the best checkpoint, and name it
         if os.path.exists(self.best_ckpt_path):
-            save_folder = os.path.dirname(self.best_ckpt_path)
-            copy_path = "{}/model_best.pth".format(save_folder)
+            trainer.logger.info("The model with best validation loss is {}".format(self.best_ckpt_path))
+            copy_path = "{}/model_bestval.pth".format(trainer.save_dir)
             shutil.copyfile(self.best_ckpt_path, copy_path)
-            trainer.logger.info("Copying the model to {}".format(copy_path))
+            trainer.logger.info("Copying the best model to {}".format(copy_path))
             
         if self.test_best_ckpt:
             trainer.logger.info("Loading the model from {}".format(self.best_ckpt_path))
             trainer.load_checkpoint(self.best_ckpt_path, resume=False)
         
+        copy_path = "{}/model_final.pth".format(trainer.save_dir)
+        shutil.copyfile(self.last_ckpt_path, copy_path)
+        trainer.logger.info("Copying the final model to {}".format(copy_path))
 
 class MetricLogger(HookBase):
     
@@ -217,11 +215,16 @@ class GradientClipper(HookBase):
             
 class PlotTrainingLog(HookBase):
     
-    def __init__(self, dpi=300) -> None:
+    def __init__(self, dpi=300, use_sns=True) -> None:
         super().__init__()
         self.dpi = dpi
-    
+        self.use_sns = use_sns
+
     def after_train(self, trainer: TrainerBase):
+        if self.use_sns:
+            import seaborn as sns 
+            sns.set_style("darkgrid")
+    
         stored_data = trainer.storage._history
         for key, value in stored_data.items():
             value_epoch = np.array(value.data())

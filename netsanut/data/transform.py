@@ -42,5 +42,7 @@ class TensorDataScaler:
                 Var(x) = Var(u) * std**2
             and the log variance should be:
                 log Var(x) = log(Var(u)) + 2log(std)
+            However, through experiments, we find this biased log variance are usually too large,
+            so we discarded this inductive bias, and let the network learn by itself. 
         """
-        return logvar + 2*torch.log(self.std)
+        return logvar # + 2*torch.log(self.std)
