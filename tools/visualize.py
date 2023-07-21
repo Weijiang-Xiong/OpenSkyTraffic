@@ -1,0 +1,48 @@
+import os
+
+import seaborn as sns
+sns.set_style("darkgrid")
+
+from netsanut.config import default_argument_parser, ConfigLoader
+from netsanut.engine import DefaultTrainer
+from netsanut.models import build_model
+from netsanut.data import build_trainvaltest_loaders
+from netsanut.evaluation import evaluate
+from netsanut.predict import Visualizer
+from netsanut.event_logger import setup_logger
+
+if __name__ == "__main__":
+    
+    parser = default_argument_parser()
+    parser.add_argument("--result-dir", type=str, default=None, help="the folder containing all training results")
+    parser.add_argument("--cfg-name", type=str, default="config.py", help="file name of the config file")
+    parser.add_argument("--ckpt", type=str, default="model_final.pth", help="checkpoint file name")
+    args = parser.parse_args()
+    
+    config_file = "{}/{}".format(args.result_dir, args.cfg_name)
+    checkpoint = "{}/{}".format(args.result_dir, args.ckpt)
+    
+    cfg = ConfigLoader.load_from_file(config_file)
+    cfg = ConfigLoader.apply_overrides(cfg, overrides=args.opts)
+    logger = setup_logger(name="default", log_file="{}/experiment.log".format(args.result_dir))
+    
+    dataloaders, metadata = build_trainvaltest_loaders(**cfg.data)
+    model = build_model(cfg.model)
+    model.adapt_to_metadata(metadata)
+
+    state_dict = DefaultTrainer.load_file(ckpt_path=checkpoint)
+    model.load_state_dict(state_dict['model'])
+        
+    visualizer = Visualizer(model,
+                            dist_exponent=cfg.model.loss.exponent if not hasattr(cfg.train, "milestone_cfg") else cfg.train.milestone_cfg.model.loss.exponent,
+                            save_dir=os.path.dirname(checkpoint))
+    
+    visualizer.inference_on_dataset(dataloaders['test'])
+    visualizer.calculate_metrics(verbose=True)
+    visualizer.visualize_calibration(save_hint="test")
+    visualizer.visualize_day(save_name="example")
+    
+    visualizer.inference_on_dataset(dataloaders['train'])
+    visualizer.calculate_metrics(verbose=True)
+    visualizer.visualize_calibration(save_hint="train")
+    
