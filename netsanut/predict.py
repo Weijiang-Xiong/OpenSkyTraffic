@@ -19,7 +19,10 @@ class Visualizer:
         self.model = model
         self.model.eval()
         self.save_dir = save_dir
+        # this part should be added to model code later
         self.dist_exponent = dist_exponent
+        self.offset_coeffs = {c:GGD_interval(beta=self.dist_exponent, confidence=c) 
+                         for c in np.round(np.arange(0.5, 1.0, 0.05), 2).tolist()}
         # self.result_dict: Dict[str, torch.Tensor]
     
     def inference_on_dataset(self, dataloader: DataLoader):
@@ -34,7 +37,7 @@ class Visualizer:
     def visualize_day(self, conf=0.95, start_idx=200, pred_step=11, sensor=100, num_days=1, save_name=None):
         
         length =int(24*60/5)
-        k = GGD_interval(beta=self.dist_exponent, confidence=conf)
+        k = self.offset_coeffs[conf]
         
         xs = np.arange(length)/12
         gt = self.target[start_idx:start_idx+length][:, pred_step, sensor]
@@ -59,17 +62,16 @@ class Visualizer:
     def calculate_metrics(self, verbose=True):
         
         res = uncertainty_metrics(self.pred, self.target, self.scale, 
-                                  loss_exponent=self.dist_exponent,
+                                  offset_coeffs=self.offset_coeffs,
                                   ignore_value=0.0,
                                   verbose=verbose)
-        self.res = res 
-        
         return res
     
-    def visualize_calibration(self, save_hint=None):
+    @staticmethod
+    def visualize_calibration(res, save_dir, save_hint=None):
         
         xs = np.round(np.arange(0.5, 1.0, 0.05), 2)
-        ys = self.res['coverage_percentage']
+        ys = res['coverage_percentage']
         
         fig, ax = plt.subplots(figsize=(4,4))
         ax.plot(xs, ys, label="Model")
@@ -78,13 +80,34 @@ class Visualizer:
         ax.set_ylim(0, 1)
         ax.set_xlabel("Confidence Interval")
         ax.set_ylabel("Data Coverage")
-        ax.set_title("Uncertainty Calibration \n mAO {:.3f}, mCCE {:.3f}".format(self.res['mAO'], self.res['mCCE']))
+        ax.set_title("Uncertainty Calibration \n mAO {:.3f}, mCCE {:.3f}".format(res['mAO'], res['mCCE']))
         ax.legend()
         fig.tight_layout()
-        if os.path.exists(self.save_dir):
+        
+        if os.path.exists(save_dir):
             file_name = "calibration_curve" if save_hint is None else "calibration_curve_{}".format(save_hint)
-            fig.savefig("{}/{}.pdf".format(self.save_dir, file_name))
+            fig.savefig("{}/{}.pdf".format(save_dir, file_name))
     
+    def calibrate_scale_offset(self, verbose=True):
+        
+        confidences = np.round(np.arange(0.05, 1.0, 0.05), 2).tolist() + [0.99, 0.999, 0.9999, 0.99999]
+        offset_coeffs = {c:GGD_interval(beta=self.dist_exponent, confidence=c) 
+                         for c in confidences}
+        
+        init_res = uncertainty_metrics(self.pred, self.target, self.scale, 
+                                  offset_coeffs=offset_coeffs,
+                                  ignore_value=0.0,
+                                  verbose=verbose)
+        xp, fp = init_res['coverage_percentage'], list(offset_coeffs.values())
+        calibrated_coeffs = {x:np.interp(x, xp, fp) for x in np.round(np.arange(0.5, 1.0, 0.05), 2)}
+        
+        res = uncertainty_metrics(self.pred, self.target, self.scale, 
+                                  offset_coeffs=calibrated_coeffs,
+                                  ignore_value=0.0,
+                                  verbose=verbose)
+        
+        return res
+        
     def visualize_attention(self):
         
         pass

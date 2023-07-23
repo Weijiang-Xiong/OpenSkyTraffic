@@ -38,11 +38,15 @@ if __name__ == "__main__":
                             save_dir=os.path.dirname(checkpoint))
     
     visualizer.inference_on_dataset(dataloaders['test'])
-    visualizer.calculate_metrics(verbose=True)
-    visualizer.visualize_calibration(save_hint="test")
+    test_res = visualizer.calculate_metrics(verbose=True)
+    visualizer.visualize_calibration(test_res, visualizer.save_dir, save_hint="test")
     visualizer.visualize_day(save_name="example")
     
     visualizer.inference_on_dataset(dataloaders['train'])
-    visualizer.calculate_metrics(verbose=True)
-    visualizer.visualize_calibration(save_hint="train")
+    train_res = visualizer.calculate_metrics(verbose=True)
+    visualizer.visualize_calibration(train_res, visualizer.save_dir, save_hint="train")
     
+    # we can use the training set to calibrate the width of confidence interval
+    calibrated_res = visualizer.calibrate_scale_offset()
+    visualizer.inference_on_dataset(dataloaders['test'])
+    visualizer.visualize_calibration(calibrated_res, visualizer.save_dir, save_hint="test_calibrated")

@@ -30,32 +30,33 @@ def GGD_interval(beta:int, confidence):
     return k
 
 def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Tensor, 
-                        loss_exponent:int=2, ignore_value=0.0, verbose=False):
+                        offset_coeffs: Dict[float, float], ignore_value=0.0, verbose=False):
     pred, target, scale = pred.flatten(), target.flatten(), scale.flatten()
     if ignore_value is not None:
         valid = (target != ignore_value)
         pred, target, scale = pred[valid], target[valid], scale[valid]
     
-    eval_points = np.round(np.arange(0.5, 1.0, 0.05), 2).tolist()
-    
-    all_cp, CCE, AO = [], [], []
-    for confidence in eval_points:
-        k = GGD_interval(beta=loss_exponent, confidence=confidence)
-        ub = pred + k * scale
-        lb = pred - k * scale
+    Conf, OC_val, CP, CCE, AO = [[] for _ in range(5)]
+    for confidence, offset in offset_coeffs.items():
+        ub = pred + offset * scale
+        lb = pred - offset * scale
         
         covered = torch.logical_and(target < ub, target > lb)
         coverage_percentage = covered.sum() / covered.numel()
-        all_cp.append(coverage_percentage.item())
+        
+        Conf.append(confidence)
+        OC_val.append(offset)
+        CP.append(coverage_percentage.item())
         CCE.append((confidence - coverage_percentage).item())
-        AO.append(torch.mean(k*scale).item())
+        AO.append(torch.mean(offset*scale).item())
 
     res = { 
            "mAO"                : sum(AO)/len(AO), # mean average offset, interval width
-           "mCP"                : sum(all_cp)/len(all_cp), # mean coverage percentage 
+           "mCP"                : sum(CP)/len(CP), # mean coverage percentage 
            "mCCE"               : sum(CCE)/len(CCE), # mean confidence calibration error 
-           "eval_points"        : eval_points,
-           "coverage_percentage": all_cp,
+           "eval_points"        : Conf,
+           "offset_coeffs"      : OC_val,
+           "coverage_percentage": CP,
            "average_offset"     : AO,
            "calibration_error"  : CCE
     }
@@ -63,9 +64,9 @@ def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Te
     if verbose:
         logger = logging.getLogger("default")
         logger.info("Uncertainty Metrics")
-        logger.info(" ".join(["{}: {},".format(k, v) for k, v in res.items() if isinstance(v, (int, float))]))
-        logger.info("Evaluated confidence interval {}".format(eval_points))
-        logger.info("Corresponding data coverage percentage {}".format(np.round(all_cp, 2).tolist()))
+        logger.info(" ".join(["{}: {:.3f},".format(k, v) for k, v in res.items() if isinstance(v, (int, float))]))
+        logger.info("Evaluated confidence interval {}".format(Conf))
+        logger.info("Corresponding data coverage percentage {}".format(np.round(CP, 2).tolist()))
 
     return res
 
@@ -122,7 +123,9 @@ def evaluate(model: nn.Module, dataloader: DataLoader,
 
     if eval_uncertainty:
         all_scales = torch.pow(all_res['logvar'].exp(), exponent=model.loss.exponent)
-        res_u = uncertainty_metrics(all_preds, all_labels, all_scales, model.loss.exponent, verbose=verbose)
+        offset_coeffs = {c:GGD_interval(beta=model.loss.exponent, confidence=c) 
+                         for c in np.round(np.arange(0.5, 1.0, 0.05), 2).tolist()}
+        res_u = uncertainty_metrics(all_preds, all_labels, all_scales, offset_coeffs, verbose=verbose)
         res.update(res_u)
 
     return res
