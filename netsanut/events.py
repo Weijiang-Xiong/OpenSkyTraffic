@@ -136,6 +136,8 @@ class EventStorage:
 
     def put_scalars(self, suffix=None, **kwargs):
         for k, v in kwargs.items():
+            if not isinstance(v, (float, int)):
+                continue
             self.put_scalar(name=k, value=v, suffix=suffix)
             
     def latest(self):

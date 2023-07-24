@@ -104,15 +104,17 @@ class TrainerBase:
         self.logger.info("The model structure \n {}".format(self.model))
 
         with EventStorage() as self.storage:
-
-            self.before_train()
-
-            for self.epoch_num in range(self.start_epoch, self.max_epoch):
-                self.before_epoch()
-                self.train_epoch()
-                self.after_epoch()
-
-            self.after_train()
+            try:
+                self.before_train()
+                for self.epoch_num in range(self.start_epoch, self.max_epoch):
+                    self.before_epoch()
+                    self.train_epoch()
+                    self.after_epoch()
+            except Exception:
+                self.logger.exception("Exception during training:")
+                raise
+            finally:
+                self.after_train()
 
     def train_epoch(self):
 
