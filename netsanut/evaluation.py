@@ -47,7 +47,7 @@ def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Te
         Conf.append(confidence)
         OC_val.append(offset)
         CP.append(coverage_percentage.item())
-        CCE.append((confidence - coverage_percentage).item())
+        CCE.append(abs((confidence - coverage_percentage).item()))
         AO.append(torch.mean(offset*scale).item())
 
     res = { 

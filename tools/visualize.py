@@ -37,15 +37,18 @@ if __name__ == "__main__":
                             dist_exponent=cfg.model.loss.exponent if not hasattr(cfg.train, "milestone_cfg") else cfg.train.milestone_cfg.model.loss.exponent,
                             save_dir=os.path.dirname(checkpoint))
     
+    logger.info("Evaluating uncertainty on test set")
     visualizer.inference_on_dataset(dataloaders['test'])
     test_res = visualizer.calculate_metrics(verbose=True)
     visualizer.visualize_calibration(test_res, visualizer.save_dir, save_hint="test")
     visualizer.visualize_day(save_name="example")
     
+    logger.info("Evaluating uncertainty on train set")
     visualizer.inference_on_dataset(dataloaders['train'])
     train_res = visualizer.calculate_metrics(verbose=True)
     visualizer.visualize_calibration(train_res, visualizer.save_dir, save_hint="train")
     
+    logger.info("Calibrating the confidence intervals and re-evaluate on test set")
     # we can use the training set to calibrate the width of confidence interval
     calibrated_res = visualizer.calibrate_scale_offset()
     visualizer.inference_on_dataset(dataloaders['test'])
