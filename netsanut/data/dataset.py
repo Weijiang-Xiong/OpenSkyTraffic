@@ -2,6 +2,7 @@ import os
 import logging
 from typing import List, Tuple, Dict
 
+import pandas as pd
 import numpy as np 
 
 import torch 
@@ -26,7 +27,7 @@ class NetworkedTimeSeriesDataset(Dataset):
         self.data_y = torch.as_tensor(data['y'], dtype=torch.float32)
         
         if self.split == 'train' or compute_metadata:
-            self.compute_metadata(adj_type)
+            self.metadata = self.compute_metadata(adj_type)
 
     def __len__(self) -> int:
         return int(self.data_x.size(0))
@@ -34,15 +35,22 @@ class NetworkedTimeSeriesDataset(Dataset):
     def __getitem__(self, index: int):
         return self.data_x[index], self.data_y[index]
     
+    def get_geo_locations(self):
+        match self.name:
+            case 'metr-la':
+                return pd.read_csv(DATASET_CATALOG[self.name]['geo_locations'])[['longitude', "latitude"]].to_numpy()
+            case 'pems-bay':
+                return pd.read_csv(DATASET_CATALOG[self.name]['geo_locations'], header=None)[[2,1]].to_numpy()
 
     def compute_metadata(self, adj_type):
-        _, _, adj = load_adjacency(DATASET_CATALOG[self.name]['adjacency'], adj_type)
-        self.adjacency_matrix: List[torch.Tensor] = [torch.as_tensor(A) for A in adj]
+        sensor_ids, sensor_id_to_ind, adj = load_adjacency(DATASET_CATALOG[self.name]['adjacency'], adj_type)
+        adjacency_matrix: List[torch.Tensor] = [torch.as_tensor(A) for A in adj]
         # separately calculate the mean and std for each channel
         # although it doesn't make sense to do this for time, we can handle it later
-        self.data_mean = torch.mean(self.data_x, dim=list(range(self.data_x.dim()))[:-1])
-        self.data_std  = torch.std(self.data_x,  dim=list(range(self.data_x.dim()))[:-1])
-        
+        data_mean = torch.mean(self.data_x, dim=list(range(self.data_x.dim()))[:-1])
+        data_std  = torch.std(self.data_x,  dim=list(range(self.data_x.dim()))[:-1])
+        geo_locations = self.get_geo_locations()
+        return {'adjacency': adjacency_matrix, 'mean': data_mean, 'std': data_std, 'geo_loc':geo_locations}
     
 def tensor_collate(list_of_xy:List[Tuple[torch.Tensor]]) -> Tuple[torch.Tensor]:
     """ assume the input is a list of (x, y), pack the x's and y's into two tensors
@@ -67,12 +75,12 @@ def build_trainvaltest_loaders(
     trainset = NetworkedTimeSeriesDataset(dataset, split='train', compute_metadata=True, adj_type=adj_type)
     valset = NetworkedTimeSeriesDataset(dataset, split='val', adj_type=adj_type)
     testset = NetworkedTimeSeriesDataset(dataset, split='test', adj_type=adj_type)
-
+    metadata = trainset.metadata
+    
     trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True, drop_last=True, collate_fn=tensor_to_contiguous)
     valloader = DataLoader(valset, batch_size=batch_size, shuffle=False, drop_last=False, collate_fn=tensor_to_contiguous)
     testloader = DataLoader(testset, batch_size=batch_size, shuffle=False, drop_last=False, collate_fn=tensor_to_contiguous)
     
     dataloaders = {'train': trainloader, 'val':valloader, 'test':testloader}
-    metadata = {'adjacency': trainset.adjacency_matrix, 'mean': trainset.data_mean, 'std': trainset.data_std}
     
     return dataloaders, metadata

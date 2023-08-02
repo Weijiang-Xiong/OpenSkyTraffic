@@ -7,14 +7,16 @@ METR_LA = {
     'train'    : 'metr/train.npz',
     'val'      : 'metr/val.npz',
     'test'     : 'metr/test.npz',
-    'adjacency': 'metr/adj_mx_metr.pkl'
+    'adjacency': 'metr/adj_mx_metr.pkl',
+    'geo_locations': 'metr/graph_sensor_locations.csv'
 }
 
 PEMS_BAY = {
     'train'    : 'pems/train.npz',
     'val'      : 'pems/val.npz',
     'test'     : 'pems/test.npz',
-    'adjacency': 'pems/adj_mx_bay.pkl'
+    'adjacency': 'pems/adj_mx_bay.pkl',
+    'geo_locations': 'pems/graph_sensor_locations_bay.csv'
 }
 
 DATASET_CATALOG['metr-la'] = METR_LA
