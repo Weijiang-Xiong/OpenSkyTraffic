@@ -156,6 +156,7 @@ class TrainerBase:
             It's possible to add a priority attribute for each method, and sort the hooks according to priority.
             But this will introduce too much overhead.
         """
+        hooks = [h for h in hooks if h is not None]
         self._hooks.extend(hooks)
 
     def build_hooks(self, cfg) -> List[HookBase]:
