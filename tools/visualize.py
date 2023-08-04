@@ -42,6 +42,8 @@ if __name__ == "__main__":
     test_res = visualizer.calculate_metrics(verbose=True)
     visualizer.visualize_calibration(test_res, visualizer.save_dir, save_hint="test")
     visualizer.visualize_day(save_name="example")
+    per_loc_test_res = visualizer.calculate_metrics(verbose=False, per_loc=True)
+    visualizer.visualize_map(per_loc_test_res, metadata, visualizer.save_dir, save_hint="test")
     
     logger.info("Evaluating uncertainty on train set")
     visualizer.inference_on_dataset(dataloaders['train'])

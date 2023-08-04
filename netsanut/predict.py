@@ -1,11 +1,14 @@
 import os
 import logging
-from typing import Dict
+from typing import List, Dict
 
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns 
 sns.set_style("darkgrid")
+import pandas as pd
+import geopandas
+import contextily as ctx
 
 import torch 
 import torch.nn as nn
@@ -59,16 +62,24 @@ class Visualizer:
         if os.path.exists(self.save_dir):
             fig.savefig("{}/{}.pdf".format(self.save_dir, save_name))
 
-    def calculate_metrics(self, verbose=True):
+    def calculate_metrics(self, verbose=True, per_loc=False):
         
         res = uncertainty_metrics(self.pred, self.target, self.scale, 
                                   offset_coeffs=self.offset_coeffs,
                                   ignore_value=0.0,
                                   verbose=verbose)
+        if per_loc:
+            res = [   
+                uncertainty_metrics(self.pred[:, :, s], self.target[:, :, s], self.scale[:, :, s], 
+                                  offset_coeffs=self.offset_coeffs,
+                                  ignore_value=0.0,
+                                  verbose=verbose)
+                for s in range(self.pred.shape[-1])]
+
         return res
     
     @staticmethod
-    def visualize_calibration(res, save_dir, save_hint=None):
+    def visualize_calibration(res, save_dir="./", save_hint=None):
         
         xs = np.round(np.arange(0.5, 1.0, 0.05), 2)
         ys = res['coverage_percentage']
@@ -112,9 +123,82 @@ class Visualizer:
         
         pass
     
-    def visualize_map(self):
-        pass 
-    
-
+    @staticmethod
+    def visualize_map(res: List[Dict], metadata: Dict, save_dir="./", save_hint:str=None):
+        """ draw mAO, mCO, mCCE for each sensor on the map, scatter plot (mCP, mCCE)
         
-    
+        Args:
+            res (List[Dict]): uncertainty metrics per sensor
+            metadata (Dict): metadata with geographical location of the sensors
+            save_dir (str, optional): Defaults to "./".
+            save_hint (str, optional): notes to add to file name Defaults to None.
+        """
+        summary_dict = {metric: [r[metric] for r in res] for metric in ['mAO', "mCP", "mCCE"]}
+        
+        fig, ax = plt.subplots(figsize=(5,4))
+        ax.scatter(summary_dict['mCCE'], summary_dict['mCP'], s=3)
+        ax.set_xlabel("mCCE")
+        ax.set_ylabel("mCP")
+        ax.set_title("mCCE and mCP per sensor")
+        fig.tight_layout()
+        
+        if os.path.exists(save_dir):
+            file_name = "mCCE_mCP" if save_hint is None else "mCCE_mCP_{}".format(save_hint)
+            fig.savefig("{}/{}.pdf".format(save_dir, file_name))
+
+        geo_locations = metadata["geo_loc"]
+
+        west = min(geo_locations[:, 0])
+        east = max(geo_locations[:, 0])
+        south = min(geo_locations[:, 1])
+        north = max(geo_locations[:, 1])
+        
+        dlong = abs(east - west)
+        dlat = abs(north - south)
+        
+        # plot 2 transparent points in the map, to enlarge the plotted area a bit 
+        # https://geopandas.org/en/stable/gallery/create_geopandas_from_pandas.html
+        df_b = pd.DataFrame(
+            {
+                "Points": ["Boundary1", "Boundary2"],
+                "Longitude": [west - 0.1*dlong, east+0.1*dlong],
+                "Latitude": [south - 0.1*dlat, north+0.1*dlat],
+            }
+        )
+        gdf_b = geopandas.GeoDataFrame(
+            df_b, geometry=geopandas.points_from_xy(df_b.Longitude, df_b.Latitude), crs="EPSG:4326"
+        ).to_crs(epsg=3857) # transform all points from longitude-latitude coordinates to Web Mercator
+
+        # now create a new df with the sensors and plot their locations
+        # remember to use .to_csr with geopandas
+        df = pd.DataFrame(
+            {
+                "Points": ["sensor{}".format(n) for n in range(len(geo_locations))],
+                "Longitude": [longitude for longitude, latitude in geo_locations],
+                "Latitude": [latitude for longitude, latitude in geo_locations],
+            }
+        )
+        gdf = geopandas.GeoDataFrame(
+            df, geometry=geopandas.points_from_xy(df.Longitude, df.Latitude), crs="EPSG:4326"
+        ).to_crs(epsg=3857) # transform all points from longitude-latitude coordinates to Web Mercator
+        # coordinates in Spherical Mercator projection
+        points = np.array([(p.x, p.y) for p in gdf.geometry])
+        xs, ys = points[:, 0], points[:, 1]
+
+        for metric in ["mAO", "mCCE", "mCP"]:
+            # https://geopandas.org/en/stable/gallery/plotting_basemap_background.html
+            fig, ax = plt.subplots()
+            gdf_b.plot("Points", ax=ax, markersize=0) # just to set the boundary
+
+            # the metrics are indicated using color
+            ctx.add_basemap(ax)
+            scatter_handle = ax.scatter(xs, ys, c=summary_dict[metric])
+            cbar = fig.colorbar(scatter_handle, shrink=0.7) 
+            cbar.ax.set_title(metric)
+            
+            fig.tight_layout()
+            ax.axis("off")
+            if os.path.exists(save_dir):
+                file_name = "plot_map_{}".format(metric)
+                file_name = file_name if save_hint is None else "{}_{}".format(file_name, save_hint)
+                fig.savefig("{}/{}.pdf".format(save_dir, file_name))
