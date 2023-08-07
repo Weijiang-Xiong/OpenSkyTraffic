@@ -18,7 +18,6 @@ from typing import List, Tuple, Dict, Callable
 from einops import rearrange
 
 from netsanut.loss import GeneralizedProbRegLoss
-from netsanut.util import default_metrics
 from netsanut.data import TensorDataScaler
 from .common import LearnedPositionalEncoding, PositionalEncoding
 from .base import GGDModel

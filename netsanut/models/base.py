@@ -9,7 +9,6 @@ from scipy.stats import rv_continuous, gennorm
 import torch 
 import torch.nn as nn 
 
-from netsanut.util import default_metrics
 from netsanut.data import TensorDataScaler
 
 logger = logging.getLogger("default")

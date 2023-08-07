@@ -40,7 +40,7 @@ def main(args):
             # hooks.TrainMetricRecorder(),
             hooks.StepBasedLRScheduler(scheduler=scheduler),
             hooks.ValidationHook(lambda m: evaluate(m, dataloaders['train'], eval_uncertainty=isinstance(model, GGDModel)), 
-                                 suffix='train') if cfg.train.eval_train else None,
+                                 metric_suffix='train') if cfg.train.eval_train else None,
             hooks.ValidationHook(lambda m: evaluate(m, dataloaders['val'], eval_uncertainty=isinstance(model, GGDModel))),
             hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
             hooks.MetricLogger(),
