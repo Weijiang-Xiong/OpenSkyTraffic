@@ -44,12 +44,11 @@ class TrainingStageManager(HookBase):
             return 
         
         if trainer.epoch_num == self.milestone:
-            trainer.model.adapt_to_new_config(self.config.model)
             if self.from_best:
                 trainer.logger.info("Train uncertainty part based on previous best")
                 ckpthook = [h for h in trainer._hooks if isinstance(h, CheckpointSaver)][0]
                 trainer.load_checkpoint(ckpthook.best_ckpt_path, resume=False)
-                
+            trainer.model.adapt_to_new_config(self.config.model)
                 
 class ValidationHook(HookBase):
     # TODO add eval period option

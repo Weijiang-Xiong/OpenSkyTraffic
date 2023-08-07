@@ -328,5 +328,7 @@ class NeTSFormer(GGDModel):
     def adapt_to_new_config(self, config) -> None:
         
         self.loss = GeneralizedProbRegLoss(**config.loss)
+        self._beta = config.loss.exponent
+        self._set_distribution(config.loss.exponent)
         logger.info("Using new loss function:")
         logger.info("{}".format(self.loss))

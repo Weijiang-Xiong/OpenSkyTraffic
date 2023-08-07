@@ -3,7 +3,7 @@ import numpy as np
 
 from netsanut.config import default_argument_parser, default_setup, ConfigLoader
 from netsanut.engine import DefaultTrainer, hooks
-from netsanut.models import build_model
+from netsanut.models import build_model, GGDModel
 from netsanut.data import build_trainvaltest_loaders
 from netsanut.evaluation import evaluate
 from netsanut.solver import build_optimizer, build_scheduler
@@ -39,10 +39,10 @@ def main(args):
                                        getattr(cfg.train, "milestone_cfg", None)),
             hooks.TrainMetricRecorder(),
             hooks.StepBasedLRScheduler(scheduler=scheduler),
-            hooks.ValidationHook(lambda m: evaluate(m, dataloaders['val'])),
+            hooks.ValidationHook(lambda m: evaluate(m, dataloaders['val'], eval_uncertainty=isinstance(model, GGDModel))),
             hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
             hooks.MetricLogger(),
-            hooks.TestHook(lambda m: evaluate(m, dataloaders['test'], True)),
+            hooks.TestHook(lambda m: evaluate(m, dataloaders['test'], verbose=True, eval_uncertainty=isinstance(model, GGDModel))),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
             hooks.PlotTrainingLog()
         ])
