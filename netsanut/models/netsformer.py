@@ -21,7 +21,7 @@ from netsanut.loss import GeneralizedProbRegLoss
 from netsanut.util import default_metrics
 from netsanut.data import TensorDataScaler
 from .common import LearnedPositionalEncoding, PositionalEncoding
-from .base import BaseModel
+from .base import GGDModel
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -153,7 +153,7 @@ def get_trivial_forward() -> Callable:
     
     return copy.deepcopy(trivial_forward)
 
-class NeTSFormer(BaseModel):
+class NeTSFormer(GGDModel):
 
     """ Networked Time Series Prediction with Transformer
 
@@ -184,7 +184,7 @@ class NeTSFormer(BaseModel):
                  te_init: str = "",
                  **kwargs) -> None:
 
-        super().__init__()
+        super().__init__(exponent)
         
         self.sto_layers = list()
         
@@ -265,7 +265,9 @@ class NeTSFormer(BaseModel):
         if self.record_auxiliary_metrics and label is not None:
             self.metrics = self.compute_auxiliary_metrics(mean, label)
         
-        return {"pred": mean, "logvar": logvar}
+        res = {"pred": mean, "logvar": logvar}
+        
+        return self.post_process(res)
         
         
     def compute_loss(self, data, label) -> Dict[str, torch.Tensor]:

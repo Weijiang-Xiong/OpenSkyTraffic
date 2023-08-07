@@ -14,26 +14,22 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from netsanut.evaluation import inference_on_dataset, uncertainty_metrics, GGD_interval
+from netsanut.evaluation import inference_on_dataset, uncertainty_metrics, EVAL_CONFS
 
 class Visualizer:
     
-    def __init__(self, model:nn.Module, dist_exponent=2, save_dir="./") -> None:
+    def __init__(self, model:nn.Module, save_dir="./") -> None:
         self.model = model
         self.model.eval()
         self.save_dir = save_dir
-        # this part should be added to model code later
-        self.dist_exponent = dist_exponent
-        self.offset_coeffs = {c:GGD_interval(beta=self.dist_exponent, confidence=c) 
-                         for c in np.round(np.arange(0.5, 1.0, 0.05), 2).tolist()}
+        self.offset_coeffs = {c:self.model.offset_coeff(confidence=c) for c in EVAL_CONFS}
         # self.result_dict: Dict[str, torch.Tensor]
     
     def inference_on_dataset(self, dataloader: DataLoader):
         result_dict = inference_on_dataset(self.model, dataloader)
         self.src = result_dict['source'][..., 0]
         self.src_tid = result_dict['source'][..., 1]
-        # self.scale = torch.sqrt(result_dict['logvar'].exp())
-        self.scale = torch.pow(result_dict['logvar'].exp(), 1.0/self.dist_exponent)
+        self.scale = result_dict['scale_u']
         self.pred = result_dict['pred']
         self.target = result_dict['target']
         
@@ -102,8 +98,7 @@ class Visualizer:
     def calibrate_scale_offset(self, verbose=True):
         
         confidences = np.round(np.arange(0.05, 1.0, 0.05), 2).tolist() + [0.99, 0.999, 0.9999, 0.99999]
-        offset_coeffs = {c:GGD_interval(beta=self.dist_exponent, confidence=c) 
-                         for c in confidences}
+        offset_coeffs = {c:self.model.offset_coeff(c) for c in confidences}
         
         init_res = uncertainty_metrics(self.pred, self.target, self.scale, 
                                   offset_coeffs=offset_coeffs,

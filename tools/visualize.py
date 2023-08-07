@@ -33,9 +33,7 @@ if __name__ == "__main__":
     state_dict = DefaultTrainer.load_file(ckpt_path=checkpoint)
     model.load_state_dict(state_dict['model'])
         
-    visualizer = Visualizer(model,
-                            dist_exponent=cfg.model.loss.exponent if not hasattr(cfg.train, "milestone_cfg") else cfg.train.milestone_cfg.model.loss.exponent,
-                            save_dir=os.path.dirname(checkpoint))
+    visualizer = Visualizer(model, save_dir=os.path.dirname(checkpoint))
     
     logger.info("Evaluating uncertainty on test set")
     visualizer.inference_on_dataset(dataloaders['test'])

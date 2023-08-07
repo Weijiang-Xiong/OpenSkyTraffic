@@ -2,7 +2,6 @@ import logging
 from typing import Dict
 
 import numpy as np 
-from scipy.stats import gennorm
 
 import torch
 import torch.nn as nn
@@ -11,23 +10,7 @@ from torch.utils.data import DataLoader
 from netsanut.util import default_metrics
 from collections import defaultdict
 
-def GGD_interval(beta:int, confidence):
-    """ 
-        compute a `k` for a Generalized Gaussian Distribution parameterized by `beta`
-        such that 0.5 * confidence_interval_width = k * std, 
-        one can later obtain the confidence interval by
-            upper_bound = mean + k * pred_std
-            lower_bound = mean - k * pred_std
-            
-        References
-            https://en.wikipedia.org/wiki/Generalized_normal_distribution
-            https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.gennorm.html
-    """
-    
-    rv = gennorm(beta=beta)
-    k:float = abs(rv.interval(confidence)[0])
-    
-    return k
+EVAL_CONFS = np.round(np.arange(0.5, 1.0, 0.05), 2).tolist()
 
 def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Tensor, 
                         offset_coeffs: Dict[float, float], ignore_value=0.0, verbose=False):
@@ -66,7 +49,7 @@ def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Te
         logger.info("Uncertainty Metrics")
         logger.info(" ".join(["{}: {:.3f},".format(k, v) for k, v in res.items() if isinstance(v, (int, float))]))
         logger.info("Evaluated confidence interval {}".format(Conf))
-        logger.info("Corresponding data coverage percentage {}".format(np.round(CP, 2).tolist()))
+        logger.info("Corresponding data coverage percentage {} \n".format(np.round(CP, 2).tolist()))
 
     return res
 
@@ -104,27 +87,26 @@ def evaluate(model: nn.Module, dataloader: DataLoader,
     for i in range(12):  # number of predicted time step
         pred = all_preds[:, i, :]
         real = all_labels[:, i, :]
-        aux_metrics = default_metrics(pred, real)
+        step_metrics = default_metrics(pred, real)
 
         if verbose:
             logger.info('Evaluate model on test data at {:d} time step'.format(i+1))
-            logger.info('Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'.format(
-                aux_metrics['mae'], aux_metrics['mape'], aux_metrics['rmse']
+            logger.info('MAE: {:.4f}, MAPE: {:.4f}, RMSE: {:.4f}'.format(
+                step_metrics['mae'], step_metrics['mape'], step_metrics['rmse']
             )
             )
 
     res = default_metrics(all_preds, all_labels)
     if verbose:
         logger.info('On average over 12 different time steps')
-        logger.info('Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'.format(
+        logger.info('MAE: {:.4f}, MAPE: {:.4f}, RMSE: {:.4f}'.format(
             res['mae'], res['mape'], res['rmse']
         )
         )
 
     if eval_uncertainty:
-        all_scales = torch.pow(all_res['logvar'].exp(), exponent=model.loss.exponent)
-        offset_coeffs = {c:GGD_interval(beta=model.loss.exponent, confidence=c) 
-                         for c in np.round(np.arange(0.5, 1.0, 0.05), 2).tolist()}
+        all_scales = all_res['scale_u']
+        offset_coeffs = {c:model.offset_coeff(confidence=c) for c in EVAL_CONFS}
         res_u = uncertainty_metrics(all_preds, all_labels, all_scales, offset_coeffs, verbose=verbose)
         res.update(res_u)
 

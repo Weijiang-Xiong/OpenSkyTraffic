@@ -1,7 +1,10 @@
 """ This file defines a base model for a interfaces and 
     shared functionalities
 """
-from typing import Dict, Any
+import logging 
+
+from typing import Dict, Any, Mapping, Tuple
+from scipy.stats import rv_continuous, gennorm
 
 import torch 
 import torch.nn as nn 
@@ -9,12 +12,15 @@ import torch.nn as nn
 from netsanut.util import default_metrics
 from netsanut.data import TensorDataScaler
 
+logger = logging.getLogger("default")
+
 class BaseModel(nn.Module):
     
     def __init__(self) -> None:
         super().__init__()
         self.datascaler: TensorDataScaler
-        self.metrics: dict
+        self.record_auxiliary_metrics = True # whether to record auxiliary metric in training
+        self.metrics: dict = dict()
         
     @property   
     def device(self):
@@ -91,9 +97,79 @@ class BaseModel(nn.Module):
         return scalar_metrics
     
     
-    def visualize(self, data, label):
-        raise NotImplementedError
-    
     def adapt_to_metadata(self, metadata):
         raise NotImplementedError
+
+
+class GGDModel(BaseModel):
+    """ A base class using Generalized Gaussian Distribution to model aleatoric uncertainty
+    """
     
+    def __init__(self, beta:int) -> None:
+        super().__init__()
+        self._calibrated_intervals: Dict[float, float] = dict() 
+        self._beta: int = beta
+        self._distribution: rv_continuous
+        self._set_distribution(beta=self._beta)
+        
+    def _set_distribution(self, beta:int) -> rv_continuous:
+        self._distribution = gennorm(beta=int(beta))
+        return self._distribution
+    
+    def offset_coeff(self, 
+                    confidence:float, 
+                    return_calibrated=True
+        )-> Dict[float, float]:
+        """ 
+        compute a `k` for a Generalized Gaussian Distribution parameterized by `beta`
+        such that 0.5 * confidence_interval_width = k * std, 
+        one can later obtain the confidence interval by
+            upper_bound = mean + k * pred_std
+            lower_bound = mean - k * pred_std
+            
+        References
+            https://en.wikipedia.org/wiki/Generalized_normal_distribution
+            https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.gennorm.html
+
+        Args:
+            confidence (float): _description_
+            return_calibrated (bool, optional): _description_. Defaults to True.
+
+        Returns:
+            Dict[float,Tuple[float, float]]: a mapping from confidence score to offset coefficient
+        """
+        # use the calibrated result if it has been calibrated 
+        if return_calibrated and confidence in self._calibrated_intervals.keys():
+            interval = self._calibrated_intervals[confidence]
+        else:
+            try:
+                interval = self._distribution.interval(confidence)
+            except AttributeError:
+                logger.warning("Make sure self._distribution is properly initialized, and it has the method `interval` for confidence intervals")
+                interval = (0.0, 0.0)
+            
+        return abs(interval[0])
+    
+    def post_process(self, res):
+        # the scale of uncertainty, supposed to have the same unit as prediction
+        # so it makes sense to add them. 
+        res['scale_u'] = torch.exp(res['logvar']*(1.0/self._beta))
+        return res
+    
+    def update_calibration(self, intervals: Dict[float,Tuple[float, float]]):
+        self._calibrated_intervals.update(intervals)
+    
+    def state_dict(self):
+        ret = super().state_dict()
+        ret["_beta"] = self._beta
+        ret["_calibrated_intervals"] = self._calibrated_intervals
+        return ret
+        
+    def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = False):
+        self._beta = state_dict["_beta"]
+        self._set_distribution(self._beta)
+        self._calibrated_intervals = state_dict["_calibrated_intervals"]
+        del state_dict["_beta"]
+        del state_dict["_calibrated_intervals"]
+        super().load_state_dict(state_dict, strict)
+        return
