@@ -221,8 +221,6 @@ class NeTSFormer(GGDModel):
             alpha=alpha,
             ignore_value=ignore_value
         )
-        self.record_auxiliary_metrics = auxiliary_metrics
-        self.metrics = dict()
 
     def make_pred(self, x:torch.Tensor) -> Tuple[torch.Tensor]:
         """ 
@@ -262,9 +260,6 @@ class NeTSFormer(GGDModel):
         mean = self.datascaler.inverse_transform(mean)
         logvar = self.datascaler.inverse_transform_logvar(logvar)
         
-        if self.record_auxiliary_metrics and label is not None:
-            self.metrics = self.compute_auxiliary_metrics(mean, label)
-        
         res = {"pred": mean, "logvar": logvar}
         
         return self.post_process(res)
@@ -280,9 +275,6 @@ class NeTSFormer(GGDModel):
         loss = self.loss(mean, label, logvar)
             
         loss_dict = {"loss": loss}
-        
-        if self.record_auxiliary_metrics:
-            self.metrics = self.compute_auxiliary_metrics(mean, label)
             
         return loss_dict
     

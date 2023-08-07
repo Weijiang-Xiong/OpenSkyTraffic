@@ -6,7 +6,8 @@ train = {
     # select model by validation set performance, and test the best model
     # will test the final model if set to False
     "test_best_ckpt": True, 
-    "grad_clip": 3.0
+    "grad_clip": 3.0,
+    "eval_train": True, # run evaluation on train set after each epoch
 }
 
 data = {

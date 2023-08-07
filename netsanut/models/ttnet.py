@@ -92,9 +92,6 @@ class TTNet(BaseModel):
                                            alpha=alpha, 
                                            ignore_value=ignore_value)
         self.datascaler:TensorDataScaler = datascaler if datascaler is not None else TensorDataScaler([50, 0.0], [10, 0.0])
-        self.scale_before_loss = True
-        self.record_auxiliary_metrics = True
-        self.metrics = dict()
 
 
     def set_fixed_mask(self, adj_mtxs):
@@ -134,9 +131,6 @@ class TTNet(BaseModel):
         mean = self.datascaler.inverse_transform(mean)
         logvar = self.datascaler.inverse_transform_logvar(logvar)
         
-        if self.record_auxiliary_metrics and target is not None:
-            self.metrics = self.compute_auxiliary_metrics(mean, target)
-        
         return {"pred": mean, "logvar": logvar}
         
         
@@ -150,9 +144,6 @@ class TTNet(BaseModel):
         loss = self.loss(mean, target, logvar)
             
         loss_dict = {"loss": loss}
-        
-        if self.record_auxiliary_metrics:
-            self.metrics = self.compute_auxiliary_metrics(mean, target)
             
         return loss_dict
     

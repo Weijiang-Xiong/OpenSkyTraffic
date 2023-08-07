@@ -64,38 +64,11 @@ class BaseModel(nn.Module):
         raise NotImplementedError
     
     def inference(self, source:torch.Tensor, target: torch.Tensor=None) -> Dict[str, torch.Tensor]:
-        """ this function also calls `make_pred` to obtain predictions, 
-            if `target` is also available, it can also call `compute_auxiliary_metrics`
+        """ this function calls `make_pred` to obtain predictions, 
             different models may have different post-processing, for example some filtering
         """
         raise NotImplementedError
-        
-    def compute_auxiliary_metrics(self, pred, target) -> Dict[str, torch.Tensor]:
-        
-        # prevent gradient calculation when providing auxiliary metrics in training mode
-        with torch.no_grad():
-            metrics = default_metrics(pred, target)
-            
-        return {k:v for k, v in metrics.items()}
-    
-    
-    def pop_auxiliary_metrics(self, scalar_only=True) -> Dict[str, float|torch.Tensor]:
-        """ the auxiliary metrics will be recorded in dict `self.metrics`, this function
-            pops the metrics and reset `self.metrics`. 
-            
-            will return scalar values if `scalar_only` is true, tensors will be ignored
-        """
-        if not self.record_auxiliary_metrics:
-            return {} 
-        
-        if scalar_only:
-            scalar_metrics = {k:v for k, v in self.metrics.items() if isinstance(v, (int, float))}
-        else:
-            scalar_metrics = self.metrics
-            
-        self.metrics = dict() 
-        return scalar_metrics
-    
+
     
     def adapt_to_metadata(self, metadata):
         raise NotImplementedError

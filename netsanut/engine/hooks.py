@@ -52,16 +52,21 @@ class TrainingStageManager(HookBase):
                 
 class ValidationHook(HookBase):
     # TODO add eval period option
-    def __init__(self, eval_function:Callable) -> None:
+    def __init__(self, 
+                 eval_function:Callable, 
+                 metric_suffix="val", 
+                 time_naming="epoch_inference_time") -> None:
         super().__init__()
         self.eval_function = eval_function
+        self.suffix = metric_suffix
+        self.time_naming = time_naming
     
     def after_epoch(self, trainer: TrainerBase):
         ts = time.perf_counter()
         validation_metrics = self.eval_function(trainer.model)
         te = time.perf_counter()
-        trainer.storage.put_scalar(name="epoch_inference_time", value=te-ts)
-        trainer.storage.put_scalars(**validation_metrics, suffix="val")
+        trainer.storage.put_scalar(name=self.time_naming, value=te-ts)
+        trainer.storage.put_scalars(**validation_metrics, suffix=self.suffix)
 
 class TestHook(HookBase):
     
@@ -178,26 +183,6 @@ class MetricLogger(HookBase):
         trainer.logger.info("Average Training Time: {:.4f} secs/epoch".format(np.mean(trainer.storage["epoch_train_time"].values())))
         trainer.logger.info("Average Inference Time: {:.4f} secs/epoch".format(np.mean(trainer.storage["epoch_inference_time"].values())))
 
-
-class TrainMetricRecorder(HookBase):
-    
-    def __init__(self) -> None:
-        super().__init__()
-        self.epoch_log = defaultdict(list)
-        
-    def after_step(self, trainer: TrainerBase):
-        try:
-            aux_metrics = trainer.model.pop_auxiliary_metrics()
-        except:
-            aux_metrics = dict()
-        for k, v in aux_metrics.items():
-            self.epoch_log[k].append(v)
-
-    def after_epoch(self, trainer: TrainerBase):
-        train_epoch_metrics = {key: np.mean(value) for key, value in self.epoch_log.items()}
-        trainer.storage.put_scalars(suffix="train", **train_epoch_metrics)
-        for key, value in self.epoch_log.items():
-            value.clear()
 
 class GradientClipper(HookBase):
     
