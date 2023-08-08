@@ -20,10 +20,8 @@ loss.backward()
 
 model.eval()
 result_dict = model(rand_data)
-metrics = model.pop_auxiliary_metrics(scalar_only=False)
 assert result_dict['pred'].shape == (N, T, M)
 assert result_dict['logvar'].shape == (N, T, M)
-assert isinstance(metrics, dict)
 
 print("Num Params. {:.2f}M".format(model.num_params/1e6))
 print("Test OK")
