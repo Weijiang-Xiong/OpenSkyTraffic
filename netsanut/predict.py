@@ -15,13 +15,15 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from netsanut.evaluation import inference_on_dataset, uncertainty_metrics, EVAL_CONFS
+from netsanut.util import make_dir_if_not_exist
 
 class Visualizer:
     
     def __init__(self, model:nn.Module, save_dir="./") -> None:
         self.model = model
         self.model.eval()
-        self.save_dir = save_dir
+        self.save_dir = "{}/visualize/".format(save_dir)
+        make_dir_if_not_exist(self.save_dir)
         self.offset_coeffs = {c:self.model.offset_coeff(confidence=c) for c in EVAL_CONFS}
         # self.result_dict: Dict[str, torch.Tensor]
     

@@ -4,6 +4,7 @@ import argparse
 
 from omegaconf import OmegaConf, DictConfig
 from netsanut.event_logger import setup_logger
+from netsanut.util import make_dir_if_not_exist
 from .loader import ConfigLoader
 
 def default_argument_parser() -> argparse.ArgumentParser:
@@ -22,10 +23,6 @@ python {sys.argv[0]} --config-file config/LSTM_TF_stable.py train.max_epoch=30 d
     
     return parser
 
-def make_dir_if_not_exist(path):
-    if not os.path.exists(path):
-        print("Creating directory: {}".format(path))
-        os.makedirs(path)
 
 def default_setup(cfg: DictConfig, args):
     
