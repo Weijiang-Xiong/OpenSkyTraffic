@@ -20,7 +20,7 @@ from einops import rearrange
 from netsanut.loss import GeneralizedProbRegLoss
 from netsanut.data import TensorDataScaler
 from .common import LearnedPositionalEncoding, PositionalEncoding
-from .base import GGDModel
+from .base import BaseModel
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -152,7 +152,7 @@ def get_trivial_forward() -> Callable:
     
     return copy.deepcopy(trivial_forward)
 
-class NeTSFormer(GGDModel):
+class NeTSFormer(BaseModel):
 
     """ Networked Time Series Prediction with Transformer
 
@@ -316,10 +316,10 @@ class NeTSFormer(GGDModel):
         return {"det": [param for _, param in det_params],
                 "sto": [param for _, param in sto_params]}
         
-    def adapt_to_new_config(self, config) -> None:
+    # def adapt_to_new_config(self, config) -> None:
         
-        self.loss = GeneralizedProbRegLoss(**config.loss)
-        self._beta = config.loss.exponent
-        self._set_distribution(config.loss.exponent)
-        logger.info("Using new loss function:")
-        logger.info("{}".format(self.loss))
+    #     self.loss = GeneralizedProbRegLoss(**config.loss)
+    #     self._beta = config.loss.exponent
+    #     self._set_distribution(config.loss.exponent)
+    #     logger.info("Using new loss function:")
+    #     logger.info("{}".format(self.loss))

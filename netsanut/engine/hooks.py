@@ -30,26 +30,7 @@ class EpochTimer(HookBase):
         self.te = time.perf_counter()
         trainer.storage.put_scalar(name="epoch_train_time", value=self.te-self.ts)
 
-class TrainingStageManager(HookBase):
-    
-    def __init__(self, milestone: int=None, config:Dict[int, DictConfig]=None, from_best=False) -> None:
-        super().__init__()
-        self.milestone = milestone
-        self.config = config # the new config to use at the milestone epoch
-        self.from_best = from_best # whether to load the model with best validation loss 
-        
-    def before_epoch(self, trainer: TrainerBase):
-        
-        if self.milestone is None:
-            return 
-        
-        if trainer.epoch_num == self.milestone:
-            if self.from_best:
-                trainer.logger.info("Train uncertainty part based on previous best")
-                ckpthook = [h for h in trainer._hooks if isinstance(h, CheckpointSaver)][0]
-                trainer.load_checkpoint(ckpthook.best_ckpt_path, resume=False)
-            trainer.model.adapt_to_new_config(self.config.model)
-                
+
 class ValidationHook(HookBase):
     # TODO add eval period option
     def __init__(self, 

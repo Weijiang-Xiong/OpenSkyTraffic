@@ -3,7 +3,7 @@ import numpy as np
 
 from netsanut.config import default_argument_parser, default_setup, ConfigLoader
 from netsanut.engine import DefaultTrainer, hooks
-from netsanut.models import build_model, GGDModel
+from netsanut.models import build_model
 from netsanut.data import build_trainvaltest_loaders
 from netsanut.evaluation import evaluate
 from netsanut.solver import build_optimizer, build_scheduler
@@ -35,20 +35,16 @@ def main(args):
         trainer.load_checkpoint(cfg.train.checkpoint, resume=args.resume)
         trainer.register_hooks([
             hooks.EpochTimer(),
-            hooks.TrainingStageManager(getattr(cfg.train, "milestone", None), 
-                                       getattr(cfg.train, "milestone_cfg", None)),
-            # hooks.TrainMetricRecorder(),
             hooks.StepBasedLRScheduler(scheduler=scheduler),
-            hooks.ValidationHook(lambda m: evaluate(m, dataloaders['train'], eval_uncertainty=isinstance(model, GGDModel)), 
-                                 metric_suffix='train') if cfg.train.eval_train else None,
-            hooks.ValidationHook(lambda m: evaluate(m, dataloaders['val'], eval_uncertainty=isinstance(model, GGDModel))),
+            hooks.ValidationHook(lambda m: evaluate(m, dataloaders['train']), metric_suffix='train') if cfg.train.eval_train else None,
+            hooks.ValidationHook(lambda m: evaluate(m, dataloaders['val'])),
             hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
             hooks.MetricLogger(),
-            hooks.TestHook(lambda m: evaluate(m, dataloaders['test'], verbose=True, eval_uncertainty=isinstance(model, GGDModel))),
+            hooks.TestHook(lambda m: evaluate(m, dataloaders['test'], verbose=True)),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
             hooks.PlotTrainingLog()
         ])
-        
+
         return trainer.train()
     
 if __name__ == "__main__":

@@ -1,19 +1,10 @@
-from .NeTSFormer_stable import train, data, model
+from .NeTSFormer_prediction import train, data, model
 
+train.checkpoint = "scratch/prediction/model_final.pth"
 train.test_best_ckpt = False
-train.max_epoch = 25
-train.milestone = 20
-train.milestone_cfg = {
-    "model": {
-        "loss": {
-            "reduction": "mean",
-            "aleatoric": True, 
-            "exponent": 1,
-            "alpha": 1.0,
-            "ignore_value": 0.0
-        }
-    }
-}
+train.max_epoch = 20
+
+model.aleatoric=True
 
 optimizer = {
     # metadata about optimizer configuration
@@ -25,8 +16,10 @@ optimizer = {
     "sto": {
         "lr": 0.002,
     },
+    "det": {
+        "lr": 0.000,
+    },
     # common hyper-parameters
-    "lr": 0.001,
     "weight_decay": 0.0001,
     "betas": (0.9, 0.999)
 }
@@ -34,15 +27,13 @@ optimizer = {
 scheduler = {
     "groups": "${..optimizer.groups}",
     "det":{
-        "start": 0,
-        "end": "${...train.milestone}",
         "lr_milestone": [0.7, 0.85],
     },
     "sto":{
-        "start": "${...train.milestone}",
-        "end": "${...train.max_epoch}",
-        "lr_milestone": [0.7, 0.8],
+        "lr_milestone": [0.7, 0.85],
     },
+    "start": 0,
+    "end": "${..train.max_epoch}",
     "lr_decrease": 0.1, 
     "warmup": 1.0,
 }

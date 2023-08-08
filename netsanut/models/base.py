@@ -15,12 +15,14 @@ logger = logging.getLogger("default")
 
 class BaseModel(nn.Module):
     
-    def __init__(self) -> None:
+    def __init__(self, beta:int=None) -> None:
         super().__init__()
         self.datascaler: TensorDataScaler
-        self.record_auxiliary_metrics = True # whether to record auxiliary metric in training
-        self.metrics: dict = dict()
-        
+        self._calibrated_intervals: Dict[float, float] = dict() 
+        self._beta: int = beta
+        self._distribution: rv_continuous = None
+        self._set_distribution(beta=self._beta)
+
     @property   
     def device(self):
         return list(self.parameters())[0].device
@@ -29,7 +31,10 @@ class BaseModel(nn.Module):
     def num_params(self):
         return sum([p.numel() for p in self.parameters() if p.requires_grad])
     
-    
+    @property
+    def is_probabilistic(self):
+        return self._distribution is not None
+
     def forward(self, data: dict[str, torch.Tensor]):
         """
             time series forecasting task, 
@@ -73,19 +78,13 @@ class BaseModel(nn.Module):
         raise NotImplementedError
 
 
-class GGDModel(BaseModel):
-    """ A base class using Generalized Gaussian Distribution to model aleatoric uncertainty
-    """
-    
-    def __init__(self, beta:int) -> None:
-        super().__init__()
-        self._calibrated_intervals: Dict[float, float] = dict() 
-        self._beta: int = beta
-        self._distribution: rv_continuous
-        self._set_distribution(beta=self._beta)
-        
     def _set_distribution(self, beta:int) -> rv_continuous:
-        self._distribution = gennorm(beta=int(beta))
+        
+        if beta is None:
+            self._distribution = None 
+        else:
+            self._distribution = gennorm(beta=int(beta))
+
         return self._distribution
     
     def offset_coeff(self, 
