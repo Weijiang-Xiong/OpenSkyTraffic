@@ -10,15 +10,20 @@ from netsanut.solver import build_optimizer, build_scheduler
 
 def main(args):
     
+    # the config file will be loaded first and overrides will be applied after that
+    # then, the logger and save folder will be setup
     cfg = ConfigLoader.load_from_file(args.config_file)
     cfg = ConfigLoader.apply_overrides(cfg, overrides=args.opts)
     default_setup(cfg, args)
     
+    # build dataloader and model, and adapt the model to metadata (e.g., data mean, adjacency matrix)
+    # notably, each part just receive necessary configs instead of the whole configuration
     dataloaders, metadata = build_trainvaltest_loaders(**cfg.data)
     model = build_model(cfg.model)
     model.adapt_to_metadata(metadata)
     
     if args.eval_only:
+        # in evaluation mode, just load the checkpoint and call evaluation function
         state_dict = DefaultTrainer.load_file(ckpt_path=cfg.train.checkpoint)
         model.load_state_dict(state_dict['model'])
         eval_res = evaluate(
@@ -28,11 +33,17 @@ def main(args):
         )
         return eval_res
     else:
+        # build optimizer and scheduler using the corresponding configurations
         optimizer = build_optimizer(model, cfg.optimizer)
         scheduler = build_scheduler(optimizer, cfg.scheduler)
         
+        # the trainer runs a training loop, which iterates the model through batches in 
+        # the dataloader, compute loss and call optimizer to update model parameters
         trainer = DefaultTrainer(cfg, model, dataloaders['train'], optimizer)
+        # it is possible to load from a pretrained model or resume from previous training
         trainer.load_checkpoint(cfg.train.checkpoint, resume=args.resume)
+        # the hooks have functions that are executed before/after each epoch/batch or the whole training, 
+        # and will be called by the trainer in the same order as they are initialized here
         trainer.register_hooks([
             hooks.EpochTimer(),
             hooks.StepBasedLRScheduler(scheduler=scheduler),
@@ -48,6 +59,8 @@ def main(args):
         return trainer.train()
     
 if __name__ == "__main__":
-
+    # the argument parser requires a `--config-file` which specifies how to configure
+    # models and training pipeline, and other overrides to the config file can be passed
+    # as `something.to.modify=new_value`
     args = default_argument_parser().parse_args()
     main(args)

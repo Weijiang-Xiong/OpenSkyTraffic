@@ -13,11 +13,7 @@ from torch.utils.data import DataLoader
 from .base import TrainerBase
 
 class DefaultTrainer(TrainerBase):
-    """ The trainer takes care of the general logic in the training progress, such as 
-            1. train on trainset, validate on validation set, and log the best performance
-               on validation set, evaluate it on test set
-            2. save and load checkpoint, resume from previous training
-            3. running optimizer and scheduler 
+    """ Implement checkpoint saving and loading
     """
 
     def __init__(self, cfg, model: nn.Module, dataloader: DataLoader, optimizer: optim.Optimizer):

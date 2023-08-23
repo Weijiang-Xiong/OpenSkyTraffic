@@ -42,6 +42,7 @@ def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False) -> Dict[st
     if verbose:
         logger.info("The shape of predicted {} and label {}".format(all_preds.shape, all_labels.shape))
 
+    # evaluate each predicted time step, i.e., forecasting from 5 min up to 1 hour
     for i in range(12):  # number of predicted time step
         pred = all_preds[:, i, :]
         real = all_labels[:, i, :]
@@ -54,6 +55,7 @@ def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False) -> Dict[st
             )
             )
 
+    # average performance on all 12 prediction steps, usually not reported in papers
     res = prediction_metrics(all_preds, all_labels)
     if verbose:
         logger.info('On average over 12 different time steps')
@@ -62,6 +64,7 @@ def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False) -> Dict[st
         )
         )
 
+    # evaluate uncertainty prediction if possible
     if getattr(model, 'is_probabilistic', False):
         all_scales = all_res['scale_u']
         offset_coeffs = {c:model.offset_coeff(confidence=c) for c in EVAL_CONFS}

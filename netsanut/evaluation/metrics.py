@@ -57,6 +57,27 @@ def masked_mape(preds, labels, null_val=np.nan):
 
 def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Tensor, 
                         offset_coeffs: Dict[float, float], ignore_value=0.0, verbose=False):
+    """ The uncertainty prediction is evaluated by the corresponding confidence intervals, where we assume the interval is centered on the expected value, and the upper bound and lower bound 
+    are expressed by multiples of the predicted uncertainty scale. 
+    
+    The primary metrics are 
+        1. mAO, the half-width of the confidence intervals averaged over all confidences and all predictions. 
+        2. mCP, the percentage of data points covered by the confidence interval, averaged over all confidences 
+        3. mCCE, the difference between confidence and data coverage, averaged over all confidences
+    
+    A calibrated model is expected to predict confidence intervals whose coverage is the same as the confidence score. That will result in a zero mCCE. 
+    
+    Args:
+        pred (torch.Tensor): the expected future value predicted by the model
+        target (torch.Tensor): the real future value from data
+        scale (torch.Tensor): the predicted uncertainty scale, have the same unit as `pred`
+        offset_coeffs (Dict[float, float]): pairs of confidence score and interval offsets
+        ignore_value (float, optional): the values corresponding to "no data". Defaults to 0.0.
+        verbose (bool, optional): whether to print evaluation results. Defaults to False.
+
+    Returns:
+        res: collection of evaluation results
+    """
     pred, target, scale = pred.flatten(), target.flatten(), scale.flatten()
     if ignore_value is not None:
         valid = (target != ignore_value)

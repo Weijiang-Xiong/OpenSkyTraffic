@@ -98,7 +98,10 @@ class Visualizer:
             fig.savefig("{}/{}.pdf".format(save_dir, file_name))
     
     def calibrate_scale_offset(self, verbose=True):
-        
+        """ The purpose of calibration is to adjust the confidence intervals, so that the data
+        coverage matches the confidence level, e.g., a 50% confidence interval should cover 50% 
+        of the data points on average, no more, no less, just exactly 50%.
+        """
         confidences = np.round(np.arange(0.05, 1.0, 0.05), 2).tolist() + [0.99, 0.999, 0.9999, 0.99999]
         offset_coeffs = {c:self.model.offset_coeff(c) for c in confidences}
         
@@ -125,7 +128,7 @@ class Visualizer:
         """ draw mAO, mCO, mCCE for each sensor on the map, scatter plot (mCP, mCCE)
         
         Args:
-            res (List[Dict]): uncertainty metrics per sensor
+            res (List[Dict]): uncertainty metrics per sensor, use self.calculate_metric(per_loc=True)
             metadata (Dict): metadata with geographical location of the sensors
             save_dir (str, optional): Defaults to "./".
             save_hint (str, optional): notes to add to file name Defaults to None.

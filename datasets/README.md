@@ -1,6 +1,6 @@
 
 
-Preprocessing `.h5` files with pandas [requires PyTables](https://pandas.pydata.org/docs/getting_started/install.html#dependencies), one can install it individually or install all dependencies of pandas at once
+Many datasets use `.h5` files to store raw data, and preprocessing `.h5` files with pandas [requires PyTables](https://pandas.pydata.org/docs/getting_started/install.html#dependencies), one can install it individually or install all dependencies of pandas at once
 
 ```
 python -m pip install pandas[all]

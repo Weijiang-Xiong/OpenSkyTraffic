@@ -7,6 +7,13 @@ from bisect import bisect_right
 from omegaconf import OmegaConf, DictConfig
 class WarmupMultiStepScaler:
     
+    """ A scaler function for learning rate scheduler.
+        The learning rate gradually increase from 1% to 100% of the chosen value in the first a
+        few training epochs specified by `warmup`. The learning rate will decrease to `gamma` of previous value when the training reaches a milestone. 
+        The learning rate is set to zero if the training progress is not in [start, end], which
+        allows one to set different learning rate schedules for different parts of a model. 
+    """
+    
     def __init__(self, start:int, end:int, milestones:list, gamma:float=0.1, warmup:float=None) -> None:
         
         self.start = start

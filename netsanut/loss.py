@@ -76,6 +76,7 @@ class GeneralizedProbRegLoss(nn.Module):
             
         return tensor 
     
+    # this appears in `print`
     def extra_repr(self) -> str:
         return "aleatoric={}, exponent={}, alpha={}, ignore_value={}".format(
             self.aleatoric, self.exponent, self.alpha, self.ignore_value)

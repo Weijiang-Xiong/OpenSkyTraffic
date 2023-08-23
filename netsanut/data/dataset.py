@@ -67,10 +67,14 @@ def to_contiguous(data:torch.Tensor, label:torch.Tensor) -> Tuple[torch.Tensor]:
 tensor_to_contiguous = lambda list_of_xy: to_contiguous(*tensor_collate(list_of_xy))
 
 def build_trainvaltest_loaders(
-    dataset,
-    batch_size=32,
-    adj_type='doubletransition'
+    dataset:str,
+    batch_size:int=32,
+    adj_type:str='doubletransition'
 ) -> Tuple[Dict[str, DataLoader], Dict[str, torch.Tensor]]:
+    
+    """ initialize the data loaders for train, validation and test splits
+        compute metadata using the train split, as this will be used to normalize input sequences
+    """
     
     trainset = NetworkedTimeSeriesDataset(dataset, split='train', compute_metadata=True, adj_type=adj_type)
     valset = NetworkedTimeSeriesDataset(dataset, split='val', adj_type=adj_type)

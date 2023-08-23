@@ -7,7 +7,6 @@ from netsanut.config import default_argument_parser, ConfigLoader
 from netsanut.engine import DefaultTrainer
 from netsanut.models import build_model
 from netsanut.data import build_trainvaltest_loaders
-from netsanut.evaluation import evaluate
 from netsanut.predict import Visualizer
 from netsanut.event_logger import setup_logger
 
