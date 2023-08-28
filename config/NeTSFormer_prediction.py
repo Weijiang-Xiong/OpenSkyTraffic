@@ -28,5 +28,6 @@ model = {
     "aleatoric": False, 
     "exponent": 1,
     "alpha": 1.0,
-    "ignore_value": 0.0
+    "ignore_value": 0.0,
+    "temp_causal": False # add causal mask to temporal attention of encoder
 }

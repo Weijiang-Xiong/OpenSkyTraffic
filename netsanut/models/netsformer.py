@@ -181,6 +181,7 @@ class NeTSFormer(BaseModel):
                  se_init: str = "rand",
                  te_type: str = "fixed",
                  te_init: str = "",
+                 temp_causal: bool = False, # add causal mask to temporal attention
                  **kwargs) -> None:
 
         super().__init__(exponent)
@@ -220,6 +221,12 @@ class NeTSFormer(BaseModel):
             alpha=alpha,
             ignore_value=ignore_value
         )
+        self.register_buffer(
+            'temporal_mask',
+            torch.logical_not(
+                torch.ones(hist_len, hist_len, dtype=torch.bool).tril(diagonal=0)
+                ).to(self.device) if temp_causal else None
+        ) # use register buffer so it will be moved to the correct device by model.to(device)
 
     def make_pred(self, x:torch.Tensor) -> Tuple[torch.Tensor]:
         """ 
@@ -235,7 +242,7 @@ class NeTSFormer(BaseModel):
         x = rearrange(x, '(N M) T C -> (N T) M C', M=M)
         x = self.spatial_encoding(x)
         x = rearrange(x, '(N T) M C -> N T M C', N=N)
-        x = self.encoder(x)
+        x = self.encoder(x, t_mask=self.temporal_mask)
         x = self.temporal_aggregate(x) # 'N T M C -> N M C'
         x = self.decoder(x, x, self.mask) # 'N M C -> N M C'
         mean = self.pred_mean(x) # 'N M C -> N M T'
