@@ -22,7 +22,8 @@ def inference_on_dataset(model:nn.Module, dataloader:DataLoader) -> Dict[str, to
 
     all_res = defaultdict(list)
     for data in dataloader:
-        result_dict = model(data)
+        with torch.no_grad():
+            result_dict = model(data)
         for dictionary in [data, result_dict]:
             for key, value in dictionary.items():
                 all_res[key].append(value)

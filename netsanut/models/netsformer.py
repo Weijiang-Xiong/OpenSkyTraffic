@@ -260,8 +260,7 @@ class NeTSFormer(BaseModel):
             if label is provided, auxiliary metrics will be computed according to the flag `self.record_auxiliary_metrics`
         """
         
-        with torch.no_grad():
-            mean, logvar = self.make_pred(data)
+        mean, logvar = self.make_pred(data)
             
         mean = self.datascaler.inverse_transform(mean)
         logvar = self.datascaler.inverse_transform_logvar(logvar)
@@ -322,11 +321,3 @@ class NeTSFormer(BaseModel):
         
         return {"det": [param for _, param in det_params],
                 "sto": [param for _, param in sto_params]}
-        
-    # def adapt_to_new_config(self, config) -> None:
-        
-    #     self.loss = GeneralizedProbRegLoss(**config.loss)
-    #     self._beta = config.loss.exponent
-    #     self._set_distribution(config.loss.exponent)
-    #     logger.info("Using new loss function:")
-    #     logger.info("{}".format(self.loss))
