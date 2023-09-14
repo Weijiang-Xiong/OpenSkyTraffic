@@ -1,46 +1,58 @@
 import torch 
+import unittest
 from netsanut.models import NeTSFormer
 from netsanut.models.netsformer import TemporalAggregate
 from einops import rearrange
 
-device = torch.device("cuda")
+class TestNetsFormer(unittest.TestCase):
+    
+    def setUp(self) -> None:
+        self.device = torch.device("cuda")
+        self.model = NeTSFormer().to(self.device)
+        return super().setUp()
+    
+    def test_model_forward(self):
+        
+        N, T, M, C = 32, 12, 211, 2
+        rand_input = torch.rand(size=(N, T, M, C), device=self.device)
+        rand_label = torch.rand(size=(N, T, M), device=self.device)
 
-N, T, M, C = 32, 12, 211, 2
-rand_input = torch.rand(size=(N, T, M, C), device=device)
-rand_label = torch.rand(size=(N, T, M), device=device)
+        in_rearrange = rearrange(rand_input.clone(), 'N T M C -> (N M) T C', N=N)
+        in_reshape = rand_input.clone().permute((0, 2, 1, 3)).reshape(N*M, T, C)
+        self.assertTrue(in_rearrange.shape == in_reshape.shape) 
+        self.assertTrue(torch.allclose(in_rearrange, in_reshape))
 
-in_rearrange = rearrange(rand_input.clone(), 'N T M C -> (N M) T C', N=N)
-in_reshape = rand_input.clone().permute((0, 2, 1, 3)).reshape(N*M, T, C)
-assert in_rearrange.shape == in_reshape.shape 
-assert torch.allclose(in_rearrange, in_reshape)
+        rand_data = {'source': rand_input, 'target': rand_label}
 
-rand_data = {'source': rand_input, 'target': rand_label}
+        
+        self.model.adapt_to_metadata({'adjacency': [torch.randint(0, 5, size=(M, M)) for _ in range(2)],
+                                'mean': torch.tensor([0.0, 0.0]),
+                                'std': torch.tensor([1.0, 0.0])})
 
-model = NeTSFormer().to(device)
-model.adapt_to_metadata({'adjacency': [torch.randint(0, 5, size=(M, M)) for _ in range(2)],
-                         'mean': torch.tensor([0.0, 0.0]),
-                         'std': torch.tensor([1.0, 0.0])})
+        self.model.train()
+        loss_dict = self.model(rand_data)
+        loss = sum(loss_dict.values())
+        loss.backward()
 
-model.train()
-loss_dict = model(rand_data)
-loss = sum(loss_dict.values())
-loss.backward()
+        self.model.eval()
+        result_dict = self.model(rand_data)
+        self.assertTrue(result_dict['pred'].shape == (N, T, M))
+        self.assertTrue(result_dict['logvar'].shape == (N, T, M))
+        
+        for mode in ['linear', 'last', 'avg']:        
+            agg = TemporalAggregate(in_dim=T, mode=mode).to(self.device)
+            out = agg(rand_input)
+            self.assertTrue(out.shape == (N, M, C))
+            
+    def test_param_group(self):
+        param_groups = self.model.get_param_groups()
+        all_params = set(self.model.parameters())
+        self.assertTrue(sum([len(g) for g in param_groups.values()]) == len(all_params))
+        for group_name, group_params in param_groups.items():
+            for param in group_params:
+                self.assertTrue(param in all_params)
 
-model.eval()
-result_dict = model(rand_data)
-assert result_dict['pred'].shape == (N, T, M)
-assert result_dict['logvar'].shape == (N, T, M)
-
-param_groups = model.get_param_groups()
-all_params = set(model.parameters())
-assert sum([len(g) for g in param_groups.values()]) == len(all_params)
-for group_name, group_params in param_groups.items():
-    for param in group_params:
-        assert param in all_params
-
-for mode in ['linear', 'last', 'avg']:        
-    agg = TemporalAggregate(in_dim=T, mode=mode).to(device)
-    out = agg(rand_input)
-    assert out.shape == (N, M, C)
-
-print("Num Params. {:.2f}M".format(model.num_params/1e6))
+        print("Num Params. {:.2f}M".format(self.model.num_params/1e6))
+        
+if __name__ == "__main__":
+    unittest.main()

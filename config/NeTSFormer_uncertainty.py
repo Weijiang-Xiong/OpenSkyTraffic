@@ -12,7 +12,7 @@ optimizer = {
     # if there is only one group, then "groups" should be set to `None`
     # and no group-specific hyper-parameters should exists in the config
     "groups": ["det", "sto"],
-    # group-specific hyper-parameters, will override common specific ones
+    # group-specific hyper-parameters, will override common ones
     "sto": {
         "lr": 0.002,
     },
@@ -20,6 +20,7 @@ optimizer = {
         "lr": 0.000,
     },
     # common hyper-parameters
+    "lr": 0.001,
     "weight_decay": 0.0001,
     "betas": (0.9, 0.999)
 }
