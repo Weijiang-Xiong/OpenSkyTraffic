@@ -11,7 +11,7 @@ git clone https://github.com/Weijiang-Xiong/netsanut.git
 python -m pip install -e .
 ```
 
-For datasets, please follow the [readme file](datasets/README.md) in `datasets` folder, as the steps vary.
+For the preprocessing and usage of datasets, please follow the [readme file](datasets/README.md) in `datasets` folder.
 
 ### Basic Usage
 
@@ -37,7 +37,7 @@ For a complete walk through of the training and visualization workflow, please l
 
 ### TODO
 
-* [ ] add causal mask to temporal attention
+* [ ] rewrite the data pipeline, and docs for dataset
 * [ ] separate functionalities of calibration and visualization
 * [ ] adapt he data processing from [LargeST](https://github.com/liuxu77/LargeST)
 * [ ] add processing for UTD19

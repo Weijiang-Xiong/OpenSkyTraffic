@@ -166,6 +166,7 @@ cython_debug/
 scratch
 .vscode
 datasets/*
-# ignore everything but allow this readme to appear in git
+# allow git to manage readme and preprocessing scripts
 !datasets/README.md 
+!datasets/scripts
 __NO_GIT*

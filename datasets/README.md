@@ -1,4 +1,13 @@
+### File Structure
 
+The dataset files, either raw or processed, are placed under `datasets`, and each dataset should have its own folder (or the symbolic link to the actual storage folder). 
+
+The codes for data preprocessing and utilization are placed under `netsanut/data`.
+
+### General Data Pipeline
+
+
+### Data Preprocessing
 
 Many datasets use `.h5` files to store raw data, and preprocessing `.h5` files with pandas [requires PyTables](https://pandas.pydata.org/docs/getting_started/install.html#dependencies), one can install it individually or install all dependencies of pandas at once
 
