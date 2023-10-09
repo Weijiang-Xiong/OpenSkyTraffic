@@ -1,3 +1,10 @@
+""" this API file should be added to the "API" tab in a scenario property (right click a scenario)
+"""
+import logging
+import numpy as np
+import pandas as pd 
+from typing import Dict, List, Tuple
+
 from AAPI import *
 from PyANGKernel import GKSystem
 
@@ -6,7 +13,7 @@ vehicles_inside = []
 
 def AAPILoad():
 	"""
-	Called when the scenario is loaded by Aimsun Next.
+	Called when the module is loaded by Aimsun Next.
 	"""
 	AKIPrintString( "AAPILoad" )
 	return 0
