@@ -11,7 +11,7 @@ import json
 import pandas as pd
 from typing import List, Dict
 
-road_bboxes = pd.DataFrame(columns=["id", "from_x", "from_y","to_x", "to_y"])
+link_bboxes = pd.DataFrame(columns=["id", "from_x", "from_y","to_x", "to_y", "length", "out_ang"])
 connections = pd.DataFrame(columns=["turn", "intersection", "org", "dst"])
 intersec_polygon = dict()
 
@@ -39,16 +39,18 @@ for idx, (key, link) in enumerate(all_links.items()):
     box = link.getBBox()
     # the two corners of the bbox are called from and to
     pt_from, pt_to = getattr(box, "from"), getattr(box, "to")
-    road_bboxes.loc[idx, :] = [link.getId(), 
+    link_bboxes.loc[idx, :] = [link.getId(), 
                                pt_from.x if not box.isUndefined() else -1, 
                                pt_from.y if not box.isUndefined() else -1, 
                                pt_to.x if not box.isUndefined() else -1, 
-                               pt_to.y if not box.isUndefined() else -1]
+                               pt_to.y if not box.isUndefined() else -1,
+                               link.length2D(),
+                               link.getExitAngle()]
     idx += 1
 
-road_bboxes.set_index("id", inplace=True)
+link_bboxes.set_index("id", inplace=True)
 connections.set_index("turn", inplace=True)
-road_bboxes.to_csv("road_bboxes.csv")
+link_bboxes.to_csv("link_bboxes.csv")
 connections.to_csv("connections.csv")
 with open("intersec_polygon.json", "w") as f:
     f.write(json.dumps(intersec_polygon, indent=4))
