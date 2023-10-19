@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from typing import Dict, List, Tuple
+from concurrent.futures import ThreadPoolExecutor
 
 from AAPI import *
 from PyANGKernel import GKSystem
@@ -32,29 +33,41 @@ def setup_logger(name, log_file, level=logging.INFO):
 
     return logger
 
+def get_info(time, vehicle_id):
+    """ This function defines what information to get from the Aimsun API
+        should match DataStorage.COLUMN_NAMES
+    """
+    vi = AKIVehTrackedGetInf(vehicle_id)
+    return (time, vi.idVeh, vi.xCurrentPos,
+            vi.yCurrentPos, vi.CurrentSpeed, 
+            vi.idSection, vi.idJunction,
+            vi.distance2End)
+
 class DataStorage:
 
-    MAX_TRAJ_ROWS = 1e6
+    MAX_TRAJ_ROWS = 1e7
     COLUMN_NAMES = ["time", "vehicle_id", "x", "y", "speed", "section", "junction", "dist2end"]
     
-    def __init__(self, logger):
+    def __init__(self, logger, max_threads=4):
         # the speed is in KPH according to the definition of the barcelona network
         # a vehicle is either in a section or a junction, and -1 indicates not in
-        self.traj_info = pd.DataFrame(columns=self.COLUMN_NAMES)
+        self.traj_info = []
         self.logger = logger
 
-    def update_traj(self, time: float, new_locs: pd.DataFrame):
+    def update_traj(self, time: float, new_locs: List[Tuple]):
 
-        self.traj_info = pd.concat([self.traj_info, new_locs], ignore_index=True, copy=False)
+        self.traj_info.extend(new_locs)
         if len(self.traj_info) > self.MAX_TRAJ_ROWS:
-            self.traj_info.to_csv("./trajectory/traj_{}.csv".format(time))
-            self.traj_info.drop(self.traj_info.index, inplace=True)
-            self.logger.info("file saved to ./trajectory/traj_{}.csv".format(time))
+            self.save_to_file("./trajectory/traj_{}.json".format(time))
             
-    def save_traj(self):
-        self.traj_info.to_csv("./trajectory/traj_end.csv")
-        self.logger.info("file saved to ./trajectory/traj_end.csv")
+    def save_to_file(self, file_name):
+        with open(file_name, "w") as json_file:
+            json.dump({"column_names": self.COLUMN_NAMES, "trajectory": self.traj_info}, json_file)
+        self.logger.info("file saved to {}".format(file_name))
+        self.traj_info.clear()
 
+    def clean_up(self):
+        self.save_to_file("./trajectory/traj_end.json")
 
 class TrafficDemand:
 
@@ -122,7 +135,7 @@ class TrafficDemand:
 model = GKSystem.getSystem().getActiveModel()
 vehicles_inside = []
 
-logger = setup_logger(name="default", log_file="./running_log.log")
+logger = setup_logger(name="default", log_file="./api_log.log")
 storage = DataStorage(logger)
 
 with open("./settings.json", "r") as f:
@@ -132,6 +145,8 @@ rng = np.random.default_rng(seed=settings["random_seed"])
 demand = TrafficDemand(rng, logger=logger)
 demand.get_od_from_model(model)
 demand.apply_random_transform(settings)
+
+executors = ThreadPoolExecutor(max_workers=settings["num_thread"])
 
 def AAPILoad():
     """
@@ -193,14 +208,10 @@ def AAPIPostManage(time, timeSta, timeTrans, acycle):
     """
     # AKIPrintString("AAPIPostManage")
     # record the locations of all vehicles at this time step
-    loc_info = pd.DataFrame(columns=DataStorage.COLUMN_NAMES)
-    for num, vehicle_id in enumerate(vehicles_inside):
-        vi = AKIVehTrackedGetInf(vehicle_id)
-        loc_info.loc[num, :] = [time, vi.idVeh, vi.xCurrentPos,
-                                vi.yCurrentPos, vi.CurrentSpeed, 
-                                vi.idSection, vi.idJunction,
-                                vi.distance2End]
-    storage.update_traj(time, loc_info)
+
+    all_veh_info = list(executors.map(lambda vid: get_info(time, vehicle_id=vid), vehicles_inside))
+    storage.update_traj(time, all_veh_info)
+    
     return 0
 
 
@@ -208,7 +219,7 @@ def AAPIFinish():
     """Called when Aimsun Next finishes the simulation and can be used to terminate the module operations, write summary information, close files, etc.
     """
     # AKIPrintString("AAPIFinish")
-    storage.save_traj()
+    storage.clean_up()
     logger.info("Simulation Finished")
     return 0
 
@@ -250,7 +261,7 @@ def AAPIExitVehicle(idveh, idsection):
     idsection: Identifier of the section where the vehicle exits the network.
     """
     AKIVehSetAsNoTracked(idveh)
-    vehicles_inside.pop(idveh)
+    vehicles_inside.remove(idveh)
     return 0
 
 

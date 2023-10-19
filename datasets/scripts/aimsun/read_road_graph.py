@@ -20,7 +20,7 @@ import pandas as pd
 from typing import List, Dict
 
 
-link_bboxes = pd.DataFrame(columns=["id", "from_x", "from_y","to_x", "to_y", "length", "out_ang"])
+link_bboxes = pd.DataFrame(columns=["id", "from_x", "from_y","to_x", "to_y", "length", "out_ang","num_lanes"])
 connections = pd.DataFrame(columns=["turn", "intersection", "org", "dst"])
 intersec_polygon = dict()
 
@@ -54,7 +54,8 @@ for idx, (key, link) in enumerate(all_links.items()):
                                pt_to.x if not box.isUndefined() else -1, 
                                pt_to.y if not box.isUndefined() else -1,
                                link.length2D(),
-                               link.getExitAngle()]
+                               link.getExitAngle(),
+                               len(link.getLanes())]
 
 
 all_centroids = catalog.getObjectsByType( model.getType( "GKCentroid" ) )

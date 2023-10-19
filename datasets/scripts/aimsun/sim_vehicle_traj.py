@@ -10,9 +10,10 @@ folder_pattern = "/home/weijiang/Projects/Netsanut/datasets/simbarca/session_*"
 all_folders = glob.glob(folder_pattern)
 for folder in all_folders:
     project_copy_path = "{}/{}".format(folder, "project_copy.ang")
+    # copy the original file to a new one 
     shutil.copyfile(project, project_copy_path)
-    command = "cd {} && {} --project {} --command execute --target {} --force_number_of_threads 16".format(
-        folder, executable, project_copy_path, rep_id)
+    command = "cd {} && {} --project {} --command execute --target {} --force_number_of_threads 16 --log_file {}/aimsun_log.log".format(
+        folder, executable, project_copy_path, rep_id, folder)
     print("Executing command \n {}".format(command))
     subprocess.run(command, shell=True)
     
