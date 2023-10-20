@@ -1,5 +1,6 @@
 import os
 import json
+import shutil
 import random
 import itertools
 import argparse
@@ -8,7 +9,7 @@ import numpy as np
 def default_argument_parser():
     
     parser = argparse.ArgumentParser(description='Run simulations')
-    
+    parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
     parser.add_argument('--init_seed', type=int, default=42, help='Initial seed for random number generator')
     parser.add_argument('--data_root', type=str, default='/home/weijiang/Projects/Netsanut/datasets/simbarca', help='Root directory for data')
     parser.add_argument('--num_thread', type=int, default=4, help='Number of threads to use when obtaining vehicle information')
@@ -57,11 +58,17 @@ if __name__ == "__main__":
         folder_name = "session_{:03d}".format(idx)
         folder_path = "{}/{}".format(args.data_root, folder_name)
         if os.path.exists(folder_path):
-            print("Folder {} already exists, skipping it".format(folder_path))
-            continue
-        else:
-            os.mkdir(folder_path)
-        
+            if not args.overwrite:
+                print("Folder {} already exists, skipping it".format(folder_path))
+                continue
+            else:
+                print("Folder {} already exists, overwriting it".format(folder_path))
+                shutil.rmtree(folder_path)
+
+        os.mkdir(folder_path)
+        os.mkdir("{}/{}".format(folder_path, "timeseries"))
+        os.mkdir("{}/{}".format(folder_path, "trajectory"))
+
         # add variables to dictionary
         settings = {"seed": seed, 
                     "mask_p": mask_p, 

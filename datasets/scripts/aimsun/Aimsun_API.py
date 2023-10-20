@@ -212,6 +212,10 @@ def AAPIPostManage(time, timeSta, timeTrans, acycle):
     all_veh_info = list(executors.map(lambda vid: get_info(time, vehicle_id=vid), vehicles_inside))
     storage.update_traj(time, all_veh_info)
     
+    # report vehicle number every 1000 steps
+    if int(time / acycle) % 1000 == 1:
+        logger.info("{} vehicles in network at time {}".format(len(vehicles_inside), time))
+        
     return 0
 
 
