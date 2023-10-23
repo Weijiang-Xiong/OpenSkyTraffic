@@ -70,7 +70,7 @@ if __name__ == "__main__":
         os.mkdir("{}/{}".format(folder_path, "trajectory"))
 
         # add variables to dictionary
-        settings = {"seed": seed, 
+        settings = {"random_seed": seed, 
                     "mask_p": mask_p, 
                     "noise_p": noise_p, 
                     "noise_scale": noise_scale, 
