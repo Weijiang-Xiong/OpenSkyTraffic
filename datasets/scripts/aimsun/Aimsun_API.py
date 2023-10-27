@@ -1,4 +1,4 @@
-""" this API file should be added to the "API" tab in a scenario property (right click a scenario)
+""" this API file should be added to the "Aimsun Next APIs" tab in a scenario property (right click a scenario in the project tab). Aimsun will use an absolute path to identify this API extension, therefore when this file is moved elsewhere, the path in the .ang file should also be changed accordingly.
 """
 import json
 import logging
@@ -36,17 +36,36 @@ def setup_logger(name, log_file, level=logging.INFO):
 def get_info(time, vehicle_id):
     """ This function defines what information to get from the Aimsun API
         should match DataStorage.COLUMN_NAMES
+
+        Recorded information:
+            time: simulation time step
+            idVeh: ID of vehicle
+            xCurrentPos: x coordinate of vehicle
+            yCurrentPos: y coordinate of vehicle
+            CurrentSpeed: speed of vehicle
+            idSection: ID of section (road segment) vehicle is in. -1 if it is not in a section.
+            idJunction: ID of junction (intersection) vehicle is in. -1 if it is not in a junction.
+            idSectionFrom: ID of section vehicle is coming from, when it is in a junction. -1 if it is not in a junction.
+            idSectionTo: ID of section vehicle is going to, when it is in a junction. -1 if it is not in a junction.
+            distance2End: distance to the end of the section or to the end of the turning between two sections, depending on whether the vehicle is in a section or in a junction
     """
     vi = AKIVehTrackedGetInf(vehicle_id)
-    return (time, vi.idVeh, vi.xCurrentPos,
-            vi.yCurrentPos, vi.CurrentSpeed, 
-            vi.idSection, vi.idJunction,
+    return (time, 
+            vi.idVeh, 
+            vi.xCurrentPos,
+            vi.yCurrentPos, 
+            vi.CurrentSpeed, 
+            vi.idSection, 
+            vi.idJunction,
+            vi.idSectionFrom, 
+            vi.idSectionTo,
             vi.distance2End)
 
 class DataStorage:
 
     MAX_TRAJ_ROWS = 1e7
-    COLUMN_NAMES = ["time", "vehicle_id", "x", "y", "speed", "section", "junction", "dist2end"]
+    COLUMN_NAMES = ["time", "vehicle_id", "x", "y", "speed", "section", "junction", 
+                    "section_from", "section_to", "dist2end"]
     
     def __init__(self, logger, max_threads=4):
         # the speed is in KPH according to the definition of the barcelona network
