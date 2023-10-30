@@ -21,7 +21,7 @@ from typing import List, Dict
 
 
 link_bboxes = pd.DataFrame(columns=["id", "from_x", "from_y","to_x", "to_y", "length", "out_ang","num_lanes"])
-connections = pd.DataFrame(columns=["turn", "intersection", "org", "dst"])
+connections = pd.DataFrame(columns=["turn", "intersection", "org", "dst", "length"])
 intersec_polygon = dict()
 
 catalog = model.getCatalog()
@@ -37,7 +37,7 @@ for key, node in all_nodes.items():
     # print("Node ID {}".format(key)) # the dict key is ID, can be verified by node.getId()
     intersec_polygon[node.getId()] = {"polygon": [(p.x, p.y) for p in node.getPolygon()]}
     for turn in node.getTurnings():
-        connections.loc[idx, :] = [turn.getId(), node.getId(), turn.getOrigin().getId(), turn.getDestination().getId()]
+        connections.loc[idx, :] = [turn.getId(), node.getId(), turn.getOrigin().getId(), turn.getDestination().getId(), turn.length2D()]
         idx += 1
 
 # A section in Aimsun is correspond to a road segment, it has an ID, and its bounding boxes can
