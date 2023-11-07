@@ -12,8 +12,8 @@ def default_argument_parser():
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
     parser.add_argument('--init_seed', type=int, default=42, help='Initial seed for random number generator')
     parser.add_argument('--data_root', type=str, default='/home/weijiang/Projects/Netsanut/datasets/simbarca', help='Root directory for data')
-    parser.add_argument('--num_thread', type=int, default=4, help='Number of threads to use when obtaining vehicle information')
-    parser.add_argument('--num_sim', type=int, default=7, help='Number of simulations to run')
+    parser.add_argument('--num_thread', type=int, default=16, help='Number of threads to use when obtaining vehicle information')
+    parser.add_argument('--num_sim', type=int, default=10, help='Number of simulations to run')
     parser.add_argument('--seed_low', type=int, default=10000, help='Lower bound for random seed')
     parser.add_argument('--seed_high', type=int, default=99999, help='Upper bound for random seed')
     

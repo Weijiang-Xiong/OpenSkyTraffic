@@ -1,4 +1,7 @@
 """ this API file should be added to the "Aimsun Next APIs" tab in a scenario property (right click a scenario in the project tab). Aimsun will use an absolute path to identify this API extension, therefore when this file is moved elsewhere, the path in the .ang file should also be changed accordingly.
+
+We generally record two kinds of information, one is the vehicle information at each time step, which contains the vehicle position at each time step. Please see `get_info` for details. The other is entering and exiting information which records when a vehicle goes into and out of a section. The latter is used to calculate the travel time of a vehicle within a section (see `AAPIEnterVehicleSection` and `AAPIExitVehicleSection`).
+
 """
 import json
 import logging
@@ -47,7 +50,9 @@ def get_info(time, vehicle_id):
             idJunction: ID of junction (intersection) vehicle is in. -1 if it is not in a junction.
             idSectionFrom: ID of section vehicle is coming from, when it is in a junction. -1 if it is not in a junction.
             idSectionTo: ID of section vehicle is going to, when it is in a junction. -1 if it is not in a junction.
-            distance2End: distance to the end of the section or to the end of the turning between two sections, depending on whether the vehicle is in a section or in a junction
+            CurrentPos: Position inside the section, distance from the beginning of the section or junction.
+            distance2End: distance to the end of the section or to the end of the turning between two sections, depending on whether the vehicle is in a section or in a junction. This is the difference between section length and CurrentPos.
+            TotalDistance: Total distance traveled.
     """
     vi = AKIVehTrackedGetInf(vehicle_id)
     return (time, 
@@ -59,18 +64,23 @@ def get_info(time, vehicle_id):
             vi.idJunction,
             vi.idSectionFrom, 
             vi.idSectionTo,
-            vi.distance2End)
+            vi.CurrentPos,
+            vi.distance2End,
+            vi.TotalDistance)
+
 
 class DataStorage:
 
     MAX_TRAJ_ROWS = 1e7
-    COLUMN_NAMES = ["time", "vehicle_id", "x", "y", "speed", "section", "junction", 
-                    "section_from", "section_to", "dist2end"]
-    
-    def __init__(self, logger, max_threads=4):
+    COLUMN_NAMES = ["time", "vehicle_id", "x", "y", "speed", "section", "junction",
+                    "section_from", "section_to", "position", "dist2end", "total_dist"]
+
+    def __init__(self, logger):
         # the speed is in KPH according to the definition of the barcelona network
         # a vehicle is either in a section or a junction, and -1 indicates not in
         self.traj_info = []
+        self.entering = []
+        self.exiting = []
         self.logger = logger
 
     def update_traj(self, time: float, new_locs: List[Tuple]):
@@ -81,9 +91,14 @@ class DataStorage:
             
     def save_to_file(self, file_name):
         with open(file_name, "w") as json_file:
-            json.dump({"column_names": self.COLUMN_NAMES, "trajectory": self.traj_info}, json_file)
+            json.dump(
+                {"column_names": self.COLUMN_NAMES, "trajectory": self.traj_info,
+                    "entering": self.entering, "exiting": self.exiting},
+                json_file)
         self.logger.info("file saved to {}".format(file_name))
         self.traj_info.clear()
+        self.entering.clear()
+        self.exiting.clear()
 
     def clean_up(self):
         self.save_to_file("./trajectory/traj_end.json")
@@ -314,6 +329,7 @@ def AAPIEnterVehicleSection(idveh, idsection, atime):
             - *idsection*: Identifier of the section the vehicle is entering.
             - *atime*: Absolute time of the simulation when the vehicle enters the section. At the beginning of the simulation (beginning of the warm-up, if any), it takes the value 0.
     """
+    storage.entering.append((idveh, idsection, atime))
     return 0
 
 
@@ -324,6 +340,7 @@ def AAPIExitVehicleSection(idveh, idsection, atime):
             - *idsection*: Identifier of the section the vehicle is exiting.
             - *atime*: Absolute time of the simulation when the vehicle is exits the section. At the beginning of the simulation (beginning of the warm-up, if any), it takes the value 0.
     """
+    storage.exiting.append((idveh, idsection, atime))
     return 0
 
 
