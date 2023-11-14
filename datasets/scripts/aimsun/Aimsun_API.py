@@ -72,9 +72,10 @@ def get_info(time, vehicle_id):
 class DataStorage:
 
     MAX_TRAJ_ROWS = 1e7
-    COLUMN_NAMES = ["time", "vehicle_id", "x", "y", "speed", "section", "junction",
+    INFO_COLUMNS = ["time", "vehicle_id", "x", "y", "speed", "section", "junction",
                     "section_from", "section_to", "position", "dist2end", "total_dist"]
-
+    INOUT_COLUMNS = ["vehicle_id", "section", "time"]
+    
     def __init__(self, logger):
         # the speed is in KPH according to the definition of the barcelona network
         # a vehicle is either in a section or a junction, and -1 indicates not in
@@ -91,9 +92,12 @@ class DataStorage:
             
     def save_to_file(self, file_name):
         with open(file_name, "w") as json_file:
-            json.dump(
-                {"column_names": self.COLUMN_NAMES, "trajectory": self.traj_info,
-                    "entering": self.entering, "exiting": self.exiting},
+            json.dump({
+                "info_columns": self.INFO_COLUMNS, 
+                "trajectory": self.traj_info,
+                "inout_columns": self.INOUT_COLUMNS,
+                "entering": self.entering, 
+                "exiting": self.exiting},
                 json_file)
         self.logger.info("file saved to {}".format(file_name))
         self.traj_info.clear()

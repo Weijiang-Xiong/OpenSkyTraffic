@@ -1,19 +1,22 @@
+import time
 import json
 import glob
+import argparse
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 from copy import deepcopy
 from typing import List, Dict, Tuple
-from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict
+from pandarallel import pandarallel
+pandarallel.initialize(nb_workers=32, progress_bar=True)
 
+SIM_START_TIME = np.datetime64("2005-05-10T07:45")
 SIM_TIME_STEP = 0.5  # simulation time step is set to be 0.5s in Aimsun
 CONNECTION_DTYPE = {'turn': int, 'org': int, 'dst': int, 'intersection': int, 'length': float}
 LINK_DTYPE = {'id': int, 'from_x': float, 'from_y': float, 'to_x': float, 'to_y': float, 'length': float, 'out_ang': float, 'num_lanes': int}
-VEHINFO_DTYPE = {'time': float, 'vehicle_id': int, 'speed': float,
-              'section': int, 'junction': int, 'section_from': int, 'section_to': int}
-COLUMNS_TO_RECORD = ['speed', 'dist2end', 'section', 'junction', 'section_from', 'section_to']
+VEHINFO_DTYPE = {'time': float, 'vehicle_id': int, 'speed': float, 'section': int, 'junction': int, 'section_from': int, 'section_to': int, 'position': float, 'dist2end': float, 'total_dist': float, }
+TIME_STEP_COLUMNS = ['section', 'junction', 'position', 'dist2end', 'total_dist']
 
 
 class Section:
@@ -22,27 +25,32 @@ class Section:
 
         self.id = int(road_id)
         self.length = length
+        self.detector_place = 0.5 * length
         self.num_lanes = int(num_lanes)
         self.in_turns = []
         self.out_turns = []
 
-        self.clips = []  # take the clips at this section from a TrajectoryClip
+        self.clips = None  # take the clips at this section from a TrajectoryClip
 
-    def add_detector(self, loc=0.5):
-        pass
+    def set_detector_place(self, loc=0.5):
+        self.detector_place = self.length * loc
 
-
+    
 class Junction:
 
     def __init__(self, junction_id) -> None:
         self.id = junction_id
         self.turns = dict()
+        self.orgs = set()
+        self.dsts = set()
 
     def add_turn(self, org, dst, length):
+        self.orgs.add(org)
+        self.dsts.add(dst)
         self.turns["{}-{}".format(org, dst)] = length
 
     def get_turn_length(self, org, dst):
-        return self.turns.get("{}-{}".format(org, dst), 9999)
+        return self.turns.get("{}-{}".format(org, dst), np.nan)
 
 
 class RoadNetwork:
@@ -61,83 +69,64 @@ class RoadNetwork:
     def get_junction(self, key):
         return self.junctions[key]
 
-class TrajectoryClip:
-
-    def __init__(self, clips: List[Tuple]) -> None:
-        
-        self.clips = clips  # list of (vehicle_id, section_id, start_time, end_time, start_loc, end_loc)
+    def get_turn_length(self, junction, org, dst):
+        return self.junctions[junction].get_turn_length(org, dst)
 
 
-# use BFS to find the shortest path ,return the path as a list of sections
-def BFS_shortest_path(graph: RoadNetwork, start: str, end: str):
+def get_total_dist(df: pd.DataFrame):
+    return (df['position'] - df['p_position']).abs().sum()
+
+def get_total_time(df: pd.DataFrame):
+    return (df['time'] - df['p_time']).abs().sum()
+
+def get_LD_count(df: pd.DataFrame, place=0):
+    """ vehicle count observed by loop detector at `place` from start
+    """
+    return ((df['position'] >= place) & (df['p_position'] < place)).sum()
+
+def get_LD_speed(df: pd.DataFrame, place):
+    """ vehicle speed observed by loop detector at `place` from start
+    """
+    vs = df[(df['position'] >= place) & (df['p_position'] < place)]
+    return np.nan_to_num(((vs['position'] - vs['p_position']) / (vs['time'] - vs['p_time'])).mean())
+
+def get_traffic_variables_of_section(df, road_network):
     
-    if start == end:
-        return [start, end]
-    else:
-        
-        depth, queue = 0, [[start]]
-        
-        while queue:
-            path = queue.pop(0)
-            node = path[-1]
-            for next_node in graph.get_section(node).out_turns:
-                new_path = list(path)
-                new_path.append(next_node)
-                queue.append(new_path)
-                if next_node == end:
-                    return new_path
-
-            # avoid infinite loop
-            depth += 1 
-            if depth > 10:
-                return None
-
-
-def get_trajectory_clips(graph: RoadNetwork, row: pd.Series, mode=1):
-
-    match mode:
-        case 1:  # (start, end) = (section, section)
-            # a) same section
-            if row['section'] == row['p_section']:
-                row['traj_clip'] = TrajectoryClip([(
-                    row['vehicle_id'], row['section'], row['time'] - SIM_TIME_STEP, row['time'],
-                    row['p_dist2end'], row['dist2end']
-                )])
-            # b) search(start, end)
-            else:
-                path = BFS_shortest_path(graph, row['p_section'], row['section'])
-                
-                clips = [()]
-                for i in range(1, len(path) - 1):
-                    pass 
-                
-                    
-                
-        case 2:  # (start, end) = (junction, section)
-            # start.dist2end + search(start.dst, end)
-            pass
-        case 3:  # (start, end) = (section, junction)
-            # search(start, end.org)
-            pass
-        case 4:  # (start, end) = (junction, junction)
-            # a) same junction, b) search(start.dst, end.org)
-            pass
+    section = road_network.get_section(df['section'].iloc[0])
+    # compose trajectory segment (start_time, end_time, start_position, end_position)
+    vehicle_groups = df.groupby(['vehicle_id'])
+    df['p_time'] = vehicle_groups['time'].shift(1)
+    df['p_position'] = vehicle_groups['position'].shift(1)
+    # drop the first time step of each vehicle
+    df.dropna(inplace=True)
+    
+    df['time_step'] = np.ceil(df['time'] / SIM_TIME_STEP).astype(int)
+    
+    time_groups = df.groupby('time_step')
+    time_steps = list(time_groups.groups.keys())
+    total_dist = time_groups.apply(get_total_dist)
+    total_time = time_groups.apply(get_total_time)
+    LD_count = time_groups.apply(get_LD_count, place=section.detector_place)
+    LD_speed = time_groups.apply(get_LD_speed, place=section.detector_place)
+    
+    return {"time_steps": time_steps,
+            "total_dist": total_dist.tolist() if total_dist.count()>0 else[], 
+            "total_time": total_time.tolist() if total_time.count()>0 else[], 
+            "LD_count": LD_count.tolist() if LD_count.count()>0 else[], 
+            "LD_speed": LD_speed.tolist() if LD_speed.count()>0 else[]}
 
 
 if __name__ == "__main__":
     
-    # create multiple thread executor
-    executor = ThreadPoolExecutor(max_workers=8)
+    parser = argparse.ArgumentParser(description="Generate time series data from trajectory data")
+    parser.add_argument('--metadata_folder', type=str, default='datasets/simbarca/metadata', help='Path to metadata folder')
+    parser.add_argument('--session_folder', type=str, default='datasets/simbarca/debug_session', help='Path to session folder')
+    args = parser.parse_args()
     
-    metadata_folder = "datasets/simbarca/metadata"
-    session_folder = "datasets/simbarca/debug_session"
-
-    connections = pd.read_csv("{}/connections.csv".format(metadata_folder), dtype=CONNECTION_DTYPE)
-    link_bboxes = pd.read_csv("{}/link_bboxes.csv".format(metadata_folder), dtype=LINK_DTYPE)
-    with open("{}/intersec_polygon.json".format(metadata_folder), "r") as f:
+    connections = pd.read_csv("{}/connections.csv".format(args.metadata_folder), dtype=CONNECTION_DTYPE)
+    link_bboxes = pd.read_csv("{}/link_bboxes.csv".format(args.metadata_folder), dtype=LINK_DTYPE)
+    with open("{}/intersec_polygon.json".format(args.metadata_folder), "r") as f:
         intersection_polygon = json.load(f)
-    
-    
     
     # construct a graph from the files
     sections = {row.id: Section(row.id, row.length, row.num_lanes) 
@@ -151,57 +140,74 @@ if __name__ == "__main__":
 
     # check by comparing with Aimsun Next Model
     road_network = RoadNetwork(sections, junctions)
-    
 
     # get the names of trajectory files
-    all_data_files = sorted(glob.glob("{}/trajectory/*.json".format(session_folder)))
+    all_data_files = sorted(glob.glob("{}/trajectory/*.json".format(args.session_folder)))
     assert "traj_end" in all_data_files[-1]
 
-    init_time_step: pd.DataFrame = None
+    previous_time_step: pd.DataFrame = None
+    # section -> series_name -> series_data
+    per_section_ts: Dict[str, Dict[str, List]] = defaultdict(lambda: defaultdict(list)) 
     # read the json data files
+    # all_data_files = ['datasets/simbarca/session_000/trajectory/traj_2890.5.json', 'datasets/simbarca/session_000/trajectory/traj_4179.0.json']
     for data_file in all_data_files:
-
+        
+        print("Working on file {}".format(data_file))
+        
+        start_time = time.perf_counter()
         with open(data_file, "r") as f:
             data = json.load(f)
-
+        print("Loading a file takes {:.2f}s".format(time.perf_counter() - start_time))
+        
         # concatenate the last time step with the current data frame
-        if init_time_step is not None:
-            df = pd.concat([init_time_step,
-                            pd.DataFrame(data=data['trajectory'], columns=data['column_names'])],
-                           copy=False)
+        start_time = time.perf_counter()
+        if previous_time_step is not None:
+            df = pd.concat([previous_time_step,
+                            pd.DataFrame(data=data['trajectory'], columns=data['info_columns'])],
+                           copy=False, ignore_index=True)
         else:
-            df = pd.DataFrame(data=data['trajectory'], columns=data['column_names'])
+            df = pd.DataFrame(data=data['trajectory'], columns=data['info_columns'])
+            # these files are organized chronologically by time step, so keep the last time step of
+            # this file as the init_time_step for the next file
+            # check the init_time_step['time'] is the same as the number in the file name (the time step when this file is saved)
+            previous_time_step= deepcopy(df.groupby('time').get_group(df['time'].max()))
+        
+        entering = pd.DataFrame(data=data['entering'], columns=data['inout_columns'])
+        exiting = pd.DataFrame(data=data['exiting'], columns=data['inout_columns'])
+        print("Creating data frames takes {:.2f}s".format(time.perf_counter() - start_time))
+
+        start_time = time.perf_counter()
+        df = df[['vehicle_id', 'section', 'time', 'position']]
+        df = df[df['section'] != -1] # section==-1 means the vehicle is in a junction, so ignore it
+        entering['position'] = 0
+        # use -1 to indicate the vehicle is at the end, will be replaced by section length
+        exiting['position'] = -1
+        df = pd.concat([df, entering, exiting], ignore_index=True, copy=False)
+        
         df.sort_values(by=['vehicle_id', 'time'], inplace=True)
-        df.astype(VEHINFO_DTYPE, copy=False)
-        # add empty columns for previous time step
-        for col in COLUMNS_TO_RECORD:
-            df['p_{}'.format(col)] = np.nan
-
-        time_groups = df.groupby('time')
-        # these files are organized chronologically by time step, so keep the last time step of
-        # this file as the init_time_step for the next file
-        # check the init_time_step['time'] is the same as the number in the file name (the time step when this file is saved)
-        init_time_step: pd.DataFrame = time_groups.get_group(list(time_groups.groups.keys())[-1])
-
-        # to check the shifting works see in debug console or print
-        # vehicle_groups.get_group(77)[['vehicle_id', 'speed', 'p_speed']]
-        vehicle_groups = df.groupby(['vehicle_id'])
-        for col in COLUMNS_TO_RECORD:
-            df['p_{}'.format(col)] = vehicle_groups[col].shift(1)
-
-        # drop the initial time step, since it has no previous time step
-        # check that when reading the first file of the simulated trajectories,
-        # the len(df) is decreased by the number of vehicle after this step
-        df.dropna(inplace=True)
-
-        df['traj_clip'] = None  # add an empty column for trajectory clips
-        # split the trajectory by section
-        # see the note https://pandas.pydata.org/docs/user_guide/indexing.html#boolean-indexing
-        df[(df['p_section'] > 0) & (df['section'] > 0)].apply(
-            lambda row: get_trajectory_clips(graph=road_network, row=row, mode=1), axis='columns')
-        df[(df['p_junction'] > 0) & (df['section'] > 0)].apply(
-            lambda row: get_trajectory_clips(graph=road_network, row=row, mode=2), axis='columns')
-        df[(df['p_section'] > 0) & (df['junction'] > 0)].apply(
-            lambda row: get_trajectory_clips(graph=road_network, row=row, mode=3), axis='columns')
-        df[(df['p_junction'] > 0) & (df['junction'] > 0)].apply(
-            lambda row: get_trajectory_clips(graph=road_network, row=row, mode=4), axis='columns')
+        df = df.astype({k:v for k, v in VEHINFO_DTYPE.items() if k in df.columns}, copy=False)
+        print("Filling data types and values takes {:.2f}s".format(time.perf_counter() - start_time))
+        
+        # pandarallel uses process-based parallelism, so the child process will fork a copy 
+        # of the address space, modifications to `road_network` here will not be available 
+        # in the parent process.
+        # The OS usually use "copy on write" to prevent unnecessary copying of memory, so the 
+        # data will not be copied until modification happens (same principle applies to pandas).
+        start_time = time.perf_counter()
+        ts_in_file = df.groupby('section').apply(get_traffic_variables_of_section, road_network=road_network)
+        print("\n Processing a file takes {:.2f}s".format(time.perf_counter() - start_time))
+        
+        # concatenate the time series with previous file
+        start_time = time.perf_counter()
+        for section, contents in ts_in_file.items():
+            for series_name, series_data in contents.items():
+                per_section_ts[section][series_name].extend(series_data)
+        print("Concatenating time series takes {:.2f}s".format(time.perf_counter() - start_time))
+                
+                
+    # save the time series data
+    start_time = time.perf_counter()
+    with open("{}/time_series.json".format(args.session_folder), "w") as f:
+        json.dump(per_section_ts, f)
+    print("Saving all the time series takes {:.2f}s".format(time.perf_counter() - start_time))
+        
