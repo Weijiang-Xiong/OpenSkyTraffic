@@ -83,12 +83,13 @@ class DataStorage:
         self.entering = []
         self.exiting = []
         self.logger = logger
+        self.num_saved = 0 # number of saved files
 
     def update_traj(self, time: float, new_locs: List[Tuple]):
 
         self.traj_info.extend(new_locs)
         if len(self.traj_info) > self.MAX_TRAJ_ROWS:
-            self.save_to_file("./trajectory/traj_{}.json".format(time))
+            self.save_to_file("./trajectory/{:02d}_traj_{}.json".format(self.num_saved, time))
             
     def save_to_file(self, file_name):
         with open(file_name, "w") as json_file:
@@ -103,9 +104,10 @@ class DataStorage:
         self.traj_info.clear()
         self.entering.clear()
         self.exiting.clear()
+        self.num_saved += 1
 
     def clean_up(self):
-        self.save_to_file("./trajectory/traj_end.json")
+        self.save_to_file("./trajectory/{:02d}_traj_end.json".format(self.num_saved))
 
 class TrafficDemand:
 
