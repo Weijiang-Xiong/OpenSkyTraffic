@@ -13,6 +13,9 @@ pandarallel.initialize(nb_workers=32, progress_bar=True)
 
 SIM_START_TIME = np.datetime64("2005-05-10T07:45")
 SIM_TIME_STEP = 0.5  # simulation time step is set to be 0.5s in Aimsun
+# the main demand matrix in Aimsun has roughly 1e5 vehicles, which can be scaled by 1.5
+# so here we choose a safe upper bound to randomly sample probe vehicles
+MAX_NUM_VEHICLE = int(2e5)
 CONNECTION_DTYPE = {'turn': int, 'org': int, 'dst': int, 'intersection': int, 'length': float}
 LINK_DTYPE = {'id': int, 'from_x': float, 'from_y': float, 'to_x': float, 'to_y': float, 'length': float, 'out_ang': float, 'num_lanes': int}
 VEHINFO_DTYPE = {'time': float, 'vehicle_id': int, 'speed': float, 'section': int, 'junction': int, 'section_from': int, 'section_to': int, 'position': float, 'dist2end': float, 'total_dist': float, }
@@ -90,7 +93,7 @@ def get_LD_speed(df: pd.DataFrame, place):
     vs = df[(df['position'] >= place) & (df['p_position'] < place)]
     return np.nan_to_num(((vs['position'] - vs['p_position']) / (vs['time'] - vs['p_time'])).mean())
 
-def get_traffic_variables_of_section(df, road_network):
+def from_all_vehicles(df, road_network):
     
     section = road_network.get_section(df['section'].iloc[0])
     # compose trajectory segment (start_time, end_time, start_position, end_position)
@@ -109,11 +112,40 @@ def get_traffic_variables_of_section(df, road_network):
     LD_count = time_groups.apply(get_LD_count, place=section.detector_place)
     LD_speed = time_groups.apply(get_LD_speed, place=section.detector_place)
     
+    # the grouby.apply above returns empty dataframe (not series) if `df` is empty, and 
+    # .tolist() will give an error. So we need to check if the dataframe/series is empty.
+    # this can happen after the time with demand when there is no vehicle in some sections
     return {"time_steps": time_steps,
-            "total_dist": total_dist.tolist() if total_dist.count()>0 else[], 
-            "total_time": total_time.tolist() if total_time.count()>0 else[], 
-            "LD_count": LD_count.tolist() if LD_count.count()>0 else[], 
-            "LD_speed": LD_speed.tolist() if LD_speed.count()>0 else[]}
+            "total_dist": total_dist.tolist() if total_dist.size > 0 else [], 
+            "total_time": total_time.tolist() if total_time.size > 0 else [], 
+            "LD_count": LD_count.tolist() if LD_count.size > 0 else [], 
+            "LD_speed": LD_speed.tolist() if LD_speed.size > 0 else []}
+
+def from_probe_vehicles(df: pd.DataFrame):
+    """ the procedure is similar to `get_traffic_variables_of_section`, but the dataframe
+        should be downsampled before applying this function. 
+    """
+    # compose trajectory segment (start_time, end_time, start_position, end_position)
+    vehicle_groups = df.groupby(['vehicle_id'])
+    df['p_time'] = vehicle_groups['time'].shift(1)
+    df['p_position'] = vehicle_groups['position'].shift(1)
+    # drop the first time step of each vehicle
+    df.dropna(inplace=True)
+    
+    df['time_step'] = np.ceil(df['time'] / SIM_TIME_STEP).astype(int)
+    
+    time_groups = df.groupby('time_step')
+    time_steps = list(time_groups.groups.keys())
+    total_dist = time_groups.apply(get_total_dist)
+    total_time = time_groups.apply(get_total_time)
+    
+    # the grouby.apply above returns empty dataframe (not series) if `df` is empty, and 
+    # .tolist() will give an error. So we need to check if the dataframe/series is empty.
+    # this can happen after the time with demand when there is no vehicle in some sections
+    return {"pv_time_steps": time_steps, # "pv" stands for "probe vehicle"
+            "pv_dist": total_dist.tolist() if total_dist.size > 0 else [], 
+            "pv_time": total_time.tolist() if total_time.size > 0 else []}
+    
 
 
 if __name__ == "__main__":
@@ -121,6 +153,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate time series data from trajectory data")
     parser.add_argument('--metadata_folder', type=str, default='datasets/simbarca/metadata', help='Path to metadata folder')
     parser.add_argument('--session_folder', type=str, default='datasets/simbarca/debug_session', help='Path to session folder')
+    parser.add_argument('--penetration_rate', type=float, default=0.05, help='Penetration rate of probe vehicles')
     args = parser.parse_args()
     
     connections = pd.read_csv("{}/connections.csv".format(args.metadata_folder), dtype=CONNECTION_DTYPE)
@@ -141,21 +174,27 @@ if __name__ == "__main__":
     # check by comparing with Aimsun Next Model
     road_network = RoadNetwork(sections, junctions)
 
+    with open("{}/settings.json".format(args.session_folder), "r") as f:
+        settings = json.load(f)
+        rng = np.random.default_rng(settings['random_seed'])
+        selected_vehicles = rng.choice(range(MAX_NUM_VEHICLE), 
+                                       size=int(args.penetration_rate*MAX_NUM_VEHICLE), 
+                                       replace=False)
+    
     # get the names of trajectory files
-    all_data_files = sorted(glob.glob("{}/trajectory/*.json".format(args.session_folder)))
-    assert "traj_end" in all_data_files[-1]
-
+    data_files = sorted(glob.glob("{}/trajectory/*.json".format(args.session_folder)))
+    # these files are organized chronologically by time step, so keep the last time step of
+    # this file as the init_time_step for the next file
     previous_time_step: pd.DataFrame = None
     # section -> series_name -> series_data
     per_section_ts: Dict[str, Dict[str, List]] = defaultdict(lambda: defaultdict(list)) 
     # read the json data files
-    # all_data_files = ['datasets/simbarca/session_000/trajectory/traj_2890.5.json', 'datasets/simbarca/session_000/trajectory/traj_4179.0.json']
-    for data_file in all_data_files:
+    for file_name in data_files:
         
-        print("Working on file {}".format(data_file))
-        
+        print("Working on file {}".format(file_name))
+
         start_time = time.perf_counter()
-        with open(data_file, "r") as f:
+        with open(file_name, "r") as f:
             data = json.load(f)
         print("Loading a file takes {:.2f}s".format(time.perf_counter() - start_time))
         
@@ -167,8 +206,6 @@ if __name__ == "__main__":
                            copy=False, ignore_index=True)
         else:
             df = pd.DataFrame(data=data['trajectory'], columns=data['info_columns'])
-            # these files are organized chronologically by time step, so keep the last time step of
-            # this file as the init_time_step for the next file
             # check the init_time_step['time'] is the same as the number in the file name (the time step when this file is saved)
             previous_time_step= deepcopy(df.groupby('time').get_group(df['time'].max()))
         
@@ -194,14 +231,17 @@ if __name__ == "__main__":
         # The OS usually use "copy on write" to prevent unnecessary copying of memory, so the 
         # data will not be copied until modification happens (same principle applies to pandas).
         start_time = time.perf_counter()
-        ts_in_file = df.groupby('section').apply(get_traffic_variables_of_section, road_network=road_network)
+        av_ts_in_file = df.groupby('section').parallel_apply(from_all_vehicles, road_network=road_network)
+        probe_vehicle_df = df[df['vehicle_id'].isin(selected_vehicles)]
+        pv_ts_in_file = probe_vehicle_df.groupby('section').parallel_apply(from_probe_vehicles)
         print("\n Processing a file takes {:.2f}s".format(time.perf_counter() - start_time))
         
         # concatenate the time series with previous file
         start_time = time.perf_counter()
-        for section, contents in ts_in_file.items():
-            for series_name, series_data in contents.items():
-                per_section_ts[section][series_name].extend(series_data)
+        for ts_in_file in [av_ts_in_file, pv_ts_in_file]:
+            for section, contents in ts_in_file.items():
+                for series_name, series_data in contents.items():
+                    per_section_ts[section][series_name].extend(series_data)
         print("Concatenating time series takes {:.2f}s".format(time.perf_counter() - start_time))
                 
                 
