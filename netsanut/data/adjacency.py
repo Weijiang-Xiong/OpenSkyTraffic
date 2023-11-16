@@ -53,36 +53,3 @@ def calculate_scaled_laplacian(adj_mx, lambda_max=2, undirected=True):
     L = (2 / lambda_max * L) - I
     return L.astype(np.float32).todense()
 
-def load_pickle(pickle_file):
-    try:
-        with open(pickle_file, 'rb') as f:
-            pickle_data = pickle.load(f)
-    except UnicodeDecodeError as e:
-        with open(pickle_file, 'rb') as f:
-            pickle_data = pickle.load(f, encoding='latin1')
-    except Exception as e:
-        print('Unable to load data ', pickle_file, ':', e)
-        raise
-    return pickle_data
-
-# NOTE it's very important to add type hints here. 
-# When writing codes, the language server will try to infer the type of the returned values, 
-# and it's a lot of work for scipy functions because scipy itself doesn't contain good type hints. 
-def load_adjacency(pkl_filename, adjtype) -> Tuple[List, Dict, List]:
-    sensor_ids, sensor_id_to_ind, adj_mx = load_pickle(pkl_filename)
-    if adjtype == "scalap":
-        adj = [calculate_scaled_laplacian(adj_mx)]
-    elif adjtype == "normlap":
-        adj = [calculate_normalized_laplacian(adj_mx).astype(np.float32).todense()]
-    elif adjtype == "symnadj":
-        adj = [sym_adj(adj_mx)]
-    elif adjtype == "transition":
-        adj = [asym_adj(adj_mx)]
-    elif adjtype == "doubletransition":
-        adj = [asym_adj(adj_mx), asym_adj(np.transpose(adj_mx))]
-    elif adjtype == "identity":
-        adj = [np.diag(np.ones(adj_mx.shape[0])).astype(np.float32)]
-    else:
-        error = 0
-        assert error, "adj type not defined"
-    return sensor_ids, sensor_id_to_ind, adj

@@ -1,4 +1,4 @@
-import os
+import pickle
 import logging
 from typing import List, Tuple, Dict
 
@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 from .catalog import DATASET_CATALOG
-from .adjacency import load_adjacency
+from .adjacency import calculate_scaled_laplacian, calculate_normalized_laplacian, sym_adj, asym_adj
 
 logger = logging.getLogger('default')
 
@@ -43,7 +43,7 @@ class NetworkedTimeSeriesDataset(Dataset):
                 return pd.read_csv(DATASET_CATALOG[self.name]['geo_locations'], header=None)[[2,1]].to_numpy()
 
     def compute_metadata(self, adj_type):
-        sensor_ids, sensor_id_to_ind, adj = load_adjacency(DATASET_CATALOG[self.name]['adjacency'], adj_type)
+        sensor_ids, sensor_id_to_ind, adj = self.load_adjacency(DATASET_CATALOG[self.name]['adjacency'], adj_type)
         adjacency_matrix: List[torch.Tensor] = [torch.as_tensor(A) for A in adj]
         # separately calculate the mean and std for each channel
         # although it doesn't make sense to do this for time, we can handle it later
@@ -51,7 +51,45 @@ class NetworkedTimeSeriesDataset(Dataset):
         data_std  = torch.std(self.data_x,  dim=list(range(self.data_x.dim()))[:-1])
         geo_locations = self.get_geo_locations()
         return {'adjacency': adjacency_matrix, 'mean': data_mean, 'std': data_std, 'geo_loc':geo_locations}
-    
+
+    @staticmethod
+    def load_pickle(pickle_file):
+        try:
+            with open(pickle_file, 'rb') as f:
+                pickle_data = pickle.load(f)
+        except UnicodeDecodeError as e:
+            with open(pickle_file, 'rb') as f:
+                pickle_data = pickle.load(f, encoding='latin1')
+        except Exception as e:
+            print('Unable to load data ', pickle_file, ':', e)
+            raise
+        return pickle_data
+
+    # NOTE it's very important to add type hints here. 
+    # When writing codes, the language server will try to infer the type of the returned values, 
+    # and it's a lot of work for scipy functions because scipy itself doesn't contain good type hints. 
+    @staticmethod
+    def load_adjacency(pkl_filename, adjtype) -> Tuple[List, Dict, List]:
+        # sensor_ids, sensor_id_to_ind, adj_mx = self.load_pickle(pkl_filename)
+        sensor_ids, sensor_id_to_ind, adj_mx = NetworkedTimeSeriesDataset.load_pickle(pkl_filename)
+        if adjtype == "scalap":
+            adj = [calculate_scaled_laplacian(adj_mx)]
+        elif adjtype == "normlap":
+            adj = [calculate_normalized_laplacian(adj_mx).astype(np.float32).todense()]
+        elif adjtype == "symnadj":
+            adj = [sym_adj(adj_mx)]
+        elif adjtype == "transition":
+            adj = [asym_adj(adj_mx)]
+        elif adjtype == "doubletransition":
+            adj = [asym_adj(adj_mx), asym_adj(np.transpose(adj_mx))]
+        elif adjtype == "identity":
+            adj = [np.diag(np.ones(adj_mx.shape[0])).astype(np.float32)]
+        else:
+            error = 0
+            assert error, "adj type not defined"
+        return sensor_ids, sensor_id_to_ind, adj
+
+
 def tensor_collate(list_of_xy:List[Tuple[torch.Tensor]]) -> Tuple[torch.Tensor]:
     """ assume the input is a list of (x, y), pack the x's and y's into two tensors
     """
