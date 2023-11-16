@@ -1,3 +1,4 @@
+import re
 import time
 import json
 import glob
@@ -11,8 +12,8 @@ from collections import defaultdict
 from pandarallel import pandarallel
 pandarallel.initialize(nb_workers=32, progress_bar=True)
 
-SIM_START_TIME = np.datetime64("2005-05-10T07:45")
-SIM_TIME_STEP = 0.5  # simulation time step is set to be 0.5s in Aimsun
+# simulation starts from 7:45am with time step 0.5s
+SIM_START_TIME, SIM_TIME_STEP = "2005-05-10T07:45", 0.5
 # the main demand matrix in Aimsun has roughly 1e5 vehicles, which can be scaled by 1.5
 # so here we choose a safe upper bound to randomly sample probe vehicles
 MAX_NUM_VEHICLE = int(2e5)
@@ -20,7 +21,6 @@ CONNECTION_DTYPE = {'turn': int, 'org': int, 'dst': int, 'intersection': int, 'l
 LINK_DTYPE = {'id': int, 'from_x': float, 'from_y': float, 'to_x': float, 'to_y': float, 'length': float, 'out_ang': float, 'num_lanes': int}
 VEHINFO_DTYPE = {'time': float, 'vehicle_id': int, 'speed': float, 'section': int, 'junction': int, 'section_from': int, 'section_to': int, 'position': float, 'dist2end': float, 'total_dist': float, }
 TIME_STEP_COLUMNS = ['section', 'junction', 'position', 'dist2end', 'total_dist']
-
 
 class Section:
 
@@ -147,12 +147,20 @@ def from_probe_vehicles(df: pd.DataFrame):
             "pv_time": total_time.tolist() if total_time.size > 0 else []}
     
 
+def find_num_vehicle(session_folder):
+    log_file = "{}/aimsun_log.log".format(session_folder)
+    log_content = open(log_file, "r").read()
+    try: # extract this number from log file
+        num_vehicle = int(re.findall(r"Number of generated trips: (\d+)", log_content)[0])
+    except:
+        num_vehicle = MAX_NUM_VEHICLE
+    return num_vehicle 
 
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Generate time series data from trajectory data")
     parser.add_argument('--metadata_folder', type=str, default='datasets/simbarca/metadata', help='Path to metadata folder')
-    parser.add_argument('--session_folder', type=str, default='datasets/simbarca/debug_session', help='Path to session folder')
+    parser.add_argument('--session_folder', type=str, default='datasets/simbarca/session_000', help='Path to session folder')
     parser.add_argument('--penetration_rate', type=float, default=0.05, help='Penetration rate of probe vehicles')
     args = parser.parse_args()
     
@@ -177,10 +185,12 @@ if __name__ == "__main__":
     with open("{}/settings.json".format(args.session_folder), "r") as f:
         settings = json.load(f)
         rng = np.random.default_rng(settings['random_seed'])
-        selected_vehicles = rng.choice(range(MAX_NUM_VEHICLE), 
-                                       size=int(args.penetration_rate*MAX_NUM_VEHICLE), 
+        num_vehicle = find_num_vehicle(args.session_folder)
+        selected_vehicles = rng.choice(range(num_vehicle), 
+                                       size=int(args.penetration_rate*num_vehicle), 
                                        replace=False)
-    
+        print("\n Selecting {}% vehicles from {} vehicles".format(args.penetration_rate*100, num_vehicle))
+        
     # get the names of trajectory files
     data_files = sorted(glob.glob("{}/trajectory/*.json".format(args.session_folder)))
     # these files are organized chronologically by time step, so keep the last time step of
@@ -188,7 +198,8 @@ if __name__ == "__main__":
     previous_time_step: pd.DataFrame = None
     # section -> series_name -> series_data
     per_section_ts: Dict[str, Dict[str, List]] = defaultdict(lambda: defaultdict(list)) 
-    # read the json data files
+    # process files one by one, as reading multiple files using multiple threads won't reduce
+    # the data reading time (bottleneck is the disk), and the memory consumption is higher
     for file_name in data_files:
         
         print("Working on file {}".format(file_name))
@@ -233,6 +244,7 @@ if __name__ == "__main__":
         start_time = time.perf_counter()
         av_ts_in_file = df.groupby('section').parallel_apply(from_all_vehicles, road_network=road_network)
         probe_vehicle_df = df[df['vehicle_id'].isin(selected_vehicles)]
+
         pv_ts_in_file = probe_vehicle_df.groupby('section').parallel_apply(from_probe_vehicles)
         print("\n Processing a file takes {:.2f}s".format(time.perf_counter() - start_time))
         
@@ -248,6 +260,8 @@ if __name__ == "__main__":
     # save the time series data
     start_time = time.perf_counter()
     with open("{}/time_series.json".format(args.session_folder), "w") as f:
-        json.dump(per_section_ts, f)
+        json.dump({"sim_start_time": "2005-05-10T07:45", 
+                   "sim_time_step_second": 0.5,
+                   "time_series": per_section_ts}, f)
     print("Saving all the time series takes {:.2f}s".format(time.perf_counter() - start_time))
         
