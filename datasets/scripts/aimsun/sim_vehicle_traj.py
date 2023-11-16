@@ -18,8 +18,8 @@ folder_pattern = "/home/weijiang/Projects/Netsanut/datasets/simbarca/session_*"
 
 all_folders = sorted(glob.glob(folder_pattern))
 for folder in all_folders:
-    if os.path.exists("{}/trajectory/traj_end.json".format(folder)):
-        print("Looks like the simulation has been executed for {}, empty the folder if you want to rerun".format(folder))
+    if os.path.exists("{}/aimsun_log.log".format(folder)):
+        print("Looks like the simulation has been executed for {}, remove the log files if you want to rerun".format(folder))
         continue
     project_copy_path = "{}/{}".format(folder, "project_copy.ang")
     # copy the original file to a new one, because Aimsun will lock the file upon execution
@@ -28,3 +28,9 @@ for folder in all_folders:
         folder, executable, project_copy_path, rep_id, folder)
     print("Executing command \n {}".format(command))
     subprocess.run(command, shell=True)
+    
+print("Simulation done, begin processing")
+for folder in all_folders:
+    cmd = "python /home/weijiang/Projects/Netsanut/datasets/scripts/aimsun/time_series_from_traj.py --metadata_folder /home/weijiang/Projects/Netsanut/datasets/simbarca/metadata --session_folder {}".format(folder)
+    print("Executing command: \n {}".format(cmd))
+    subprocess.run(cmd, shell=True)

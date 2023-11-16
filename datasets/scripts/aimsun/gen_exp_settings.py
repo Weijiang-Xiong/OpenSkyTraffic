@@ -1,3 +1,8 @@
+""" Generate simulation settings file and folders
+
+    Example usage:
+    python datasets/scripts/aimsun/gen_exp_settings.py --data_root datasets/simbarca --num_sim 100
+"""
 import os
 import json
 import shutil
