@@ -82,6 +82,12 @@ def get_total_dist(df: pd.DataFrame):
 def get_total_time(df: pd.DataFrame):
     return (df['time'] - df['p_time']).abs().sum()
 
+def count_in_vehicle(df: pd.DataFrame):
+    return df['p_position'].eq(0).sum()
+
+def count_out_vehicle(df: pd.DataFrame):
+    return df['position'].eq(-1).sum()
+
 def get_LD_count(df: pd.DataFrame, place=0):
     """ vehicle count observed by loop detector at `place` from start
     """
@@ -106,6 +112,11 @@ def from_all_vehicles(df, road_network):
     df['time_step'] = np.ceil(df['time'] / SIM_TIME_STEP).astype(int)
     
     time_groups = df.groupby('time_step')
+    # calculate in-out first, and then replace the -1 with actual section length to calculate total_dist
+    num_in = time_groups.apply(lambda df_x: (df_x['p_position']==0).sum())
+    num_out = time_groups.apply(lambda df_x: (df_x['position']==-1).sum())
+    df['position'].replace(-1, section.length, inplace=True)
+    assert df['position'].eq(-1).sum()== 0
     time_steps = list(time_groups.groups.keys())
     total_dist = time_groups.apply(get_total_dist)
     total_time = time_groups.apply(get_total_time)
@@ -118,6 +129,8 @@ def from_all_vehicles(df, road_network):
     return {"time_steps": time_steps,
             "total_dist": total_dist.tolist() if total_dist.size > 0 else [], 
             "total_time": total_time.tolist() if total_time.size > 0 else [], 
+            "num_in": num_in.tolist() if num_in.size > 0 else [],
+            "num_out": num_out.tolist() if num_out.size > 0 else [],
             "LD_count": LD_count.tolist() if LD_count.size > 0 else [], 
             "LD_speed": LD_speed.tolist() if LD_speed.size > 0 else []}
 
@@ -196,8 +209,8 @@ if __name__ == "__main__":
     # these files are organized chronologically by time step, so keep the last time step of
     # this file as the init_time_step for the next file
     previous_time_step: pd.DataFrame = None
-    # section -> series_name -> series_data
-    per_section_ts: Dict[str, Dict[str, List]] = defaultdict(lambda: defaultdict(list)) 
+    # vehicle distance and time traveled by section: section -> series_name -> series_data
+    per_section_dt: Dict[str, Dict[str, List]] = defaultdict(lambda: defaultdict(list)) 
     # process files one by one, as reading multiple files using multiple threads won't reduce
     # the data reading time (bottleneck is the disk), and the memory consumption is higher
     for file_name in data_files:
@@ -244,7 +257,6 @@ if __name__ == "__main__":
         start_time = time.perf_counter()
         av_ts_in_file = df.groupby('section').parallel_apply(from_all_vehicles, road_network=road_network)
         probe_vehicle_df = df[df['vehicle_id'].isin(selected_vehicles)]
-
         pv_ts_in_file = probe_vehicle_df.groupby('section').parallel_apply(from_probe_vehicles)
         print("\n Processing a file takes {:.2f}s".format(time.perf_counter() - start_time))
         
@@ -253,15 +265,15 @@ if __name__ == "__main__":
         for ts_in_file in [av_ts_in_file, pv_ts_in_file]:
             for section, contents in ts_in_file.items():
                 for series_name, series_data in contents.items():
-                    per_section_ts[section][series_name].extend(series_data)
+                    per_section_dt[section][series_name].extend(series_data)
         print("Concatenating time series takes {:.2f}s".format(time.perf_counter() - start_time))
                 
                 
     # save the time series data
     start_time = time.perf_counter()
-    with open("{}/time_series.json".format(args.session_folder), "w") as f:
+    with open("{}/vehicle_dist_time.json".format(args.session_folder), "w") as f:
         json.dump({"sim_start_time": "2005-05-10T07:45", 
                    "sim_time_step_second": 0.5,
-                   "time_series": per_section_ts}, f)
+                   "vehicle_dist_time": per_section_dt}, f)
     print("Saving all the time series takes {:.2f}s".format(time.perf_counter() - start_time))
         

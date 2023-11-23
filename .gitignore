@@ -167,6 +167,5 @@ scratch
 .vscode
 datasets/*
 # allow git to manage readme and preprocessing scripts
-!datasets/README.md 
-!datasets/scripts
+!datasets/README.md
 __NO_GIT*
