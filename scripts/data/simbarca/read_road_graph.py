@@ -23,6 +23,7 @@ from typing import List, Dict
 link_bboxes = pd.DataFrame(columns=["id", "from_x", "from_y","to_x", "to_y", "length", "out_ang","num_lanes"])
 connections = pd.DataFrame(columns=["turn", "intersection", "org", "dst", "length"])
 intersec_polygon = dict()
+lane_lengths, entrance_len, exit_len = [dict() for _ in range(3)]
 
 catalog = model.getCatalog()
 
@@ -56,7 +57,9 @@ for idx, (key, link) in enumerate(all_links.items()):
                                link.length2D(),
                                link.getExitAngle(),
                                len(link.getLanes())]
-
+    lane_lengths[link.getId()] = [link.getLaneLength2D(lane_id) for lane_id in range(len(link.getLanes()))]
+    entrance_len[link.getId()] = link.getLaneExtraLengthAtEntrance()
+    exit_len[link.getId()] = link.getLaneExtraLengthAtExit()
 
 all_centroids = catalog.getObjectsByType( model.getType( "GKCentroid" ) )
 od_mtx = catalog.getObjectsByType( model.getType( "GKODMatrix" ) )[OD_MTX_ID]
@@ -79,3 +82,5 @@ with open("intersec_polygon.json", "w") as f:
     f.write(json.dumps(intersec_polygon, indent=4))
 with open("od_pairs.json", "w") as f:
     f.write(json.dumps({"od_pairs": od_pairs}))
+with open("lane_info.json", "w") as f:
+    f.write(json.dumps({"lane_lengths": lane_lengths, "entrance_len": entrance_len, "exit_len": exit_len}))
