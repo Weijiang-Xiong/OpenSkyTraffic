@@ -33,7 +33,7 @@ def sim_one_folder(folder):
 all_folders = sorted(glob.glob(folder_pattern))
 folders_to_sim = [os.path.abspath(folder) for folder in all_folders 
                   if not os.path.exists("{}/aimsun_log.log".format(folder))]
-with mp.Pool(processes=6) as pool:
+with mp.Pool(processes=8) as pool:
     pool.map(sim_one_folder, folders_to_sim)
 
     

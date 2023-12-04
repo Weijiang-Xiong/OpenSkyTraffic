@@ -47,6 +47,7 @@ def get_info(time, vehicle_id):
             yCurrentPos: y coordinate of vehicle
             CurrentSpeed: speed of vehicle
             idSection: ID of section (road segment) vehicle is in. -1 if it is not in a section.
+            numberLane: Lane number in the segment (from 1, the rightmost lane, to N, the leftmost lane).
             idJunction: ID of junction (intersection) vehicle is in. -1 if it is not in a junction.
             idSectionFrom: ID of section vehicle is coming from, when it is in a junction. -1 if it is not in a junction.
             idSectionTo: ID of section vehicle is going to, when it is in a junction. -1 if it is not in a junction.
@@ -61,6 +62,7 @@ def get_info(time, vehicle_id):
             vi.yCurrentPos, 
             vi.CurrentSpeed, 
             vi.idSection, 
+            vi.numberLane,
             vi.idJunction,
             vi.idSectionFrom, 
             vi.idSectionTo,
@@ -72,7 +74,7 @@ def get_info(time, vehicle_id):
 class DataStorage:
 
     MAX_TRAJ_ROWS = 1e7
-    INFO_COLUMNS = ["time", "vehicle_id", "x", "y", "speed", "section", "junction",
+    INFO_COLUMNS = ["time", "vehicle_id", "x", "y", "speed", "section", "lane", "junction",
                     "section_from", "section_to", "position", "dist2end", "total_dist"]
     INOUT_COLUMNS = ["vehicle_id", "section", "time"]
     

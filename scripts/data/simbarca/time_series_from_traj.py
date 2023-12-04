@@ -19,25 +19,54 @@ SIM_START_TIME, SIM_TIME_STEP = "2005-05-10T07:45", 0.5
 MAX_NUM_VEHICLE = int(2e5)
 CONNECTION_DTYPE = {'turn': int, 'org': int, 'dst': int, 'intersection': int, 'length': float}
 LINK_DTYPE = {'id': int, 'from_x': float, 'from_y': float, 'to_x': float, 'to_y': float, 'length': float, 'out_ang': float, 'num_lanes': int}
-VEHINFO_DTYPE = {'time': float, 'vehicle_id': int, 'speed': float, 'section': int, 'junction': int, 'section_from': int, 'section_to': int, 'position': float, 'dist2end': float, 'total_dist': float, }
-TIME_STEP_COLUMNS = ['section', 'junction', 'position', 'dist2end', 'total_dist']
+VEHINFO_DTYPE = {'time': float, 'vehicle_id': int, 'speed': float, 'section': int, 'lane': int, 'junction': int, 'section_from': int, 'section_to': int, 'position': float, 'dist2end': float, 'total_dist': float, }
+COLUMNS_FOR_TIME_SERIES = ['vehicle_id', 'section', 'time', 'position', 'speed', 'total_dist']
 
 class Section:
 
-    def __init__(self, road_id, length, num_lanes=None) -> None:
+    def __init__(self, road_id, length, num_lanes=None, 
+                 lane_lengths=None, entrance_len=None, exit_len=None) -> None:
 
         self.id = int(road_id)
         self.length = length
         self.detector_place = 0.5 * length
+        
         self.num_lanes = int(num_lanes)
+        self.lane_start, self.lane_end, self.lane_length = [[] for _ in range(3)]
+        self.set_lane_info(lane_lengths, entrance_len, exit_len)
+        
         self.in_turns = []
         self.out_turns = []
 
+
+        self.clips = None  # take the clips at this section from a TrajectoryClip
+        
         self.clips = None  # take the clips at this section from a TrajectoryClip
 
     def set_detector_place(self, loc=0.5):
         self.detector_place = self.length * loc
-
+        
+    def set_lane_info(self, lane_lengths, entrance_len, exit_len):
+        """ 
+            These information are saved from the section objects in Aimsun, and their orders 
+            are from left to right, so we need to reverse them to match the API at the end.
+            For API, see the `numberLane` at https://docs.aimsun.com/next/22.0.2/UsersManual/ApiVehicleTracking.html#read-the-information-of-a-tracked-vehicle
+            For the section class, see https://api.aimsun.com.br/classGKSection.html#getLane
+            
+            lane_lengths: a list of lane lengths, from left to right
+            entrance_len: the length of the entrance lane, from left to right
+            exit_len: the length of the exit lane, from left to right
+            
+            one may check the lane_end is equal to the position + dist2end of the vehicles in 
+            a lane. 
+        """
+        lane_start = np.array(entrance_len) - min(entrance_len)
+        lane_end = lane_start + np.array(lane_lengths)
+        
+        # API records count from right to left, so reverse it
+        self.lane_start = lane_start[::-1].tolist() 
+        self.lane_end = lane_end[::-1].tolist()
+        self.lane_length = lane_lengths[::-1]
     
 class Junction:
 
@@ -76,88 +105,80 @@ class RoadNetwork:
         return self.junctions[junction].get_turn_length(org, dst)
 
 
-def get_total_dist(df: pd.DataFrame):
-    return (df['position'] - df['p_position']).abs().sum()
+def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
+    """ compute the statistics for each time step
 
-def get_total_time(df: pd.DataFrame):
-    return (df['time'] - df['p_time']).abs().sum()
-
-def count_in_vehicle(df: pd.DataFrame):
-    return df['p_position'].eq(0).sum()
-
-def count_out_vehicle(df: pd.DataFrame):
-    return df['position'].eq(-1).sum()
-
-def get_LD_count(df: pd.DataFrame, place=0):
-    """ vehicle count observed by loop detector at `place` from start
+    Args:
+        df (pd.DataFrame): data frame containing the trajectory data of all vehicles
+        road_network (_type_): road network
+        probe (bool, optional): if this dataframe is for probe vehicles. Defaults to False.
     """
-    return ((df['position'] >= place) & (df['p_position'] < place)).sum()
-
-def get_LD_speed(df: pd.DataFrame, place):
-    """ vehicle speed observed by loop detector at `place` from start
-    """
-    vs = df[(df['position'] >= place) & (df['p_position'] < place)]
-    return np.nan_to_num(((vs['position'] - vs['p_position']) / (vs['time'] - vs['p_time'])).mean())
-
-def from_all_vehicles(df, road_network):
     
     section = road_network.get_section(df['section'].iloc[0])
     # compose trajectory segment (start_time, end_time, start_position, end_position)
     vehicle_groups = df.groupby(['vehicle_id'])
     df['p_time'] = vehicle_groups['time'].shift(1)
     df['p_position'] = vehicle_groups['position'].shift(1)
-    # drop the first time step of each vehicle
-    df.dropna(inplace=True)
+    df['p_speed'] = vehicle_groups['speed'].shift(1)
+    df['p_total_dist'] = vehicle_groups['total_dist'].shift(1)
+    # drop the first time step of each vehicle, whose 'p_time' is nan
+    df.drop(df[df['p_time'].isna()].index, inplace=True)
     
+    # we will calculate traffic variables for each time step
     df['time_step'] = np.ceil(df['time'] / SIM_TIME_STEP).astype(int)
-    
     time_groups = df.groupby('time_step')
-    # calculate in-out first, and then replace the -1 with actual section length to calculate total_dist
-    num_in = time_groups.apply(lambda df_x: (df_x['p_position']==0).sum())
-    num_out = time_groups.apply(lambda df_x: (df_x['position']==-1).sum())
-    df['position'].replace(-1, section.length, inplace=True)
+    
+    # calculate in-out first, as it is easy to identify in-out with 0 and -1
+    df['in_flag'] = df['p_position'].eq(0)
+    df['out_flag'] = df['position'].eq(-1)
+    num_in = time_groups['in_flag'].sum()
+    num_out = time_groups['out_flag'].sum()
+    
+    # assume constant speed and extend observed points to entry and exit points
+    # use the speed and time to calculate the vehicle position for entry and exit
+    # this will be used to determine if the vehicle passes the loop detector
+    df.loc[df['in_flag']==True, 'p_position'] = df['position'] - df['speed'] * (df['time'] - df['p_time'])
+    df.loc[df['out_flag']==True, 'position'] = df['p_position'] + df['p_speed'] * (df['time'] - df['p_time'])
+    
     assert df['position'].eq(-1).sum()== 0
-    time_steps = list(time_groups.groups.keys())
-    total_dist = time_groups.apply(get_total_dist)
-    total_time = time_groups.apply(get_total_time)
-    LD_count = time_groups.apply(get_LD_count, place=section.detector_place)
-    LD_speed = time_groups.apply(get_LD_speed, place=section.detector_place)
     
-    # the grouby.apply above returns empty dataframe (not series) if `df` is empty, and 
-    # .tolist() will give an error. So we need to check if the dataframe/series is empty.
-    # this can happen after the time with demand when there is no vehicle in some sections
-    return {"time_steps": time_steps,
-            "total_dist": total_dist.tolist() if total_dist.size > 0 else [], 
-            "total_time": total_time.tolist() if total_time.size > 0 else [], 
-            "num_in": num_in.tolist() if num_in.size > 0 else [],
-            "num_out": num_out.tolist() if num_out.size > 0 else [],
-            "LD_count": LD_count.tolist() if LD_count.size > 0 else [], 
-            "LD_speed": LD_speed.tolist() if LD_speed.size > 0 else []}
+    # use total_dist to calculate vehicle distance traveled, df['dx'], because the position in section can have sudden changes due to lane change, which may result in negative distance traveled
+    df.loc[df['in_flag']==True, 'p_total_dist'] = df['total_dist'] - df['speed'] * (df['time'] - df['p_time'])
+    df.loc[df['out_flag']==True, 'total_dist'] = df['p_total_dist'] + df['p_speed'] * (df['time'] - df['p_time'])
 
-def from_probe_vehicles(df: pd.DataFrame):
-    """ the procedure is similar to `get_traffic_variables_of_section`, but the dataframe
-        should be downsampled before applying this function. 
-    """
-    # compose trajectory segment (start_time, end_time, start_position, end_position)
-    vehicle_groups = df.groupby(['vehicle_id'])
-    df['p_time'] = vehicle_groups['time'].shift(1)
-    df['p_position'] = vehicle_groups['position'].shift(1)
-    # drop the first time step of each vehicle
-    df.dropna(inplace=True)
+    df['dx'] = df['total_dist'] - df['p_total_dist']
+    df['dt'] = df['time'] - df['p_time']
+    # when a link is very short, it is possible that a vehicle can pass the link between two consecutive simulation time steps, and in these cases, dx will be `nan``, as we have no speed to extrapolate the distance. So we simply fill these nan values with the length of the section.
+    df.loc[df['dx'].isna(), 'dx'] = section.length
+    assert (df['dx'].ge(0).all() and df['dt'].ge(0).all()) # dx and dt should always be positive
+    # a flag wheter the vehicle passes the loop detector
+    df['pass_ld'] = (df['position'] >= section.detector_place) & (df['p_position'] < section.detector_place)
+    # the speed of vehicles passing the loop detector
+    df['ld_spd'] = ((df['dx'] / df['dt']) * df['pass_ld']).replace(0, np.nan)
+    total_dist = time_groups['dx'].sum()
+    total_time = time_groups['dt'].sum()
+    LD_count = time_groups['pass_ld'].sum()
+    # groupby mean always ignores nan, that's the reason we replace 0 with nan above
+    # https://pandas.pydata.org/docs/reference/api/pandas.core.groupby.DataFrameGroupBy.mean.html
+    LD_speed = time_groups['ld_spd'].mean() 
     
-    df['time_step'] = np.ceil(df['time'] / SIM_TIME_STEP).astype(int)
-    
-    time_groups = df.groupby('time_step')
     time_steps = list(time_groups.groups.keys())
-    total_dist = time_groups.apply(get_total_dist)
-    total_time = time_groups.apply(get_total_time)
-    
     # the grouby.apply above returns empty dataframe (not series) if `df` is empty, and 
     # .tolist() will give an error. So we need to check if the dataframe/series is empty.
     # this can happen after the time with demand when there is no vehicle in some sections
-    return {"pv_time_steps": time_steps, # "pv" stands for "probe vehicle"
-            "pv_dist": total_dist.tolist() if total_dist.size > 0 else [], 
-            "pv_time": total_time.tolist() if total_time.size > 0 else []}
+    
+    if not probe:
+        return {"time_steps": time_steps,
+                "total_dist": total_dist.tolist() if total_dist.size > 0 else [], 
+                "total_time": total_time.tolist() if total_time.size > 0 else [], 
+                "num_in": num_in.tolist() if num_in.size > 0 else [],
+                "num_out": num_out.tolist() if num_out.size > 0 else [],
+                "LD_count": LD_count.tolist() if LD_count.size > 0 else [], 
+                "LD_speed": LD_speed.tolist() if LD_speed.size > 0 else []}
+    else:
+        return {"pv_time_steps": time_steps, # "pv" stands for "probe vehicle"
+                "pv_dist": total_dist.tolist() if total_dist.size > 0 else [], 
+                "pv_time": total_time.tolist() if total_time.size > 0 else []}
     
 
 def find_num_vehicle(session_folder):
@@ -177,16 +198,27 @@ if __name__ == "__main__":
     parser.add_argument('--penetration_rate', type=float, default=0.05, help='Penetration rate of probe vehicles')
     args = parser.parse_args()
     
+    #########################################################
+    # load metadata, and construct a graph for road network #
+    #########################################################
+    
     connections = pd.read_csv("{}/connections.csv".format(args.metadata_folder), dtype=CONNECTION_DTYPE)
     link_bboxes = pd.read_csv("{}/link_bboxes.csv".format(args.metadata_folder), dtype=LINK_DTYPE)
     with open("{}/intersec_polygon.json".format(args.metadata_folder), "r") as f:
         intersection_polygon = json.load(f)
+    with open("{}/lane_info.json".format(args.metadata_folder), "r") as f:
+        lane_info = json.load(f)
     
     # construct a graph from the files
-    sections = {row.id: Section(row.id, row.length, row.num_lanes) 
+    sections = {row.id: Section(row.id, 
+                                row.length, 
+                                row.num_lanes, 
+                                lane_info['lane_lengths'][str(row.id)],
+                                lane_info['entrance_len'][str(row.id)],
+                                lane_info['exit_len'][str(row.id)])
                 for row in link_bboxes.itertuples()}
-    junctions = {junction_id: Junction(junction_id) for junction_id in set(connections['intersection'])}
     
+    junctions = {junction_id: Junction(junction_id) for junction_id in set(connections['intersection'])}
     for row in connections.itertuples(): # iterrows does not preserve data type
         junctions[row.intersection].add_turn(row.org, row.dst, row.length) 
         sections[row.org].out_turns.append(row.dst)
@@ -194,7 +226,15 @@ if __name__ == "__main__":
 
     # check by comparing with Aimsun Next Model
     road_network = RoadNetwork(sections, junctions)
-
+    
+    #########################################################
+    #########################################################
+    
+    #########################################################
+    # loop over the saved file and process them one by one  #
+    #########################################################
+    
+    # select a subset of vehicles to be probe vehicles
     with open("{}/settings.json".format(args.session_folder), "r") as f:
         settings = json.load(f)
         rng = np.random.default_rng(settings['random_seed'])
@@ -238,12 +278,16 @@ if __name__ == "__main__":
         print("Creating data frames takes {:.2f}s".format(time.perf_counter() - start_time))
 
         start_time = time.perf_counter()
-        df = df[['vehicle_id', 'section', 'time', 'position']]
+        df = df[COLUMNS_FOR_TIME_SERIES]
         df = df[df['section'] != -1] # section==-1 means the vehicle is in a junction, so ignore it
         entering['position'] = 0
         # use -1 to indicate the vehicle is at the end, will be replaced by section length
         exiting['position'] = -1
         df = pd.concat([df, entering, exiting], ignore_index=True, copy=False)
+        # reduce lane index by 1, as the records count from 1 in Aimsun. 
+        # lane info can be helpful for debugging, but we don't need it afterwards
+        # df['lane'] = (df['lane'] - 1).fillna(-1)
+        df['speed'] = df['speed'] / 3.6 # convert speed from km/h to m/s
         
         df.sort_values(by=['vehicle_id', 'time'], inplace=True)
         df = df.astype({k:v for k, v in VEHINFO_DTYPE.items() if k in df.columns}, copy=False)
@@ -255,9 +299,9 @@ if __name__ == "__main__":
         # The OS usually use "copy on write" to prevent unnecessary copying of memory, so the 
         # data will not be copied until modification happens (same principle applies to pandas).
         start_time = time.perf_counter()
-        av_ts_in_file = df.groupby('section').parallel_apply(from_all_vehicles, road_network=road_network)
+        av_ts_in_file = df.groupby('section').parallel_apply(get_statistics, road_network=road_network, probe=False)
         probe_vehicle_df = df[df['vehicle_id'].isin(selected_vehicles)]
-        pv_ts_in_file = probe_vehicle_df.groupby('section').parallel_apply(from_probe_vehicles)
+        pv_ts_in_file = probe_vehicle_df.groupby('section').parallel_apply(get_statistics,road_network=road_network, probe=True)
         print("\n Processing a file takes {:.2f}s".format(time.perf_counter() - start_time))
         
         # concatenate the time series with previous file
