@@ -22,6 +22,7 @@ from typing import List, Dict
 
 link_bboxes = pd.DataFrame(columns=["id", "from_x", "from_y","to_x", "to_y", "length", "out_ang","num_lanes"])
 connections = pd.DataFrame(columns=["turn", "intersection", "org", "dst", "length"])
+centroid_pos = pd.DataFrame(columns=["id", "x", "y"])
 intersec_polygon = dict()
 lane_lengths, entrance_len, exit_len = [dict() for _ in range(3)]
 
@@ -73,11 +74,15 @@ for org_key, org in all_centroids.items():
         if num_trips > 0:
             od_pairs.append((org_key, dst_key, num_trips))
 
+for idx, (key, centroid) in enumerate(all_centroids.items()):
+    centroid_pos.loc[idx, :] = [centroid.getId(), centroid.getPosition().x, centroid.getPosition().y]
 
 link_bboxes.set_index("id", inplace=True)
 connections.set_index("turn", inplace=True)
+centroid_pos.set_index("id", inplace=True)
 link_bboxes.to_csv("link_bboxes.csv")
 connections.to_csv("connections.csv")
+centroid_pos.to_csv("centroid_pos.csv")
 with open("intersec_polygon.json", "w") as f:
     f.write(json.dumps(intersec_polygon, indent=4))
 with open("od_pairs.json", "w") as f:
