@@ -39,7 +39,7 @@ with mp.Pool(processes=8) as pool:
     
 print("Simulation done, begin processing")
 folders_to_process = [os.path.abspath(folder) for folder in all_folders
-                      if not os.path.exists("{}/vehicle_dist_time.json".format(folder))]
+                      if not os.path.exists("{}/section_statistics.json".format(folder))]
 for folder in folders_to_process:
     cmd = "python scripts/data/simbarca/time_series_from_traj.py --metadata_folder datasets/simbarca/metadata --session_folder {}".format(folder)
     print("Executing command: \n {}".format(cmd))

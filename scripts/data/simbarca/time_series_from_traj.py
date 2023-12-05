@@ -10,7 +10,7 @@ from copy import deepcopy
 from typing import List, Dict, Tuple
 from collections import defaultdict
 from pandarallel import pandarallel
-pandarallel.initialize(nb_workers=32, progress_bar=True)
+pandarallel.initialize(nb_workers=8, progress_bar=False)
 
 # simulation starts from 7:45am with time step 0.5s
 SIM_START_TIME, SIM_TIME_STEP = "2005-05-10T07:45", 0.5
@@ -155,6 +155,8 @@ def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
     df['pass_ld'] = (df['position'] >= section.detector_place) & (df['p_position'] < section.detector_place)
     # the speed of vehicles passing the loop detector
     df['ld_spd'] = ((df['dx'] / df['dt']) * df['pass_ld']).replace(0, np.nan)
+    
+    num_vehicle = time_groups['vehicle_id'].nunique()
     total_dist = time_groups['dx'].sum()
     total_time = time_groups['dt'].sum()
     LD_count = time_groups['pass_ld'].sum()
@@ -166,9 +168,9 @@ def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
     # the grouby.apply above returns empty dataframe (not series) if `df` is empty, and 
     # .tolist() will give an error. So we need to check if the dataframe/series is empty.
     # this can happen after the time with demand when there is no vehicle in some sections
-    
     if not probe:
         return {"time_steps": time_steps,
+                "num_vehicle": num_vehicle.to_list() if num_vehicle.size > 0 else [],
                 "total_dist": total_dist.tolist() if total_dist.size > 0 else [], 
                 "total_time": total_time.tolist() if total_time.size > 0 else [], 
                 "num_in": num_in.tolist() if num_in.size > 0 else [],
@@ -250,7 +252,7 @@ if __name__ == "__main__":
     # this file as the init_time_step for the next file
     previous_time_step: pd.DataFrame = None
     # vehicle distance and time traveled by section: section -> series_name -> series_data
-    per_section_dt: Dict[str, Dict[str, List]] = defaultdict(lambda: defaultdict(list)) 
+    per_section_stat: Dict[str, Dict[str, List]] = defaultdict(lambda: defaultdict(list)) 
     # process files one by one, as reading multiple files using multiple threads won't reduce
     # the data reading time (bottleneck is the disk), and the memory consumption is higher
     for file_name in data_files:
@@ -309,15 +311,15 @@ if __name__ == "__main__":
         for ts_in_file in [av_ts_in_file, pv_ts_in_file]:
             for section, contents in ts_in_file.items():
                 for series_name, series_data in contents.items():
-                    per_section_dt[section][series_name].extend(series_data)
+                    per_section_stat[section][series_name].extend(series_data)
         print("Concatenating time series takes {:.2f}s".format(time.perf_counter() - start_time))
                 
                 
     # save the time series data
     start_time = time.perf_counter()
-    with open("{}/vehicle_dist_time.json".format(args.session_folder), "w") as f:
+    with open("{}/section_statistics.json".format(args.session_folder), "w") as f:
         json.dump({"sim_start_time": "2005-05-10T07:45", 
                    "sim_time_step_second": 0.5,
-                   "vehicle_dist_time": per_section_dt}, f)
+                   "statistics": per_section_stat}, f)
     print("Saving all the time series takes {:.2f}s".format(time.perf_counter() - start_time))
         
