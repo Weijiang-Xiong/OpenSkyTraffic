@@ -1,3 +1,13 @@
+""" This script generates some most basic traffic statistics at each simulation time step, 
+    using the trajectory data (vehicle positions over time) from Aimsun
+    
+    The statistics are separately computed for each section, and include (e.g.):
+        total distance traveled by all vehicles
+        total time traveled by all vehicles
+        number of vehicles passing the loop detector
+    
+    This script will be called by `sim_vehicle_traj.py`, please refer to that script for usage. 
+"""
 import re
 import time
 import json
@@ -114,6 +124,10 @@ def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
         probe (bool, optional): if this dataframe is for probe vehicles. Defaults to False.
     """
     
+    #########################################################
+    # step 1: trajectory clip per time step, previous=>now  #
+    #########################################################
+    
     section = road_network.get_section(df['section'].iloc[0])
     # compose trajectory segment (start_time, end_time, start_position, end_position)
     vehicle_groups = df.groupby(['vehicle_id'])
@@ -146,6 +160,10 @@ def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
     df.loc[df['in_flag']==True, 'p_total_dist'] = df['total_dist'] - df['speed'] * (df['time'] - df['p_time'])
     df.loc[df['out_flag']==True, 'total_dist'] = df['p_total_dist'] + df['p_speed'] * (df['time'] - df['p_time'])
 
+    #########################################################
+    # step 2: stats per time step, speed, flow, count  
+    #########################################################
+
     df['dx'] = df['total_dist'] - df['p_total_dist']
     df['dt'] = df['time'] - df['p_time']
     # when a link is very short, it is possible that a vehicle can pass the link between two consecutive simulation time steps, and in these cases, dx will be `nan``, as we have no speed to extrapolate the distance. So we simply fill these nan values with the length of the section.
@@ -153,16 +171,21 @@ def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
     assert (df['dx'].ge(0).all() and df['dt'].ge(0).all()) # dx and dt should always be positive
     # a flag wheter the vehicle passes the loop detector
     df['pass_ld'] = (df['position'] >= section.detector_place) & (df['p_position'] < section.detector_place)
-    # the speed of vehicles passing the loop detector
+    # keep the speed of vehicles passing the loop detector, set the speed of other vehicles to nan
     df['ld_spd'] = ((df['dx'] / df['dt']) * df['pass_ld']).replace(0, np.nan)
     
     num_vehicle = time_groups['vehicle_id'].nunique()
     total_dist = time_groups['dx'].sum()
     total_time = time_groups['dt'].sum()
     LD_count = time_groups['pass_ld'].sum()
-    # groupby mean always ignores nan, that's the reason we replace 0 with nan above
+    # groupby.mean() always ignores nan, that's the reason we replace 0 with nan above
+    # note that the LD_speed will still be nan if LD_count is 0
     # https://pandas.pydata.org/docs/reference/api/pandas.core.groupby.DataFrameGroupBy.mean.html
     LD_speed = time_groups['ld_spd'].mean() 
+    
+    #########################################################
+    # step 3: organize results 
+    #########################################################
     
     time_steps = list(time_groups.groups.keys())
     # the grouby.apply above returns empty dataframe (not series) if `df` is empty, and 
@@ -318,8 +341,8 @@ if __name__ == "__main__":
     # save the time series data
     start_time = time.perf_counter()
     with open("{}/section_statistics.json".format(args.session_folder), "w") as f:
-        json.dump({"sim_start_time": "2005-05-10T07:45", 
-                   "sim_time_step_second": 0.5,
+        json.dump({"sim_start_time": SIM_START_TIME, 
+                   "sim_time_step_second": SIM_TIME_STEP,
                    "statistics": per_section_stat}, f)
     print("Saving all the time series takes {:.2f}s".format(time.perf_counter() - start_time))
         
