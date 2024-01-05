@@ -1,4 +1,5 @@
-""" This script aggregate the per-time-step statistics (the results of `time_series_from_traj.py`) to different intervals.
+""" 
+    This script aggregate the per-time-step statistics (the results of `time_series_from_traj.py`) to different intervals.
     These aggregated values will represent different sensor modalities, and they will be used to create training data. 
 """
 
@@ -26,6 +27,7 @@ def get_modality_step(modality:str):
     """ calculate the number of time steps for each modality
     """
     
+    # see https://docs.python.org/3/tutorial/controlflow.html#match-statements
     match modality.split('_')[0]:
         case 'drone':
             modality_steps = DRONE_INTERVAL / SIM_TIME_STEP
@@ -49,8 +51,6 @@ def agg_raw_to_intervals(item):
     """
     
     section, sec_data = item
-    if section == '10001':
-        print() 
     sec_df = pd.DataFrame({k:v for k, v in sec_data.items() if k in sec_cols}, columns=sec_cols)
     # an alternative way is to use DataFrame.resample(), needs absolute time instead of time steps
     drone_groups = sec_df.groupby(sec_df['time_steps']//get_modality_step("drone_speed"))
@@ -83,11 +83,11 @@ def agg_raw_to_intervals(item):
 
 
 if __name__ == '__main__':
-    
+                                                               
     file_path = 'datasets/simbarca/session_000/section_statistics.json'
     data = json.load(open(file_path, 'r'))
     start_time = np.datetime64(SIM_START_TIME)
-    time_step_delta = np.timedelta64(int(SIM_TIME_STEP * 1e3), 'ms')
+    sim_time_step = np.timedelta64(int(SIM_TIME_STEP * 1e3), 'ms')
     
     with ProcessPoolExecutor(max_workers=8) as executor:
         # if the wrapped function requires any arguments, use functools.partial
@@ -96,24 +96,23 @@ if __name__ == '__main__':
         results = list(tqdm(executor.map(partial_func, data['statistics'].items()),
                             total=len(data['statistics'].items())))
 
-
     stats_all_sec = defaultdict(list)
     for modality in ['drone_speed', 'ld_speed', 'pred_speed']:
-        # store the data as a DF with columns (time_step, section, value) put some process here if suitable
+        # store the data as a DF with columns (time_step, section, value) 
+        # put some process here if suitable
         section_data = []
         for r in results:
-            df = pd.DataFrame({'time_step': r[modality].index, 
-                               'value': r[modality].values})
-            df['section'] = r['section']
+            df = pd.DataFrame({'time_step': r[modality].index, 'value': r[modality].values})
+            df['section'] = int(r['section'])
             section_data.append(df)
-        tuple_all_sec = pd.concat(section_data, ignore_index=True, copy=False)
-        tuple_all_sec.sort_values(by=['time_step'], inplace=True)
+        all_secs = pd.concat(section_data, ignore_index=True, copy=False)
+        all_secs.sort_values(by=['time_step'], inplace=True)
         modality_steps = get_modality_step(modality)
         # add absolute time to the time steps 
-        tuple_all_sec['time'] = start_time + (tuple_all_sec['time_step']+1) * modality_steps * time_step_delta
+        all_secs['time'] = start_time + (all_secs['time_step']+1) * modality_steps * sim_time_step
 
         # switch to a DF with time as rows, sections as columns, and values as the entries
-        modality_data = tuple_all_sec.pivot(index='time', columns='section', values='value')
+        modality_data = all_secs.pivot(index='time', columns='section', values='value')
         # a nan means no vehicles are observed by that kind of sensor, and this is different 
         # from 0, which means the vehicles are stopped at red lights.
         modality_data.fillna(-1, inplace=True) 
@@ -121,4 +120,26 @@ if __name__ == '__main__':
         
     # now begin to construct X and Y for the samples, by modality. 
     # X: original records for the last 30 minutes
-    
+    samples = [] 
+    t0 = start_time + np.timedelta64(15, 'm') # the simulation has 15 mins warm-up time
+    t1 = t0 + np.timedelta64(30, 'm')
+    t2 = t1 + np.timedelta64(30, 'm')
+    dt = np.timedelta64(3, 'm') # shift time window every 3 mins
+    # the vehicles are generated for 75 mins, no vehicle will enter the system after that
+    # if we take 30 min, predict next 30 min with 3 min steps, we have 5 samples 
+    num_samples = int((np.timedelta64(120, 'm') - (t2-t0)) / dt)
+    for offset in range(num_samples):
+        t_s = t0 + dt * offset # start 
+        t_m = t1 + dt * offset # middle
+        t_e = t2 + dt * offset # end
+        # time steps for drone and loop detector inputs
+        drone_ts_in = (stats_all_sec['drone_speed'].index>t_s) & (stats_all_sec['drone_speed'].index<=t_m)
+        ld_ts_in = (stats_all_sec['ld_speed'].index>t_s) & (stats_all_sec['ld_speed'].index<=t_m)
+        # ld_ts_out = (stats_all_sec['ld_speed'].index>t_m) & (stats_all_sec['ld_speed'].index<=t_e)
+        pred_ts_out = (stats_all_sec['pred_speed'].index>t_m) & (stats_all_sec['pred_speed'].index<=t_e)
+        sample_dict = {
+            "drone_speed": stats_all_sec['drone_speed'].loc[drone_ts_in],
+            "ld_speed": stats_all_sec['ld_speed'].loc[ld_ts_in],
+            "pred_speed": stats_all_sec['pred_speed'].loc[pred_ts_out],
+        }
+        samples.append(sample_dict)
