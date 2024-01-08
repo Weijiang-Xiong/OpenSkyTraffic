@@ -33,14 +33,23 @@ def sim_one_folder(folder):
 all_folders = sorted(glob.glob(folder_pattern))
 folders_to_sim = [os.path.abspath(folder) for folder in all_folders 
                   if not os.path.exists("{}/aimsun_log.log".format(folder))]
-with mp.Pool(processes=8) as pool:
+with mp.Pool(processes=16) as pool:
     pool.map(sim_one_folder, folders_to_sim)
 
     
 print("Simulation done, begin processing")
 folders_to_process = [os.path.abspath(folder) for folder in all_folders
-                      if not os.path.exists("{}/section_statistics.json".format(folder))]
+                      if not os.path.exists("{}/timeseries/section_statistics.json".format(folder))]
 for folder in folders_to_process:
     cmd = "python scripts/data/simbarca/time_series_from_traj.py --metadata_folder datasets/simbarca/metadata --session_folder {}".format(folder)
+    print("Executing command: \n {}".format(cmd))
+    subprocess.run(cmd, shell=True)
+    
+
+print("Begin to extract training samples from processed data")
+folders_to_extract = [os.path.abspath(folder) for folder in all_folders
+                      if not os.path.exists("{}/timeseries/training_samples.pkl".format(folder))]
+for folder in folders_to_extract:
+    cmd = "python scripts/data/simbarca/extract_samples.py --session {}".format(folder)
     print("Executing command: \n {}".format(cmd))
     subprocess.run(cmd, shell=True)

@@ -4,6 +4,8 @@
 """
 
 import json
+import pickle
+import argparse
 import numpy as np 
 import pandas as pd
 
@@ -24,7 +26,8 @@ probe_cols = ['pv_time_steps', 'pv_dist', 'pv_time']
 
 def get_modality_step(modality:str):
     
-    """ calculate the number of time steps for each modality
+    """ calculate the number of time steps for each modality, the original data (per SIM_TIME_STEP) will
+        be divided to non-overlapping intervals of this length and then aggregated
     """
     
     # see https://docs.python.org/3/tutorial/controlflow.html#match-statements
@@ -83,12 +86,17 @@ def agg_raw_to_intervals(item):
 
 
 if __name__ == '__main__':
-                                                               
-    file_path = 'datasets/simbarca/session_000/section_statistics.json'
+    
+    parser = argparse.ArgumentParser(description='Aggregate the raw statistics to different intervals.')
+    parser.add_argument('--session', type=str, default='datasets/simbarca/session_000/', help='path to session folder')
+    args = parser.parse_args()
+    
+    file_path = '{}/timeseries/section_statistics.json'.format(args.session)
     data = json.load(open(file_path, 'r'))
     start_time = np.datetime64(SIM_START_TIME)
     sim_time_step = np.timedelta64(int(SIM_TIME_STEP * 1e3), 'ms')
     
+    print("Aggregating the raw statistics to different intervals...")
     with ProcessPoolExecutor(max_workers=8) as executor:
         # if the wrapped function requires any arguments, use functools.partial
         partial_func = partial(agg_raw_to_intervals)
@@ -96,6 +104,7 @@ if __name__ == '__main__':
         results = list(tqdm(executor.map(partial_func, data['statistics'].items()),
                             total=len(data['statistics'].items())))
 
+    print("Constructing networked time series for each modality ...")
     stats_all_sec = defaultdict(list)
     for modality in ['drone_speed', 'ld_speed', 'pred_speed']:
         # store the data as a DF with columns (time_step, section, value) 
@@ -120,13 +129,15 @@ if __name__ == '__main__':
         
     # now begin to construct X and Y for the samples, by modality. 
     # X: original records for the last 30 minutes
+    print("Extracting samples from time series ...")
     samples = [] 
     t0 = start_time + np.timedelta64(15, 'm') # the simulation has 15 mins warm-up time
     t1 = t0 + np.timedelta64(30, 'm')
     t2 = t1 + np.timedelta64(30, 'm')
     dt = np.timedelta64(3, 'm') # shift time window every 3 mins
     # the vehicles are generated for 75 mins, no vehicle will enter the system after that
-    # if we take 30 min, predict next 30 min with 3 min steps, we have 5 samples 
+    # we suppose the data is valid for 120 mins after warmup (45 mins after demand ends)
+    # e.g., if we take 30 min, predict next 30 min with 3 min steps, we have (120-60) / 5 samples 
     num_samples = int((np.timedelta64(120, 'm') - (t2-t0)) / dt)
     for offset in range(num_samples):
         t_s = t0 + dt * offset # start 
@@ -143,3 +154,8 @@ if __name__ == '__main__':
             "pred_speed": stats_all_sec['pred_speed'].loc[pred_ts_out],
         }
         samples.append(sample_dict)
+        
+    print('number of samples: {}'.format(len(samples)))
+    # save the samples to a pickle file
+    with open('{}/timeseries/samples.pkl'.format(args.session), 'wb') as f:
+        pickle.dump(samples, f)

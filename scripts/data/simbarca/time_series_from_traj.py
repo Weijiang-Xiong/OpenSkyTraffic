@@ -340,7 +340,7 @@ if __name__ == "__main__":
                 
     # save the time series data
     start_time = time.perf_counter()
-    with open("{}/section_statistics.json".format(args.session_folder), "w") as f:
+    with open("{}/timeseries/section_statistics.json".format(args.session_folder), "w") as f:
         json.dump({"sim_start_time": SIM_START_TIME, 
                    "sim_time_step_second": SIM_TIME_STEP,
                    "statistics": per_section_stat}, f)
