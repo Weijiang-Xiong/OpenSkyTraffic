@@ -40,6 +40,8 @@ def get_modality_step(modality:str):
             modality_steps = PROBE_INTERVAL / SIM_TIME_STEP
         case 'pred':
             modality_steps = PREDICT_INTERVAL / SIM_TIME_STEP
+        case _:
+            raise ValueError("Unknown modality {}".format(modality))
         
     return int(modality_steps)
 
@@ -64,24 +66,20 @@ def agg_raw_to_intervals(item):
     df_ld = df_ld[df_ld['LD_count'] > 0]
     ld_groups = df_ld.groupby(sec_df['time_steps']//get_modality_step("ld_speed"))
     
-    # average speed by statistic time window (5s for link speed, 90s for detector speed)
-    drone_speed = drone_groups['total_dist'].sum() / drone_groups['total_time'].sum()
-    pred_speed = pred_groups['total_dist'].sum() / pred_groups['total_time'].sum()
+    # average speed by statistic time window 
+    # 5s for vehicle travel distance and time, 90s for detector speed
+    drone_vdist = drone_groups['total_dist'].sum() 
+    drone_vtime = drone_groups['total_time'].sum()
+    pred_vdist = pred_groups['total_dist'].sum()
+    pred_vtime = pred_groups['total_time'].sum()
     ld_speed = ld_groups['LD_speed'].sum()  / ld_groups['LD_count'].sum()
-
-    # if drone_speed.size > 0 and (drone_speed < -1e-3).any():
-    #     print('negative speed in section {}'.format(section))
-    #     print(sec_df[sec_df['total_dist'] < 0])
-    # # if there are any nan values
-    # if drone_speed.isna().any() or ld_speed.isna().any():
-    #     print('nan values in section {}'.format(section))
-    #     print(drone_speed)
-    #     print(ld_speed)
         
     return {'section': section, 
-            'drone_speed': drone_speed, 
+            'drone_vdist': drone_vdist,
+            'drone_vtime': drone_vtime, 
             'ld_speed': ld_speed, 
-            'pred_speed': pred_speed,
+            'pred_vdist': pred_vdist,
+            'pred_vtime': pred_vtime
             }
 
 
@@ -106,7 +104,7 @@ if __name__ == '__main__':
 
     print("Constructing networked time series for each modality ...")
     stats_all_sec = defaultdict(list)
-    for modality in ['drone_speed', 'ld_speed', 'pred_speed']:
+    for modality in ['drone_vdist', 'drone_vtime', 'ld_speed', 'pred_vdist', 'pred_vtime']: # pred_speed
         # store the data as a DF with columns (time_step, section, value) 
         # put some process here if suitable
         section_data = []
@@ -127,8 +125,7 @@ if __name__ == '__main__':
         modality_data.fillna(-1, inplace=True) 
         stats_all_sec[modality] = modality_data
         
-    # now begin to construct X and Y for the samples, by modality. 
-    # X: original records for the last 30 minutes
+    # using the sliding window approach, and take 30 mins for input and 30 mins for prediction
     print("Extracting samples from time series ...")
     samples = [] 
     t0 = start_time + np.timedelta64(15, 'm') # the simulation has 15 mins warm-up time
@@ -143,15 +140,19 @@ if __name__ == '__main__':
         t_s = t0 + dt * offset # start 
         t_m = t1 + dt * offset # middle
         t_e = t2 + dt * offset # end
-        # time steps for drone and loop detector inputs
-        drone_ts_in = (stats_all_sec['drone_speed'].index>t_s) & (stats_all_sec['drone_speed'].index<=t_m)
+        # the time steps for the data in the input time window (t_s, t_m)
+        drone_ts_in = (stats_all_sec['drone_vdist'].index>t_s) & (stats_all_sec['drone_vdist'].index<=t_m)
         ld_ts_in = (stats_all_sec['ld_speed'].index>t_s) & (stats_all_sec['ld_speed'].index<=t_m)
-        # ld_ts_out = (stats_all_sec['ld_speed'].index>t_m) & (stats_all_sec['ld_speed'].index<=t_e)
-        pred_ts_out = (stats_all_sec['pred_speed'].index>t_m) & (stats_all_sec['pred_speed'].index<=t_e)
+        # the time steps for the data in the prediction time window (t_m, t_e )
+        pred_ts_out = (stats_all_sec['pred_vdist'].index>t_m) & (stats_all_sec['pred_vdist'].index<=t_e)
+        ld_ts_out = (stats_all_sec['ld_speed'].index>t_m) & (stats_all_sec['ld_speed'].index<=t_e)
         sample_dict = {
-            "drone_speed": stats_all_sec['drone_speed'].loc[drone_ts_in],
+            "drone_vdist": stats_all_sec['drone_vdist'].loc[drone_ts_in],
+            "drone_vtime": stats_all_sec['drone_vtime'].loc[drone_ts_in],
             "ld_speed": stats_all_sec['ld_speed'].loc[ld_ts_in],
-            "pred_speed": stats_all_sec['pred_speed'].loc[pred_ts_out],
+            "pred_vdist": stats_all_sec['pred_vdist'].loc[pred_ts_out],
+            "pred_vtime": stats_all_sec['pred_vtime'].loc[pred_ts_out],
+            "pred_ld_speed": stats_all_sec['ld_speed'].loc[ld_ts_out],
         }
         samples.append(sample_dict)
         
