@@ -137,9 +137,8 @@ if __name__ == '__main__':
         columns_without_vehicles = np.setdiff1d(section_ids_sorted, modality_data.columns)
         modality_data[columns_without_vehicles] = np.nan
         modality_data = modality_data[section_ids_sorted]
-        # a nan means no vehicles are observed by that kind of sensor, and this is different 
-        # from 0, which means the vehicles are stopped at red lights.
-        modality_data.fillna(-1, inplace=True)
+        # a nan means no vehicles are observed by that kind of sensor, and we replace it with 0
+        modality_data.fillna(0, inplace=True)
         stats_all_sec[modality] = modality_data
         
     # using the sliding window approach, and take 30 mins for input and 30 mins for prediction

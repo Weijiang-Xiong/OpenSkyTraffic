@@ -135,7 +135,8 @@ class SimBarca(Dataset):
             vdist_values: np.ndarray = all_sample_data['{}_vdist'.format(mod_type)][..., 0] # total vehicle distance 
             vdist_tind: np.ndarray = all_sample_data['{}_vdist'.format(mod_type)][..., 1] # time in day 
             vtime_values: np.ndarray = all_sample_data['{}_vtime'.format(mod_type)][..., 0] # total vehicle time
-            # replace nan values with -1, because it means vtime_values is 0, there is no vehicle in the section
+            # replace nan values with -1, because it means both distance and time are 0, no vehicle detected
+            # this is different from zero speed, which can also happen when all vehicles are stopped at red lights
             speed_values = np.nan_to_num(vdist_values / vtime_values, nan=-1)
             processed_samples['{}_speed'.format(mod_type)] = np.stack([speed_values, vdist_tind], axis=-1)
         processed_samples['ld_speed'] = all_sample_data['ld_speed']
