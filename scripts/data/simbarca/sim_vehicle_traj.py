@@ -11,6 +11,10 @@ import shutil
 import subprocess
 import multiprocessing as mp 
 
+######################################################
+# 1. Run simulation in Aimsun
+######################################################
+
 # path to the aimsun console executable
 executable = "/opt/Aimsun_Next_22/aconsole"
 # the network model, should add `Aimsun_API.py` in the API tab of the scenario settings
@@ -36,20 +40,32 @@ folders_to_sim = [os.path.abspath(folder) for folder in all_folders
 with mp.Pool(processes=16) as pool:
     pool.map(sim_one_folder, folders_to_sim)
 
-    
-print("Simulation done, begin processing")
-folders_to_process = [os.path.abspath(folder) for folder in all_folders
-                      if not os.path.exists("{}/timeseries/section_statistics.json".format(folder))]
-for folder in folders_to_process:
+######################################################
+# 2. Extract traffic statistics per time step 
+######################################################
+
+def process_one_folder(folder):
     cmd = "python scripts/data/simbarca/time_series_from_traj.py --metadata_folder datasets/simbarca/metadata --session_folder {}".format(folder)
     print("Executing command: \n {}".format(cmd))
     subprocess.run(cmd, shell=True)
     
+print("Simulation done, begin processing")
+folders_to_process = [os.path.abspath(folder) for folder in all_folders
+                      if not os.path.exists("{}/timeseries/section_statistics.json".format(folder))]
+with mp.Pool(processes=6) as pool:
+    pool.map(process_one_folder, folders_to_process)
 
-print("Begin to extract training samples from processed data")
-folders_to_extract = [os.path.abspath(folder) for folder in all_folders
-                      if not os.path.exists("{}/timeseries/training_samples.pkl".format(folder))]
-for folder in folders_to_extract:
+######################################################
+# 3. Aggregate raw statistics into different intervals
+######################################################
+
+def extract_one_folder(folder):
     cmd = "python scripts/data/simbarca/extract_samples.py --session {}".format(folder)
     print("Executing command: \n {}".format(cmd))
     subprocess.run(cmd, shell=True)
+    
+print("Begin to extract training samples from processed data")
+folders_to_extract = [os.path.abspath(folder) for folder in all_folders
+                      if not os.path.exists("{}/timeseries/training_samples.pkl".format(folder))]
+with mp.Pool(processes=6) as pool:
+    pool.map(extract_one_folder, folders_to_extract)

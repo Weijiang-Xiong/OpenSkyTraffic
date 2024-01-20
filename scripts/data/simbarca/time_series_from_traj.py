@@ -168,6 +168,11 @@ def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
     df['dt'] = df['time'] - df['p_time']
     # when a link is very short, it is possible that a vehicle can pass the link between two consecutive simulation time steps, and in these cases, dx will be `nan``, as we have no speed to extrapolate the distance. So we simply fill these nan values with the length of the section.
     df.loc[df['dx'].isna(), 'dx'] = section.length
+    # up to now, dx can still be negative, because Aimsun has a very unrealistic lane change behavior.
+    # a vehicle can magically float to another lane when it is already stopped and inside a queue.
+    # this can make the vehicle move backward and cause negative dx, but this is very very rare. 
+    # so we just set them to 0 
+    df.loc[df['dx'] < 0, 'dx'] = 0
     assert (df['dx'].ge(0).all() and df['dt'].ge(0).all()) # dx and dt should always be positive
     # a flag wheter the vehicle passes the loop detector
     df['pass_ld'] = (df['position'] >= section.detector_place) & (df['p_position'] < section.detector_place)

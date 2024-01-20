@@ -1,5 +1,6 @@
 """ 
-    This script aggregate the per-time-step statistics (the results of `time_series_from_traj.py`) to different intervals.
+    This script aggregate the per-time-step statistics (the results of `time_series_from_traj.py`) to different time intervals. The spatial dimension is kept untouched, which may be aggregated again in the dataset class.
+    
     These aggregated values will represent different sensor modalities, and they will be used to create training data. 
 """
 
@@ -82,6 +83,14 @@ def agg_raw_to_intervals(item):
             'pred_vtime': pred_vtime
             }
 
+def dataframe_to_array(df: pd.DataFrame, add_time_in_day=True):
+    
+    time_in_day = (df.index.values - df.index.values.astype("datetime64[D]")) / np.timedelta64(1, "D")
+    time_in_day_2d = np.tile(time_in_day.reshape(-1, 1), [1, len(df.columns)])
+    values_with_time = np.concatenate([np.expand_dims(df.to_numpy(), -1), 
+                                       np.expand_dims(time_in_day_2d, -1)], 
+                                      axis=-1)
+    return values_with_time
 
 if __name__ == '__main__':
     
@@ -101,8 +110,10 @@ if __name__ == '__main__':
         # process the data in parallel
         results = list(tqdm(executor.map(partial_func, data['statistics'].items()),
                             total=len(data['statistics'].items())))
-
-    print("Constructing networked time series for each modality ...")
+        
+    section_ids_sorted = np.sort(pd.read_csv("datasets/simbarca/metadata/link_bboxes.csv")['id'].to_numpy())
+    
+    print("Constructing time series for each modality ...")
     stats_all_sec = defaultdict(list)
     for modality in ['drone_vdist', 'drone_vtime', 'ld_speed', 'pred_vdist', 'pred_vtime']: # pred_speed
         # store the data as a DF with columns (time_step, section, value) 
@@ -120,9 +131,15 @@ if __name__ == '__main__':
 
         # switch to a DF with time as rows, sections as columns, and values as the entries
         modality_data = all_secs.pivot(index='time', columns='section', values='value')
+        # set columns to integers, and sort the columns by section id
+        modality_data.columns = modality_data.columns.astype(int)
+        # some sections may never have a vehicle, so there are no recorded trajectory data for them
+        columns_without_vehicles = np.setdiff1d(section_ids_sorted, modality_data.columns)
+        modality_data[columns_without_vehicles] = np.nan
+        modality_data = modality_data[section_ids_sorted]
         # a nan means no vehicles are observed by that kind of sensor, and this is different 
         # from 0, which means the vehicles are stopped at red lights.
-        modality_data.fillna(-1, inplace=True) 
+        modality_data.fillna(-1, inplace=True)
         stats_all_sec[modality] = modality_data
         
     # using the sliding window approach, and take 30 mins for input and 30 mins for prediction
@@ -136,6 +153,7 @@ if __name__ == '__main__':
     # we suppose the data is valid for 120 mins after warmup (45 mins after demand ends)
     # e.g., if we take 30 min, predict next 30 min with 3 min steps, we have (120-60) / 5 samples 
     num_samples = int((np.timedelta64(120, 'm') - (t2-t0)) / dt)
+    
     for offset in range(num_samples):
         t_s = t0 + dt * offset # start 
         t_m = t1 + dt * offset # middle
@@ -147,16 +165,28 @@ if __name__ == '__main__':
         pred_ts_out = (stats_all_sec['pred_vdist'].index>t_m) & (stats_all_sec['pred_vdist'].index<=t_e)
         ld_ts_out = (stats_all_sec['ld_speed'].index>t_m) & (stats_all_sec['ld_speed'].index<=t_e)
         sample_dict = {
-            "drone_vdist": stats_all_sec['drone_vdist'].loc[drone_ts_in],
-            "drone_vtime": stats_all_sec['drone_vtime'].loc[drone_ts_in],
-            "ld_speed": stats_all_sec['ld_speed'].loc[ld_ts_in],
-            "pred_vdist": stats_all_sec['pred_vdist'].loc[pred_ts_out],
-            "pred_vtime": stats_all_sec['pred_vtime'].loc[pred_ts_out],
-            "pred_ld_speed": stats_all_sec['ld_speed'].loc[ld_ts_out],
+            "drone_vdist": dataframe_to_array(stats_all_sec['drone_vdist'].loc[drone_ts_in]),
+            "drone_vtime": dataframe_to_array(stats_all_sec['drone_vtime'].loc[drone_ts_in]),
+            "ld_speed": dataframe_to_array(stats_all_sec['ld_speed'].loc[ld_ts_in]),
+            "pred_vdist": dataframe_to_array(stats_all_sec['pred_vdist'].loc[pred_ts_out]),
+            "pred_vtime": dataframe_to_array(stats_all_sec['pred_vtime'].loc[pred_ts_out]),
+            "pred_ld_speed": dataframe_to_array(stats_all_sec['ld_speed'].loc[ld_ts_out]),
         }
         samples.append(sample_dict)
-        
     print('number of samples: {}'.format(len(samples)))
-    # save the samples to a pickle file
-    with open('{}/timeseries/samples.pkl'.format(args.session), 'wb') as f:
-        pickle.dump(samples, f)
+    
+    print('Packing the samples into numpy arrays ...')
+    # convert the samples to numpy arrays
+    packed_samples = defaultdict(list)
+    for sample in samples:
+        for k, v in sample.items():
+            # expand the array to (1, num_time_steps, num_sections, num_features)
+            # the first dimension will be used as batch dimension
+            packed_samples[k].append(np.expand_dims(v, 0)) 
+    # concatenate the arrays
+    for k, v in packed_samples.items():
+        packed_samples[k] = np.concatenate(v, axis=0)
+    
+    # save the samples to a compressed npz file
+    with open('{}/timeseries/samples.npz'.format(args.session), 'wb') as f:
+        np.savez_compressed(f, **packed_samples)
