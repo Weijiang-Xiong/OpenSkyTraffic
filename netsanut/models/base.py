@@ -45,14 +45,21 @@ class BaseModel(nn.Module):
         """
         
         # preprocessing (if any)
-        source = self.datascaler.transform(data['source'].to(self.device))
-        target = data['target'].to(self.device)
+        source, target = self.preprocess(data)
         
         if self.training:
             assert target is not None, "label should be provided for training"
             return self.compute_loss(source, target)
         else:
-            return self.inference(source, target)
+            # we should not have target sequences in inference
+            return self.inference(source)
+
+    def preprocess(self, data: dict[str, torch.Tensor]) -> Tuple[Any, Any]:
+        
+        source = self.datascaler.transform(data['source'].to(self.device))
+        target = data['target'].to(self.device)
+        
+        return source, target
 
     def make_pred(self, source: torch.Tensor) -> Any:
         """ This function will run a forward pass of the model with the source sequence

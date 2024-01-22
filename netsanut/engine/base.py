@@ -81,8 +81,8 @@ class TrainerBase:
         self.scheduler: Optional[optim.lr_scheduler.LambdaLR]
 
         self._hooks: List[HookBase] = []
-        self.epoch_num: int
-        self.start_epoch: int
+        self.epoch_num: int = 0
+        self.start_epoch: int = 0
         self.max_epoch: int
         self.storage: EventStorage
         self.save_dir: str
@@ -110,6 +110,10 @@ class TrainerBase:
                     self.before_epoch()
                     self.train_epoch()
                     self.after_epoch()
+                # self.epoch_num == self.max_epoch can be used by `after_train` to
+                # tell whether the training successfully finished or failed
+                # due to exceptions.
+                self.epoch_num += 1
             except Exception:
                 self.logger.exception("Exception during training:")
                 raise
