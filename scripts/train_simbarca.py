@@ -4,8 +4,7 @@ import numpy as np
 from netsanut.config import default_argument_parser, default_setup, ConfigLoader
 from netsanut.engine import DefaultTrainer, hooks
 from netsanut.models.fusenet import build_model
-from netsanut.data.datasets.simbarca import build_train_loader, build_test_loader
-from netsanut.evaluation import evaluate
+from netsanut.data.datasets.simbarca import build_train_loader, build_test_loader, evaluate
 from netsanut.solver import build_optimizer, build_scheduler
 
 def main(args):

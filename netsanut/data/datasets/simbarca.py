@@ -214,6 +214,9 @@ def build_trainvaltest_loaders():
     
     return dataloaders, metadata
 
+def evaluate():
+    pass
+
 if __name__.endswith('.simbarca'):
     """ this happens when something is imported from this file
         we can register the dataset here
