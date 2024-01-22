@@ -133,8 +133,9 @@ class CheckpointSaver(HookBase):
             trainer.load_checkpoint(self.best_ckpt_path, resume=False)
         
         copy_path = "{}/model_final.pth".format(trainer.save_dir)
-        shutil.copyfile(self.last_ckpt_path, copy_path)
-        trainer.logger.info("Copying the final model to {}".format(copy_path))
+        if os.path.exists(self.last_ckpt_path):
+            shutil.copyfile(self.last_ckpt_path, copy_path)
+            trainer.logger.info("Copying the final model to {}".format(copy_path))
 
 class MetricLogger(HookBase):
     

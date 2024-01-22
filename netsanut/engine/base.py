@@ -173,6 +173,8 @@ class TrainerBase:
 
     def after_train(self):
         self.storage.epoch_num = self.epoch_num
+        if self.epoch_num != self.max_epoch:
+            self.logger.info("Training did not reach max epoch, check the log if this is not expected.")
         for hook in self._hooks:
             hook.after_train(self)
 
