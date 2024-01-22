@@ -247,10 +247,10 @@ class NeTSFormer(BaseModel):
         x = self.decoder(x, x, self.mask) # 'N M C -> N M C'
         mean = self.pred_mean(x) # 'N M C -> N M T'
         mean = rearrange(mean, 'N M T -> N T M')
-        logvar = self.pred_var(x)
-        logvar = rearrange(logvar, 'N M T -> N T M')
+        plog_sigma = self.pred_var(x)
+        plog_sigma = rearrange(plog_sigma, 'N M T -> N T M')
         
-        return mean, logvar
+        return mean, plog_sigma
 
     
     def inference(self, data, label=None) -> torch.Tensor:
@@ -260,24 +260,24 @@ class NeTSFormer(BaseModel):
             if label is provided, auxiliary metrics will be computed according to the flag `self.record_auxiliary_metrics`
         """
         
-        mean, logvar = self.make_pred(data)
+        mean, plog_sigma = self.make_pred(data)
             
         mean = self.datascaler.inverse_transform(mean)
-        logvar = self.datascaler.inverse_transform_logvar(logvar)
+        plog_sigma = self.datascaler.inverse_transform_plog_sigma(plog_sigma)
         
-        res = {"pred": mean, "logvar": logvar}
+        res = {"pred": mean, "plog_sigma": plog_sigma}
         
         return self.post_process(res)
         
         
     def compute_loss(self, data, label) -> Dict[str, torch.Tensor]:
         
-        mean, logvar = self.make_pred(data)
+        mean, plog_sigma = self.make_pred(data)
         
         # scale back the predictions and then calculate loss 
         mean = self.datascaler.inverse_transform(mean)
-        logvar = self.datascaler.inverse_transform_logvar(logvar)
-        loss = self.loss(mean, label, logvar)
+        plog_sigma = self.datascaler.inverse_transform_plog_sigma(plog_sigma)
+        loss = self.loss(mean, label, plog_sigma)
             
         loss_dict = {"loss": loss}
             

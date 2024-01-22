@@ -19,8 +19,8 @@ class TestScaler(unittest.TestCase):
         scaled_back_data_only = scaler.inverse_transform(scaled_data.clone()[..., 0])
         self.assertTrue(torch.allclose(scaled_back_data_only, rand_data[..., 0], atol=1e-7))
 
-        rand_logvar = torch.rand((32, 12, 207), requires_grad=False)
-        scaler.inverse_transform_logvar(rand_logvar)
+        rand_plog_sigma = torch.rand((32, 12, 207), requires_grad=False)
+        scaler.inverse_transform_plog_sigma(rand_plog_sigma)
 
 if __name__ == "__main__":
     unittest.main()

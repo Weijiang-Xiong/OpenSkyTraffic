@@ -37,7 +37,7 @@ class TestNetsFormer(unittest.TestCase):
         self.model.eval()
         result_dict = self.model(rand_data)
         self.assertTrue(result_dict['pred'].shape == (N, T, M))
-        self.assertTrue(result_dict['logvar'].shape == (N, T, M))
+        self.assertTrue(result_dict['plog_sigma'].shape == (N, T, M))
         
         for mode in ['linear', 'last', 'avg']:        
             agg = TemporalAggregate(in_dim=T, mode=mode).to(self.device)

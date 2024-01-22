@@ -16,11 +16,15 @@ class GeneralizedProbRegLoss(nn.Module):
         
         If aleatoric is set to True, the regression loss will be attenuated by a predicted variance:
 
-            loss = (pred - label) ** exponent / exp(logvar) + alpha * logvar
+            loss = (pred - label) ** exponent / exp(plog_sigma) + alpha * plog_sigma
         
         Specifically, if aleatoric = True, exponent=2 and alpha=1, the loss will be 
         the Gaussian Negative Log Likelihood Loss, as described in
         https://proceedings.neurips.cc/paper/2017/file/2650d6089a6d640c5e85b2b88265dc2b-Paper.pdf
+        
+        Here we allow exponent to be a positive integer, instead of fixing it to 2 for the Gaussian case.
+        Therefore we should generalize log-variance, i.e., log(sigma^2) to log(sigma^exponent), which
+        turns out to be p*log(sigma) with p being the exponent.
     """
     
     def __init__(self, reduction="mean", aleatoric=False, exponent=1, alpha=1.0, ignore_value:float=0.0):
@@ -31,21 +35,21 @@ class GeneralizedProbRegLoss(nn.Module):
         self.ignore_value = ignore_value # the value corresponding to "no reading" or "not valid"
         super(self.__class__, self).__init__()
     
-    def forward(self, pred, label, logvar=None):
+    def forward(self, pred, label, plog_sigma=None):
         """
         pred: (N, T, M)
         label: (N, T, M)
-        logvar: (N, T, M), log variance
+        plog_sigma: (N, T, M), p-log-sigma
         but the shape doesn't really matter, as long as they match 
         """
         
         loss = torch.pow(torch.abs(pred-label), self.exponent)
         
         if self.aleatoric:
-            if logvar is not None:
-                loss = torch.multiply(loss, torch.exp(-logvar))  + self.alpha * logvar
+            if plog_sigma is not None:
+                loss = torch.multiply(loss, torch.exp(-plog_sigma))  + self.alpha * plog_sigma
             else:
-                logger.warning("Did not receive Log Variance for loss computation, skip aleatoric part")
+                logger.warning("Did not receive p-log-sigma for loss computation, skip aleatoric part")
         
         loss = self.nan_to_num(loss)
         

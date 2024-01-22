@@ -112,9 +112,9 @@ class TTNet(BaseModel):
         x = self.network(x, self.mask)  # out shape (N, M, C_hid)
         
         mean = self.mean_estimate(x)  # out shape (N, M, T)
-        logvar = self.var_estimate(x)  # out shape (N, M, T)
+        plog_sigma = self.var_estimate(x)  # out shape (N, M, T)
         
-        return mean.permute(0, 2, 1), logvar.permute(0, 2, 1)
+        return mean.permute(0, 2, 1), plog_sigma.permute(0, 2, 1)
 
     
     def inference(self, source, target=None):
@@ -125,22 +125,22 @@ class TTNet(BaseModel):
         """
         
         with torch.no_grad():
-            mean, logvar = self.make_pred(source)
+            mean, plog_sigma = self.make_pred(source)
             
         mean = self.datascaler.inverse_transform(mean)
-        logvar = self.datascaler.inverse_transform_logvar(logvar)
+        plog_sigma = self.datascaler.inverse_transform_plog_sigma(plog_sigma)
         
-        return {"pred": mean, "logvar": logvar}
+        return {"pred": mean, "plog_sigma": plog_sigma}
         
         
     def compute_loss(self, source, target):
         
-        mean, logvar = self.make_pred(source)
+        mean, plog_sigma = self.make_pred(source)
         
         # scale back the predictions and then calculate loss 
         mean = self.datascaler.inverse_transform(mean)
-        logvar = self.datascaler.inverse_transform_logvar(logvar)
-        loss = self.loss(mean, target, logvar)
+        plog_sigma = self.datascaler.inverse_transform_plog_sigma(plog_sigma)
+        loss = self.loss(mean, target, plog_sigma)
             
         loss_dict = {"loss": loss}
             

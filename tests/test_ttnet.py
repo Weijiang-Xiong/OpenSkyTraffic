@@ -26,7 +26,7 @@ class TestTTNet(unittest.TestCase):
         model.eval()
         result_dict = model(rand_data)
         assert result_dict['pred'].shape == (N, T, M)
-        assert result_dict['logvar'].shape == (N, T, M)
+        assert result_dict['plog_sigma'].shape == (N, T, M)
 
         print("Num Params. {:.2f}M".format(model.num_params/1e6))
         print("Test OK")
