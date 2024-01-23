@@ -131,7 +131,7 @@ class BaseModel(nn.Module):
     def post_process(self, res):
         # the scale of uncertainty, supposed to have the same unit as prediction
         # so it makes sense to add them. 
-        res['scale_u'] = torch.exp(res['plog_sigma']*(1.0/self._beta))
+        res['sigma'] = torch.exp(res['plog_sigma']*(1.0/self._beta))
         return res
     
     def update_calibration(self, intervals: Dict[float,Tuple[float, float]]):

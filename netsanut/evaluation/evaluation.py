@@ -67,7 +67,7 @@ def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False) -> Dict[st
 
     # evaluate uncertainty prediction if possible
     if getattr(model, 'is_probabilistic', False):
-        all_scales = all_res['scale_u']
+        all_scales = all_res['sigma']
         offset_coeffs = {c:model.offset_coeff(confidence=c) for c in EVAL_CONFS}
         res_u = uncertainty_metrics(all_preds, all_labels, all_scales, offset_coeffs, verbose=verbose)
         res.update(res_u)

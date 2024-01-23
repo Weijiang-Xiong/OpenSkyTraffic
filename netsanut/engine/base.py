@@ -145,10 +145,6 @@ class TrainerBase:
 
         self.storage.put_scalars(**{key: np.mean(value) for key, value in self.loss_log.items()})
 
-    @staticmethod
-    def evaluate(model: nn.Module, dataloader: DataLoader, verbose=False):
-        raise NotImplementedError
-
     def load_checkpoint(self, ckpt_path: str, resume=False):
         raise NotImplementedError
 

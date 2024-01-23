@@ -31,7 +31,7 @@ class Visualizer:
         result_dict = inference_on_dataset(self.model, dataloader)
         self.src = result_dict['source'][..., 0]
         self.src_tid = result_dict['source'][..., 1]
-        self.scale = result_dict['scale_u']
+        self.scale = result_dict['sigma']
         self.pred = result_dict['pred']
         self.target = result_dict['target']
         
