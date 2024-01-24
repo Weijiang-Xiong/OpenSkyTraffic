@@ -117,11 +117,11 @@ def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Te
 
     return res
 
-def prediction_metrics(pred, label):
+def prediction_metrics(pred, label, ignore_value=0.0):
     
-    mae = masked_mae(pred,label,0.0).item()
-    mape = masked_mape(pred,label,0.0).item()
-    rmse = masked_rmse(pred,label,0.0).item()
+    mae = masked_mae(pred,label,ignore_value).item()
+    mape = masked_mape(pred,label,ignore_value).item()
+    rmse = masked_rmse(pred,label,ignore_value).item()
     
     return {"mae":mae, "mape":mape, "rmse":rmse}
 
