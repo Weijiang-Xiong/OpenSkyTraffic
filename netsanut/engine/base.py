@@ -148,7 +148,7 @@ class TrainerBase:
     def load_checkpoint(self, ckpt_path: str, resume=False):
         raise NotImplementedError
 
-    def save_checkpoint(self, additional_note: str = None):
+    def save_checkpoint(self, additional_note: str = None) -> str:
         raise NotImplementedError
 
     def register_hooks(self, hooks: List[HookBase]):

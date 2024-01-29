@@ -3,7 +3,7 @@ import numpy as np
 
 from netsanut.config import default_argument_parser, default_setup, ConfigLoader
 from netsanut.engine import DefaultTrainer, hooks
-from netsanut.models.fusenet import build_model
+from netsanut.models.himsnet import build_model
 from netsanut.data.datasets.simbarca import build_train_loader, build_test_loader, evaluate
 from netsanut.solver import build_optimizer, build_scheduler
 
@@ -15,12 +15,10 @@ def main(args):
     cfg = ConfigLoader.apply_overrides(cfg, overrides=args.opts)
     default_setup(cfg, args)
     
-    # build dataloader and model, and adapt the model to metadata (e.g., data mean, adjacency matrix)
-    # notably, each part just receive necessary configs instead of the whole configuration
-    train_loader, test_loader = build_train_loader(**cfg.data.train), build_test_loader(**cfg.data.test)
     model = build_model(cfg.model)
     
     if args.eval_only:
+        test_loader = build_test_loader(**cfg.data.test)
         # in evaluation mode, just load the checkpoint and call evaluation function
         state_dict = DefaultTrainer.load_file(ckpt_path=cfg.train.checkpoint)
         model.load_state_dict(state_dict['model'])
@@ -31,6 +29,8 @@ def main(args):
         )
         return eval_res
     else:
+        train_loader = build_train_loader(**cfg.data.train)
+        test_loader = build_test_loader(**cfg.data.test)
         # build optimizer and scheduler using the corresponding configurations
         optimizer = build_optimizer(model, cfg.optimizer)
         scheduler = build_scheduler(optimizer, cfg.scheduler)
@@ -45,11 +45,12 @@ def main(args):
         trainer.register_hooks([
             hooks.EpochTimer(),
             hooks.StepBasedLRScheduler(scheduler=scheduler),
-            hooks.ValidationHook(lambda m: evaluate(m, train_loader), metric_suffix='train') if cfg.train.eval_train else None,
-            hooks.ValidationHook(lambda m: evaluate(m, test_loader)),
+            hooks.EvalHook(lambda m: evaluate(m, train_loader), metric_suffix='train') if cfg.train.eval_train else None,
+            hooks.EvalHook(lambda m: evaluate(m, test_loader), metric_suffix='test', eval_after_train=False),
             hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
             hooks.MetricLogger(),
-            hooks.TestHook(lambda m: evaluate(m, test_loader, verbose=True)),
+            # after training, we print the results on the test set
+            hooks.EvalHook(lambda m: evaluate(m, test_loader, verbose=True), metric_suffix='test', eval_after_epoch=False),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
             hooks.PlotTrainingLog()
         ])
@@ -60,5 +61,5 @@ if __name__ == "__main__":
     # the argument parser requires a `--config-file` which specifies how to configure
     # models and training pipeline, and other overrides to the config file can be passed
     # as `something.to.modify=new_value`
-    args = default_argument_parser().parse_args('--config-file config/FuseNet.py'.split())
+    args = default_argument_parser().parse_args()
     main(args)

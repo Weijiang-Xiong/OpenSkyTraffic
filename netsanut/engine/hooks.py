@@ -31,36 +31,39 @@ class EpochTimer(HookBase):
         trainer.storage.put_scalar(name="epoch_train_time", value=self.te-self.ts)
 
 
-class ValidationHook(HookBase):
+class EvalHook(HookBase):
     # TODO add eval period option
     def __init__(self, 
                  eval_function:Callable, 
-                 metric_suffix="val", 
-                 time_naming="epoch_inference_time") -> None:
+                 metric_suffix="eval", 
+                 eval_after_epoch: bool =True,
+                 eval_after_train: bool =True) -> None:
         super().__init__()
         self.eval_function = eval_function
         self.suffix = metric_suffix
-        self.time_naming = time_naming
+        self.eval_after_epoch = eval_after_epoch
+        self.eval_after_train = eval_after_train
     
     def after_epoch(self, trainer: TrainerBase):
+        if not self.eval_after_epoch:
+            return
+        
         ts = time.perf_counter()
         validation_metrics = self.eval_function(trainer.model)
         te = time.perf_counter()
-        trainer.storage.put_scalar(name=self.time_naming, value=te-ts)
+        trainer.storage.put_scalar(name="epoch_inference_time", value=te-ts)
         trainer.storage.put_scalars(**validation_metrics, suffix=self.suffix)
-
-class TestHook(HookBase):
-    
-    def __init__(self, eval_function:Callable) -> None:
-        super().__init__()
-        self.eval_function = eval_function
-
+        
     def after_train(self, trainer: TrainerBase):
+        if not self.eval_after_train:
+            return
+        
         ts = time.perf_counter()
         test_metrics = self.eval_function(trainer.model)
         te = time.perf_counter()
         trainer.storage.put_scalar(name="final_test_time", value=te-ts)
         trainer.storage.put_scalars(**test_metrics, suffix="test")
+        
 
 class StepBasedLRScheduler(HookBase):
     """ 
@@ -90,12 +93,12 @@ class CheckpointSaver(HookBase):
     
     # TODO add period that corresponds to eval period
     # TODO add option for using a metric that is the higher the better
-    def __init__(self, metric="mae_val", test_best_ckpt=True) -> None:
+    def __init__(self, metric:str=None, test_best_ckpt:bool=True) -> None:
         super().__init__()
-        self.metric = metric
-        self.lowest_loss = np.inf
-        self.best_ckpt_path = ""
-        self.last_ckpt_path = ""
+        self.metric:str = metric
+        self.lowest_loss:float = np.inf
+        self.best_ckpt_path: str = ""
+        self.last_ckpt_path: str = ""
         self.test_best_ckpt = test_best_ckpt
         
     def after_epoch(self, trainer: TrainerBase):
@@ -103,13 +106,13 @@ class CheckpointSaver(HookBase):
         metric_tuple = trainer.storage.latest().get(self.metric)
         if metric_tuple is None:
             trainer.logger.warning(
-                f"Given val metric {self.metric} does not seem to be computed/stored."
-                "Will not be checkpointing based on it."
+                "Given val metric {metric} does not seem to be computed/stored, will not use it for checkpoint selection.".format(metric=self.metric)
             )
+            self.test_best_ckpt = False
+            self.last_ckpt_path = trainer.save_checkpoint()
             return
-        else:
-            latest_loss, latest_epoch = metric_tuple
         
+        latest_loss, latest_epoch = metric_tuple
         note = '{}_{}'.format(self.metric, round(latest_loss, 2))
         self.last_ckpt_path = trainer.save_checkpoint(additional_note=note)
         
@@ -147,17 +150,17 @@ class MetricLogger(HookBase):
     def after_epoch(self, trainer: TrainerBase):
         
         latest_log = trainer.storage.latest()
-        trainer.logger.info('Epoch: {:03d}, Training Time: {:.4f} secs Inference Time: {:.4f} secs Train Loss {:.4f}'.format(
+        trainer.logger.info('Epoch: {:03d}, Training Time: {:.4f} secs Inference Time: {:.4f} secs'.format(
             trainer.epoch_num, 
             latest_log["epoch_train_time"][0], 
             latest_log["epoch_inference_time"][0],
-            latest_log["loss"][0]
             )
         )
-        trainer.logger.info("Train MAE: {:.4f}, Train MAPE: {:.4f}, Train RMSE: {:.4f}".format(
-            latest_log["mae_train"][0], latest_log["mape_train"][0], latest_log["rmse_train"][0]))
-        trainer.logger.info("Valid MAE: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}".format(
-            latest_log["mae_val"][0], latest_log["mape_val"][0], latest_log["rmse_val"][0]))
+        trainer.logger.info("Training Losses: " +"  ".join([
+            "{} {:.4f}".format(k, v[0]) 
+            for k, v in latest_log.items()
+            if "loss" in k
+        ]))
 
     def after_train(self, trainer: TrainerBase):
 

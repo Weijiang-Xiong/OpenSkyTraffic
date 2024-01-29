@@ -55,6 +55,13 @@ def masked_mape(preds, labels, null_val=np.nan):
     loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
     return torch.mean(loss)
 
+def masked_mape_with_threshold(preds, labels, null_val=np.nan, threshold=10):
+    less_than_threshold = labels < threshold
+    preds, labels = preds.clone(), labels.clone()
+    preds[less_than_threshold] = null_val
+    labels[less_than_threshold] = null_val
+    return masked_mape(preds, labels, null_val)
+
 def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Tensor, 
                         offset_coeffs: Dict[float, float], ignore_value=0.0, verbose=False):
     """ The uncertainty prediction is evaluated by the corresponding confidence intervals, where we assume the interval is centered on the expected value, and the upper bound and lower bound 
@@ -117,10 +124,10 @@ def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Te
 
     return res
 
-def prediction_metrics(pred, label, ignore_value=0.0):
+def prediction_metrics(pred, label, ignore_value=0.0, mape_threshold=0.0):
     
     mae = masked_mae(pred,label,ignore_value).item()
-    mape = masked_mape(pred,label,ignore_value).item()
+    mape = masked_mape_with_threshold(pred,label,ignore_value, threshold=mape_threshold).item()
     rmse = masked_rmse(pred,label,ignore_value).item()
     
     return {"mae":mae, "mape":mape, "rmse":rmse}
