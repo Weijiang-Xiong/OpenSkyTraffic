@@ -392,10 +392,10 @@ if __name__.endswith(".simbarca"):
     register_simbarca()
 
 if __name__ == "__main__":
-    # train_loader = build_train_loader()
-    # for data_dict in train_loader:
-    #     print(data_dict.keys())
-    #     break
+    train_loader = build_train_loader()
+    for data_dict in train_loader:
+        print(data_dict.keys())
+        break
 
     test_loader = build_test_loader()
     for data_dict in test_loader:
