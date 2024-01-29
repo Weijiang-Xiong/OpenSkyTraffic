@@ -1,4 +1,4 @@
-from .common import PositionalEncoding, LearnedPositionalEncoding
+from .common import PositionalEncoding, LearnedPositionalEncoding, MLP
 from .base import BaseModel
 from .ttnet import TTNet
 from .netsformer import NeTSFormer

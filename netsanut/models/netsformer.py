@@ -88,16 +88,7 @@ class SpatialTemporalEncoder(nn.Module):
             x = layer(x, s_mask, t_mask)
         return x 
 
-class MLP(nn.Module):
-    
-    def __init__(self, in_dim, hid_dim, out_dim) -> None:
-        super().__init__()
-        self.linear1 = nn.Linear(in_dim, hid_dim)
-        self.linear2 = nn.Linear(hid_dim, out_dim)
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        
-        return self.linear2(self.linear1(x))
+
 
 class TemporalAggregate(nn.Module):
     

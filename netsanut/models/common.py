@@ -86,6 +86,18 @@ class PositionalEncoding(nn.Module):
             self.encoding_dict.size(1), self.encoding_dict.size(0)
         )
 
+class MLP(nn.Module):
+    
+    def __init__(self, in_dim, hid_dim, out_dim, dropout) -> None:
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.linear1 = nn.Linear(in_dim, hid_dim)
+        self.linear2 = nn.Linear(hid_dim, out_dim)
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        
+        return self.linear2(self.dropout(torch.relu(self.linear1(x))))
+
 if __name__ =="__main__":
     pe = LearnedPositionalEncoding(64)
     print(pe)
