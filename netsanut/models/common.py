@@ -86,12 +86,12 @@ class PositionalEncoding(nn.Module):
             self.encoding_dict.size(1), self.encoding_dict.size(0)
         )
 
-class MLP(nn.Module):
+class MLP_LazyInput(nn.Module):
     
-    def __init__(self, in_dim, hid_dim, out_dim, dropout) -> None:
+    def __init__(self, hid_dim, out_dim, dropout) -> None:
         super().__init__()
         self.dropout = nn.Dropout(dropout)
-        self.linear1 = nn.Linear(in_dim, hid_dim)
+        self.linear1 = nn.LazyLinear(hid_dim)
         self.linear2 = nn.Linear(hid_dim, out_dim)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
