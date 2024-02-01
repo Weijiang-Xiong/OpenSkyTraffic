@@ -45,7 +45,7 @@ def main(args):
         trainer.register_hooks([
             hooks.EpochTimer(),
             hooks.StepBasedLRScheduler(scheduler=scheduler),
-            hooks.EvalHook(lambda m: evaluate(m, train_loader), metric_suffix='train') if cfg.train.eval_train else None,
+            hooks.EvalHook(lambda m: evaluate(m, train_loader), metric_suffix='train', eval_after_train=False) if cfg.train.eval_train else None,
             hooks.EvalHook(lambda m: evaluate(m, test_loader), metric_suffix='test', eval_after_train=False),
             hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
             hooks.MetricLogger(),
