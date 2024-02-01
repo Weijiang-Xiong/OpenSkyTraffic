@@ -105,7 +105,7 @@ class CheckpointSaver(HookBase):
         
         metric_tuple = trainer.storage.latest().get(self.metric)
         if metric_tuple is None:
-            trainer.logger.warning(
+            trainer.logger.info(
                 "Given val metric {metric} does not seem to be computed/stored, will not use it for checkpoint selection.".format(metric=self.metric)
             )
             self.test_best_ckpt = False
