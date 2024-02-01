@@ -5,8 +5,7 @@ from .netsformer import NeTSFormer
 from omegaconf import DictConfig
 
 MODEL_CATALOG = dict()
-MODEL_CATALOG['ttnet'] = TTNet
-MODEL_CATALOG['netsformer'] = NeTSFormer
+
 
 def build_model(cfg: DictConfig) -> nn.Module:
     """ Instantiate a model with the class retrieved from `MODEL_CATALOG` using `cfg.model.name`

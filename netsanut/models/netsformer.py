@@ -21,6 +21,7 @@ from netsanut.loss import GeneralizedProbRegLoss
 from netsanut.data import TensorDataScaler
 from .common import LearnedPositionalEncoding, PositionalEncoding
 from .base import BaseModel
+from .catalog import MODEL_CATALOG
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -312,3 +313,6 @@ class NeTSFormer(BaseModel):
         
         return {"det": [param for _, param in det_params],
                 "sto": [param for _, param in sto_params]}
+        
+if __name__.endswith(".netsformer"):
+    MODEL_CATALOG['netsformer'] = NeTSFormer

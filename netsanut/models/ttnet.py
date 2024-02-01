@@ -15,6 +15,7 @@ from netsanut.events import get_event_storage
 
 from .common import PositionalEncoding, LearnedPositionalEncoding
 from .base import BaseModel
+from .catalog import MODEL_CATALOG
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -150,3 +151,7 @@ class TTNet(BaseModel):
         
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'])
         self.set_fixed_mask(metadata['adjacency'])
+        
+if __name__.endswith(".ttnet"):
+    MODEL_CATALOG['ttnet'] = TTNet
+    

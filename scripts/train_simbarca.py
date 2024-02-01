@@ -3,7 +3,7 @@ import numpy as np
 
 from netsanut.config import default_argument_parser, default_setup, ConfigLoader
 from netsanut.engine import DefaultTrainer, hooks
-from netsanut.models.himsnet import build_model
+from netsanut.models import build_model
 from netsanut.data.datasets.simbarca import build_train_loader, build_test_loader, evaluate
 from netsanut.solver import build_optimizer, build_scheduler
 
@@ -61,5 +61,5 @@ if __name__ == "__main__":
     # the argument parser requires a `--config-file` which specifies how to configure
     # models and training pipeline, and other overrides to the config file can be passed
     # as `something.to.modify=new_value`
-    args = default_argument_parser().parse_args()
+    args = default_argument_parser().parse_args("--config-file ./config/HiMSNet.py train.output_dir=debug".split())
     main(args)
