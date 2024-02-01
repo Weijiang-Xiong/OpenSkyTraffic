@@ -22,35 +22,37 @@ class _ColorfulFormatter(logging.Formatter):
             return log
         return prefix + " " + log
     
-def setup_logger(name, log_file, level=logging.INFO, color=True, stream=True):
-    
-    # file handler
-    fh = logging.FileHandler(log_file)
-    fh.setLevel(level)
-    plainer_formatter = logging.Formatter(
-        "[%(asctime)s %(name)s]: %(message)s", datefmt="%m/%d %H:%M:%S"
-    )
-    fh.setFormatter(plainer_formatter)
-    
-    # console handler or stream handler
-    ch = logging.StreamHandler()
-    ch.setLevel(level)
-    if color:
-        formatter = _ColorfulFormatter(
-            colored("[%(asctime)s %(name)s]: ", "green") + "%(message)s",
-            datefmt="%m/%d %H:%M:%S",
-            root_name=name,
-            abbrev_name=str(name),
-        )
-    else:
-        formatter = plainer_formatter
-    ch.setFormatter(formatter)
+def setup_logger(name, log_file=None, level=logging.INFO, color=True, stream=True):
     
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    logger.addHandler(fh)
-    logger.addHandler(ch)
     
+    # file handler
+    if log_file is not None:
+        fh = logging.FileHandler(log_file)
+        fh.setLevel(level)
+        plainer_formatter = logging.Formatter(
+            "[%(asctime)s %(name)s]: %(message)s", datefmt="%m/%d %H:%M:%S"
+        )
+        fh.setFormatter(plainer_formatter)
+        logger.addHandler(fh)
+        
+    if stream:
+        # console handler or stream handler
+        ch = logging.StreamHandler()
+        ch.setLevel(level)
+        if color:
+            formatter = _ColorfulFormatter(
+                colored("[%(asctime)s %(name)s]: ", "green") + "%(message)s",
+                datefmt="%m/%d %H:%M:%S",
+                root_name=name,
+                abbrev_name=str(name),
+            )
+        else:
+            formatter = plainer_formatter
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
+
     return logger
 
 
