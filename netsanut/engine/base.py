@@ -110,10 +110,6 @@ class TrainerBase:
                     self.before_epoch()
                     self.train_epoch()
                     self.after_epoch()
-                # self.epoch_num == self.max_epoch can be used by `after_train` to
-                # tell whether the training successfully finished or failed
-                # due to exceptions.
-                self.epoch_num += 1
             except Exception:
                 self.logger.exception("Exception during training:")
                 raise
@@ -169,7 +165,7 @@ class TrainerBase:
 
     def after_train(self):
         self.storage.epoch_num = self.epoch_num
-        if self.epoch_num != self.max_epoch:
+        if self.epoch_num + self.epoch_progress != self.max_epoch:
             self.logger.info("Training did not reach max epoch, check the log if this is not expected.")
         for hook in self._hooks:
             hook.after_train(self)

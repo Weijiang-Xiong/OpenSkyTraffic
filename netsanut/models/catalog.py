@@ -1,7 +1,5 @@
 import torch 
 import torch.nn as nn 
-from .ttnet import TTNet
-from .netsformer import NeTSFormer
 from omegaconf import DictConfig
 
 MODEL_CATALOG = dict()

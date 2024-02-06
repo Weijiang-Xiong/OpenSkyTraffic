@@ -1,4 +1,5 @@
 import os 
+import json
 import time
 import shutil
 from collections import Counter, defaultdict
@@ -62,7 +63,7 @@ class EvalHook(HookBase):
         test_metrics = self.eval_function(trainer.model)
         te = time.perf_counter()
         trainer.storage.put_scalar(name="final_test_time", value=te-ts)
-        trainer.storage.put_scalars(**test_metrics, suffix="test")
+        trainer.storage.put_scalars(**test_metrics, suffix=self.suffix)
         
 
 class StepBasedLRScheduler(HookBase):
@@ -211,4 +212,8 @@ class PlotTrainingLog(HookBase):
             save_name = "log_{}".format(key)
             fig.tight_layout()
             fig.savefig("{}/{}.pdf".format(trainer.save_dir, save_name), dpi=self.dpi)
+            
+            # also save the data as a json file
+            with open("{}/{}.json".format(trainer.save_dir, save_name), "w") as f:
+                json.dump({"epoch": epoch.tolist(), "value": value.tolist()}, f)
             
