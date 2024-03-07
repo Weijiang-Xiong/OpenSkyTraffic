@@ -16,16 +16,16 @@ from torch.utils.data import Dataset, DataLoader
 import netsanut
 from netsanut.data import DATASET_CATALOG
 from netsanut.evaluation.metrics import prediction_metrics
-from netsanut.util import flatten_results_dict
+from netsanut.util import make_dir_if_not_exist, flatten_results_dict
 
 _package_init_file = netsanut.__file__
 _root: Path = (Path(_package_init_file).parent.parent).resolve()
 assert _root.exists(), "please check detectron2 installation"
 
-
 class SimBarca(Dataset):
     data_root = "datasets/simbarca"
     meta_data_folder = "datasets/simbarca/metadata"
+    eval_metrics_folder = "datasets/simbarca/eval_metrics"
     input_seqs = ["drone_speed", "ld_speed"]
     output_seqs = ["pred_speed", "pred_speed_regional"]
     train_split_size = 0.75
@@ -41,10 +41,7 @@ class SimBarca(Dataset):
                 attribute,
                 torch.as_tensor(samples[attribute], dtype=torch.float32),
             )
-        # self.drone_speed = samples['drone_speed']
-        # self.ld_speed = samples['ld_speed']
-        # self.pred_speed = samples['pred_speed']
-        # self.pred_speed_regional = samples['pred_speed_regional']
+
         self.metadata = self.set_metadata_dict()
         self.data_augmentations = []
 
@@ -53,8 +50,6 @@ class SimBarca(Dataset):
         data_seqs = [getattr(self, attribute)[index] for attribute in self.sequence_names]
 
         return data_seqs
-
-        # return self.drone_speed[index], self.ld_speed[index], self.pred_speed[index], self.pred_speed_regional[index]
 
     def __len__(self):
         return self.drone_speed.shape[0]
@@ -81,6 +76,7 @@ class SimBarca(Dataset):
     def set_metadata_dict(self):
         metadata = {
             "adjacency": self.adjacency,
+            "edge_index": self.edge_index,
             "cluster_id": self.cluster_id,
             "grid_id": self.grid_id,
         }
@@ -136,8 +132,12 @@ class SimBarca(Dataset):
         adjacency_matrix = np.zeros((len(section_ids_sorted), len(section_ids_sorted)))
         for row in connections.itertuples():
             adjacency_matrix[section_id_to_index[row.org], section_id_to_index[row.dst]] = 1
-
+            # make it symmetric 
+            adjacency_matrix[section_id_to_index[row.dst], section_id_to_index[row.org]] = 1
+        edge_index = np.array(adjacency_matrix.nonzero())
+        
         self.adjacency = adjacency_matrix
+        self.edge_index = edge_index
         self.node_coordinates = node_coordinates
         self.cluster_id: np.ndarray = section_cluster
         self.grid_id: np.ndarray = section_grid_id
@@ -228,34 +228,18 @@ class SimBarca(Dataset):
         return data_dict
 
 
-def register_simbarca():
-    pass
-
-
-def build_train_loader():
+def build_train_loader(batch_size=8):
     dataset = SimBarca(split="train", force_reload=False)
-    data_loader = DataLoader(dataset, batch_size=8, shuffle=True, collate_fn=dataset.collate_fn)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=dataset.collate_fn)
 
     return data_loader
 
 
-def build_test_loader():
+def build_test_loader(batch_size=8):
     dataset = SimBarca(split="test", force_reload=False)
-    data_loader = DataLoader(dataset, batch_size=8, collate_fn=dataset.collate_fn)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=dataset.collate_fn)
 
     return data_loader
-
-
-def build_trainvaltest_loaders():
-    dataloaders = {
-        "train": build_train_loader(),
-        "val": build_test_loader(),
-        "test": build_test_loader(),
-    }
-
-    metadata = dataloaders["train"].dataset.metadata
-
-    return dataloaders, metadata
 
 
 def inference_on_dataset(model: nn.Module, dataloader: DataLoader, seq_names=[]) -> Dict[str, torch.Tensor]:
@@ -273,25 +257,67 @@ def inference_on_dataset(model: nn.Module, dataloader: DataLoader, seq_names=[])
         with torch.no_grad():
             pred_dict = model(data_dict)
 
-        for name in seq_names:
+        for name in seq_names: # collect predicted sequences and corresponding labels
             all_preds[name].append(pred_dict[name])
             all_labels[name].append(data_dict[name])
 
+    # this will actually modify all_preds and all_labels
     for res_collection in [all_preds, all_labels]:
         for key, value in res_collection.items():
             res_collection[key] = torch.cat(value, dim=0).detach().cpu()
+            
+    # # plot input and output 
+    # dataset = dataloader.dataset
+    # drone_in = data_dict['drone_speed'].cpu().numpy()
+    # ld_in = data_dict['ld_speed'].cpu().numpy()
+    # pred = pred_dict['pred_speed'].cpu().numpy()
+    # pred_regional = pred_dict['pred_speed_regional'].cpu().numpy()
+    # label = data_dict['pred_speed'].cpu().numpy()
+    # label_regional = data_dict['pred_speed_regional'].cpu().numpy()
+    # b = 0
+    # section=573
+    # in1 = drone_in[b, :, section, 0]
+    # tin1 = np.linspace(0, 30, len(in1))
+    # in2 = ld_in[b, :, section, 0]
+    # tin2 = np.linspace(0, 30, len(in2))
+    # out1 = pred[b, :, section]
+    # tout1 = np.linspace(33, 60, len(out1))
+    # out2 = pred_regional[b, :, dataset.cluster_id[section]]
+    # tout2 = np.linspace(33, 60, len(out2))
+    # label1 = label[b, :, section]
+    # tlabel1 = np.linspace(33, 60, len(label1))
+    # label2 = label_regional[b, :, dataset.cluster_id[section]]
+    # tlabel2 = np.linspace(33, 60, len(label2))
+    
+    # import matplotlib.pyplot as plt
+    # import seaborn as sns 
+    # sns.set_style("darkgrid")
 
+    # fig, ax = plt.subplots(figsize=(6.5, 4))
+
+    # ax.plot(tin1, in1, label="drone_input")
+    # ax.plot(tin2, in2, label="ld_input")
+    # ax.plot(tout1, out1, label="pred_segment")
+    # ax.plot(tout2, out2, label="pred_regional")
+    # ax.plot(tlabel1, label1, label="label_segment")
+    # ax.plot(tlabel2, label2, label="label_regional")
+    # ax.set_xlabel("Time (min)")
+    # ax.set_ylabel("Speed (m/s)")
+    # ax.legend()
+    # fig.savefig("example.pdf")
+    
     return all_preds, all_labels
 
 
 def evaluate(
-    model: nn.Module, dataloader: DataLoader, verbose=False, ignore_value=-1.0, mape_threshold=5
+    model: nn.Module, dataloader: DataLoader, ignore_value=-1.0, mape_threshold=5, verbose=False, visualize=False
 ) -> Dict[str, float]:
     logger = logging.getLogger("default")
 
     all_preds, all_labels = inference_on_dataset(model, dataloader, ["pred_speed", "pred_speed_regional"])
 
-    all_eval_res = dict()
+    avg_eval_res = dict() # average over all time steps
+    eval_res_over_time = defaultdict(lambda: defaultdict(list))
     for seq_name in ["pred_speed", "pred_speed_regional"]:
         if verbose:
             logger.info("Evaluate model on {}".format(seq_name))
@@ -303,7 +329,9 @@ def evaluate(
             pred = seq_preds[:, i, :]
             real = seq_labels[:, i, :]
             step_metrics = prediction_metrics(pred, real, ignore_value=ignore_value, mape_threshold=mape_threshold)
-
+            for k, v in step_metrics.items():
+                eval_res_over_time[seq_name][k].append(v)
+                
             if verbose:
                 logger.info("Evaluate model on test data at {:d} time step".format(i + 1))
                 logger.info(
@@ -312,7 +340,7 @@ def evaluate(
                     )
                 )
 
-        # average performance on all prediction steps, usually not reported in papers
+        # average performance on all prediction steps, usually not reported in papers, but this can be useful in logging
         seq_res = prediction_metrics(
             seq_preds, seq_labels, ignore_value=ignore_value, mape_threshold=mape_threshold
         )
@@ -328,10 +356,21 @@ def evaluate(
         #     offset_coeffs = {c:model.offset_coeff(confidence=c) for c in EVAL_CONFS}
         #     res_u = uncertainty_metrics(all_preds, all_labels, all_scales, offset_coeffs, verbose=verbose)
         #     res.update(res_u)
+        avg_eval_res[seq_name] = seq_res
 
-        all_eval_res[seq_name] = seq_res
-
-    return flatten_results_dict(all_eval_res)
+        # MAE = torch.abs(all_preds['pred_speed'] - all_labels['pred_speed'])
+        # mae_by_section = torch.mean(MAE, dim=(0,1))
+        # node_positions = dataloader.dataset.node_coordinates
+        # fig, ax = plt.subplots(figsize=(6.5, 4))
+        # im = ax.scatter(node_positions[:, 0], node_positions[:, 1], c=mae_by_section.numpy(), s=2)
+        # fig.colorbar(im, ax=ax)
+        # ax.set_xlabel("X Coordinates")
+        # ax.set_ylabel("Y Coordinates")
+        # fig.tight_layout()
+        # fig.savefig("average_mae.pdf")
+        
+        
+    return flatten_results_dict(avg_eval_res)
 
 class TrivialModel(nn.Module):
     
@@ -371,27 +410,41 @@ class TrivialModel(nn.Module):
                 }
         return 
 
-
+def save_res_to_default_dir(res, model_name):
+    res = dict(res)
+    save_dir = SimBarca.eval_metrics_folder
+    make_dir_if_not_exist(save_dir)
+    
+    for k, v in res.items():
+        if isinstance(v, dict):
+            res[k] = dict(v)
+        
+    # save res to a json file
+    with open("{}/{}.json".format(save_dir, model_name), "w") as f:
+        json.dump(res, f, indent=4)
 
 def evaluate_trivial_models(dataloader):
     
-    print("Evaluating trivial models ld_speed AVG")
-    print(evaluate(TrivialModel("ld_speed", fun_type="avg"), dataloader, verbose=True))
-    print("Evaluating trivial models ld_speed LAST")
-    print(evaluate(TrivialModel("ld_speed", fun_type="last"), dataloader, verbose=True))
-    print("Evaluating trivial models drone_speed AVG")
-    print(evaluate(TrivialModel("drone_speed", fun_type="avg"), dataloader, verbose=True))
-    print("Evaluating trivial models drone_speed LAST")
-    print(evaluate(TrivialModel("drone_speed", fun_type="last"), dataloader, verbose=True))
-
+    from itertools import product
+    save_dir = "{}/{}".format(SimBarca.data_root, "trivial_models")
+    make_dir_if_not_exist(save_dir)
+    
+    for mode, fun_type in product(["ld_speed", "drone_speed"], ["avg", "last"]):
+        print("Evaluating trivial models {} {}".format(mode, fun_type))
+        res = evaluate(TrivialModel(mode, fun_type=fun_type), dataloader, verbose=True)
+        save_res_to_default_dir(res, "{}_{}".format(mode, fun_type))
 
 if __name__.endswith(".simbarca"):
     """this happens when something is imported from this file
     we can register the dataset here
     """
-    register_simbarca()
+    DATASET_CATALOG['simbarca'] = SimBarca
 
 if __name__ == "__main__":
+    
+    from netsanut.event_logger import setup_logger
+    logger = setup_logger(name="default", level=logging.INFO)
+    
     train_loader = build_train_loader()
     for data_dict in train_loader:
         print(data_dict.keys())

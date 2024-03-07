@@ -50,7 +50,7 @@ def main(args):
             hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
             hooks.MetricLogger(),
             # after training, we print the results on the test set
-            hooks.EvalHook(lambda m: evaluate(m, test_loader, verbose=True), metric_suffix='test', eval_after_epoch=False),
+            hooks.EvalHook(lambda m: evaluate(m, test_loader, verbose=True), metric_suffix='final_test', eval_after_epoch=False),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
             hooks.PlotTrainingLog()
         ])

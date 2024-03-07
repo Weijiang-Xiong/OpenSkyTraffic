@@ -45,7 +45,8 @@ class TensorDataScaler:
 
 
 class HiMSNet(nn.Module):
-    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True):
+    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, 
+                 d_model=64, global_downsample_factor:int=2, **kwargs):
         super().__init__()
         
         self.use_drone = use_drone
@@ -65,35 +66,36 @@ class HiMSNet(nn.Module):
         self.metadata: Dict[str, torch.Tensor] = None
         self.data_scalers: Dict[str, TensorDataScaler] = None
 
-        self.spatial_encoding = LearnedPositionalEncoding(d_model=64, max_len=1570)
+        self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570)
         
         if self.use_drone:
-            self.drone_embedding = nn.Conv2d(in_channels=2, out_channels=64, kernel_size=(1, 1))
-            self.temporal_encoding_drone = LearnedPositionalEncoding(d_model=64)
+            self.drone_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
+            self.temporal_encoding_drone = LearnedPositionalEncoding(d_model=d_model)
             # drone data has higher temporal resolution, so we use two conv layers to down sample
-            self.drone_t_patching_1 = nn.Conv1d(in_channels=64, out_channels=64, kernel_size=3, stride=3)
-            self.drone_t_patching_2 = nn.Conv1d(in_channels=64, out_channels=64, kernel_size=3, stride=3)
-            self.drone_temporal = nn.LSTM(input_size=64, hidden_size=64, num_layers=3, batch_first=True)
+            self.drone_t_patching_1 = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, stride=3)
+            self.drone_t_patching_2 = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, stride=3)
+            self.drone_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
             
         if self.use_ld:
-            self.ld_embedding = nn.Conv2d(in_channels=2, out_channels=64, kernel_size=(1, 1))
-            self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=64)
-            self.ld_temporal = nn.LSTM(input_size=64, hidden_size=64, num_layers=3, batch_first=True)
+            self.ld_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
+            self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model)
+            self.ld_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
 
         if self.use_global:
             # input dimension can be 64 or 128 depending on the data modalities, so we let it be determined at first forward pass
-            self.channel_down_sample = nn.LazyLinear(out_features=32)
+            global_dim = d_model // global_downsample_factor
+            self.channel_down_sample = nn.LazyLinear(out_features=global_dim)
             # embedding, LSTM and MLP already contain dropout, so we only add dropout to the graph convolution
             self.dropout = nn.Dropout(p=0.1) 
             self.relu = nn.ReLU()
             # check the answer from @rusty1s https://github.com/pyg-team/pytorch_geometric/issues/965
-            self.gcn_1 = gnn.GCNConv(in_channels=32, out_channels=32, node_dim=1)
-            self.gcn_2 = gnn.GCNConv(in_channels=32, out_channels=32, node_dim=1)
-            self.gcn_3 = gnn.GCNConv(in_channels=32, out_channels=32, node_dim=1)
+            self.gcn_1 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
+            self.gcn_2 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
+            self.gcn_3 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
 
-            self.channel_up_sample = nn.Linear(in_features=32, out_features=64)
+            self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
             
-        self.prediction = MLP_LazyInput(hid_dim=128, out_dim=10, dropout=0.1)
+        self.prediction = MLP_LazyInput(hid_dim=int(d_model * 2), out_dim=10, dropout=0.1)
         self.prediction_regional = MLP_LazyInput(hid_dim=128, out_dim=10, dropout=0.1)
 
         self.loss = GeneralizedProbRegLoss(aleatoric=False, exponent=1, ignore_value=self.ignore_value)
@@ -194,8 +196,9 @@ class HiMSNet(nn.Module):
         if self.use_global:
             x_global = self.channel_down_sample(torch.cat(all_mode_features, dim=-1))
             # graph convolution
-            x_global = self.dropout(self.relu(self.gcn_1(x_global, self.metadata["edge_index"])))
-            x_global = self.dropout(self.relu(self.gcn_2(x_global, self.metadata["edge_index"])))
+            x_inter = self.dropout(self.relu(self.gcn_1(x_global, self.metadata["edge_index"])))
+            x_inter = self.dropout(self.relu(self.gcn_2(x_inter, self.metadata["edge_index"])))
+            x_global = x_global + x_inter
             x_global = self.gcn_3(x_global, self.metadata["edge_index"])
             x_global = self.channel_up_sample(x_global)
             all_mode_features.append(x_global)

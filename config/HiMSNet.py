@@ -1,16 +1,20 @@
 from .common_cfg import train, scheduler
 from .common_cfg import adam as optimizer
 
-train.model_arch = "HiMSNet"
 train.test_best_ckpt = False
 train.output_dir = "scratch/himsnet"
 
 model = {
+    "name": "himsnet",
+    "device": "cuda",
     "use_drone": True,
     "use_ld": True,
     "use_global": True,
+    "scale_output": False,
+    "normalize_input": False,
+    "d_model": 64
 }
 data = {
-    "train": {},
-    "test": {}
+    "train": {"batch_size": 8},
+    "test": {"batch_size": 8}
 }
