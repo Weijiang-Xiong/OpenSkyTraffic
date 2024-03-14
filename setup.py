@@ -5,7 +5,7 @@ sys.path.append(os.path.dirname(__file__))
 
 setup(
     name='netsanut',
-    version=0.1,
+    version=0.2,
     packages=[
         'netsanut',
     ],
@@ -16,6 +16,12 @@ setup(
     "torchvision",
     "matplotlib",
     "numpy",
-    "omegaconf"
+    "pandas", # dataset processing
+    "seaborn", # for better color in plots
+    "einops", # for rearranging tensors 
+    "omegaconf", # configuration files
+    "termcolor", # for colored print in terminal
+    "geopandas", # for geospatial data
+    "contextily", # for basemap
     ],
 )
