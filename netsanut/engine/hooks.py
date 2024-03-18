@@ -190,6 +190,10 @@ class PlotTrainingLog(HookBase):
         self.dpi = dpi
         self.use_sns = use_sns
 
+    def before_train(self, trainer: TrainerBase):
+        # create a directory to save the figures
+        os.makedirs("{}/figures".format(trainer.save_dir), exist_ok=False)
+        
     def after_train(self, trainer: TrainerBase):
         if self.use_sns:
             import seaborn as sns 
@@ -211,9 +215,9 @@ class PlotTrainingLog(HookBase):
             
             save_name = "log_{}".format(key)
             fig.tight_layout()
-            fig.savefig("{}/{}.pdf".format(trainer.save_dir, save_name), dpi=self.dpi)
+            fig.savefig("{}/figures/{}.pdf".format(trainer.save_dir, save_name), dpi=self.dpi)
             
             # also save the data as a json file
-            with open("{}/{}.json".format(trainer.save_dir, save_name), "w") as f:
+            with open("{}/figures/{}.json".format(trainer.save_dir, save_name), "w") as f:
                 json.dump({"epoch": epoch.tolist(), "value": value.tolist()}, f)
             

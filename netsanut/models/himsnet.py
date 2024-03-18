@@ -46,7 +46,7 @@ class TensorDataScaler:
 
 class HiMSNet(nn.Module):
     def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, 
-                 d_model=64, global_downsample_factor:int=2, **kwargs):
+                 d_model=64, global_downsample_factor:int=2, layernorm=True, **kwargs):
         super().__init__()
         
         self.use_drone = use_drone
@@ -75,11 +75,13 @@ class HiMSNet(nn.Module):
             self.drone_t_patching_1 = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, stride=3)
             self.drone_t_patching_2 = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, stride=3)
             self.drone_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
+            self.drone_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
             
         if self.use_ld:
             self.ld_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
             self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model)
             self.ld_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
+            self.ld_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
 
         if self.use_global:
             # input dimension can be 64 or 128 depending on the data modalities, so we let it be determined at first forward pass
@@ -92,6 +94,8 @@ class HiMSNet(nn.Module):
             self.gcn_1 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
             self.gcn_2 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
             self.gcn_3 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
+            self.global_norm1 = nn.LayerNorm(global_dim) if layernorm else nn.Identity()
+            self.global_norm2 = nn.LayerNorm(global_dim) if layernorm else nn.Identity()
 
             self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
             
@@ -178,8 +182,10 @@ class HiMSNet(nn.Module):
             x_drone = self.spatial_encoding(x_drone)
             x_drone = rearrange(x_drone, "(N T) P C -> (N P) T C", N=N)
             x_drone = self.temporal_encoding_drone(x_drone)
-            x_drone, _ = self.drone_temporal(x_drone)  # we take the last cell output
-            x_drone = rearrange(torch.mean(x_drone, dim=1), "(N P) C -> N P C", N=N)
+            x_drone, _ = self.drone_temporal(x_drone)  
+            x_drone = self.drone_norm(x_drone)
+            # we take the last step output from the temporal embeddings (LSTM)
+            x_drone = rearrange(x_drone[:, -1, :], "(N P) C -> N P C", N=N)
             all_mode_features.append(x_drone)
         
         if self.use_ld:
@@ -190,14 +196,15 @@ class HiMSNet(nn.Module):
             x_ld = rearrange(x_ld, "(N T) P C -> (N P) T C", N=N)
             x_ld = self.temporal_encoding_ld(x_ld)
             x_ld, _ = self.ld_temporal(x_ld)
-            x_ld = rearrange(torch.mean(x_ld, dim=1), "(N P) C -> N P C", N=N)
+            x_ld = self.ld_norm(x_ld)
+            x_ld = rearrange(x_ld[:, -1, :], "(N P) C -> N P C", N=N)
             all_mode_features.append(x_ld)
         
         if self.use_global:
             x_global = self.channel_down_sample(torch.cat(all_mode_features, dim=-1))
             # graph convolution
-            x_inter = self.dropout(self.relu(self.gcn_1(x_global, self.metadata["edge_index"])))
-            x_inter = self.dropout(self.relu(self.gcn_2(x_inter, self.metadata["edge_index"])))
+            x_inter = self.dropout(self.relu(self.global_norm1(self.gcn_1(x_global, self.metadata["edge_index"]))))
+            x_inter = self.dropout(self.relu(self.global_norm2(self.gcn_2(x_inter, self.metadata["edge_index"]))))
             x_global = x_global + x_inter
             x_global = self.gcn_3(x_global, self.metadata["edge_index"])
             x_global = self.channel_up_sample(x_global)

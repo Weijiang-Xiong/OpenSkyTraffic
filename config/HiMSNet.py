@@ -10,8 +10,9 @@ model = {
     "use_drone": True,
     "use_ld": True,
     "use_global": True,
-    "scale_output": False,
+    "scale_output": True,
     "normalize_input": False,
+    "layernorm": True,
     "d_model": 64
 }
 data = {

@@ -267,6 +267,7 @@ def inference_on_dataset(model: nn.Module, dataloader: DataLoader, seq_names=[])
             res_collection[key] = torch.cat(value, dim=0).detach().cpu()
             
     # # plot input and output 
+    # b, section = 0, 573
     # dataset = dataloader.dataset
     # drone_in = data_dict['drone_speed'].cpu().numpy()
     # ld_in = data_dict['ld_speed'].cpu().numpy()
@@ -274,8 +275,6 @@ def inference_on_dataset(model: nn.Module, dataloader: DataLoader, seq_names=[])
     # pred_regional = pred_dict['pred_speed_regional'].cpu().numpy()
     # label = data_dict['pred_speed'].cpu().numpy()
     # label_regional = data_dict['pred_speed_regional'].cpu().numpy()
-    # b = 0
-    # section=573
     # in1 = drone_in[b, :, section, 0]
     # tin1 = np.linspace(0, 30, len(in1))
     # in2 = ld_in[b, :, section, 0]
@@ -304,7 +303,7 @@ def inference_on_dataset(model: nn.Module, dataloader: DataLoader, seq_names=[])
     # ax.set_xlabel("Time (min)")
     # ax.set_ylabel("Speed (m/s)")
     # ax.legend()
-    # fig.savefig("example.pdf")
+    # fig.savefig("example_{}_{}.pdf".format(b, section))
     
     return all_preds, all_labels
 
@@ -372,43 +371,66 @@ def evaluate(
         
     return flatten_results_dict(avg_eval_res)
 
-class TrivialModel(nn.Module):
+def invalid_to_nan(x, null_value=-1.0):
+    return x.where(x != null_value, torch.nan)
+
+def nan_to_global_avg(x):
+    return torch.nan_to_num(x, nan=torch.nanmean(x))
+
+class InputAverageModel(nn.Module):
     
-    def __init__(self, seq_name, fun_type="avg"):
+    def __init__(self, seq_name):
         super().__init__()
         self.seq_name = seq_name
-        self.func_type = fun_type
         
     def forward(self, data_dict):
         cluster_id = torch.as_tensor(data_dict["metadata"]["cluster_id"])
-        match self.func_type:
-            case "avg":
-                pred_speed = torch.mean(data_dict[self.seq_name][..., 0], dim=1, keepdim=True).tile(1, 10, 1)
-                regional_speed = torch.cat(
-                    [
-                        torch.mean(pred_speed[:, :,  cluster_id==region_id], dim=2).unsqueeze(2)
-                        for region_id in cluster_id.unique()
-                    ],
-                    dim=2,
-                )
-                return {
-                    "pred_speed": pred_speed,
-                    "pred_speed_regional": regional_speed
-                }
-            case "last":
-                pred_speed = data_dict[self.seq_name][:, -1, :, 0].unsqueeze(1).tile(1, 10, 1)
-                regional_speed = torch.cat(
-                    [
-                        torch.mean(pred_speed[:, :,  cluster_id==region_id], dim=2).unsqueeze(2)
-                        for region_id in cluster_id.unique()
-                    ],
-                    dim=2,
-                )
-                return {
-                    "pred_speed": pred_speed,
-                    "pred_speed_regional": regional_speed
-                }
-        return 
+        data_seq = nan_to_global_avg(invalid_to_nan(data_dict[self.seq_name][..., 0], null_value=-1.0))
+        
+        pred_speed = torch.mean(data_seq, dim=1, keepdim=True).tile(1, 10, 1)
+        regional_speed = torch.cat(
+            [
+                torch.mean(pred_speed[:, :,  cluster_id==region_id], dim=2).unsqueeze(2)
+                for region_id in cluster_id.unique()
+            ],
+            dim=2,
+        )
+        return {
+            "pred_speed": pred_speed,
+            "pred_speed_regional": regional_speed
+        }
+
+class HistoricalAverageModel(nn.Module):
+    
+    def __init__(self, dataloader) -> None:
+        super().__init__()
+        self.set_historial_avg_from_dataloader(dataloader)
+    
+    def set_historial_avg_from_dataloader(self, dataloader):
+        """ go through the dataloader and calculate the historical average speed
+        """
+        
+        all_pred_speed, all_pred_speed_regional = [], []
+        for batch in dataloader:
+            all_pred_speed.append(batch['pred_speed'])
+            all_pred_speed_regional.append(batch['pred_speed_regional'])
+            
+        all_pred_speed = invalid_to_nan(torch.cat(all_pred_speed, dim=0), null_value=-1.0)
+        all_pred_speed_regional = invalid_to_nan(torch.cat(all_pred_speed_regional, dim=0), null_value=-1.0)
+        N, T, P = all_pred_speed.shape
+        pred_speed = torch.nanmean(all_pred_speed[:, 0, :], dim=0, keepdim=True).unsqueeze(1).tile(1, T, 1)
+        regional_speed = torch.nanmean(all_pred_speed_regional[:, 0, :], dim=0, keepdim=True).unsqueeze(1).tile(1, T, 1)
+        
+        self.pred_speed = nan_to_global_avg(pred_speed)
+        self.pred_speed_regional = nan_to_global_avg(regional_speed)
+
+        
+    def forward(self, data_dict):
+        
+        return {
+            "pred_speed": torch.tile(self.pred_speed, (data_dict['drone_speed'].shape[0], 1, 1)),
+            "pred_speed_regional": torch.tile(self.pred_speed_regional, (data_dict['drone_speed'].shape[0], 1, 1))
+        }
 
 def save_res_to_default_dir(res, model_name):
     res = dict(res)
@@ -429,11 +451,16 @@ def evaluate_trivial_models(dataloader):
     save_dir = "{}/{}".format(SimBarca.data_root, "trivial_models")
     make_dir_if_not_exist(save_dir)
     
-    for mode, fun_type in product(["ld_speed", "drone_speed"], ["avg", "last"]):
-        print("Evaluating trivial models {} {}".format(mode, fun_type))
-        res = evaluate(TrivialModel(mode, fun_type=fun_type), dataloader, verbose=True)
-        save_res_to_default_dir(res, "{}_{}".format(mode, fun_type))
+    for mode in ["ld_speed", "drone_speed"]:
+        print("Evaluating trivial models {}".format(mode))
+        res = evaluate(InputAverageModel(mode), dataloader, verbose=True)
+        save_res_to_default_dir(res, "{}".format(mode))
 
+    # historical average
+    print("Evaluating trivial models historical_avg")
+    res = evaluate(HistoricalAverageModel(dataloader=dataloader), dataloader, verbose=True)
+    save_res_to_default_dir(res, "historical_avg")
+    
 if __name__.endswith(".simbarca"):
     """this happens when something is imported from this file
     we can register the dataset here

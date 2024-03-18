@@ -88,15 +88,18 @@ class PositionalEncoding(nn.Module):
 
 class MLP_LazyInput(nn.Module):
     
-    def __init__(self, hid_dim, out_dim, dropout) -> None:
+    def __init__(self, hid_dim, out_dim, dropout, layernorm=True) -> None:
         super().__init__()
+        self.layers = nn.ModuleList()
         self.dropout = nn.Dropout(dropout)
         self.linear1 = nn.LazyLinear(hid_dim)
+        self.norm1 = nn.LayerNorm(hid_dim) if layernorm else nn.Identity() # Identity() basically does nothing 
         self.linear2 = nn.Linear(hid_dim, out_dim)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        
-        return self.linear2(self.dropout(torch.relu(self.linear1(x))))
+        x = self.norm1(self.linear1(x))
+        x = self.dropout(torch.relu(x))
+        return self.linear2(x)
 
 if __name__ =="__main__":
     pe = LearnedPositionalEncoding(64)
