@@ -310,13 +310,21 @@ if __name__ == "__main__":
         start_time = time.perf_counter()
         df = df[COLUMNS_FOR_TIME_SERIES]
         df = df[df['section'] != -1] # section==-1 means the vehicle is in a junction, so ignore it
+        # we replace the position of entering and exiting vehicles with 0 and -1 respectively, but 
+        # both of them are not valid because Aimsun handles the entering and exiting by queues.
+        # when a queue of vehicles enters a section, all vehicles are assigned to the section as the 
+        # first vehicle is in. At this time, the 'position' of subsequent vehicles can be negative values
+        # our solution is to extrapolate the entry position using the closest position inside the section,
+        # in order to keep the speed consistent.
         entering['position'] = 0
-        # use -1 to indicate the vehicle is at the end, will be replaced by section length
         exiting['position'] = -1
         df = pd.concat([df, entering, exiting], ignore_index=True, copy=False)
         # reduce lane index by 1, as the records count from 1 in Aimsun. 
         # lane info can be helpful for debugging, but we don't need it afterwards
         # df['lane'] = (df['lane'] - 1).fillna(-1)
+        # this speed will be used to extrapolate the entry and exit position, but we should avoid 
+        # using it for other purposes because in reality, we can not directly measure the speed of vehicles
+        # from drone images, instead, we need to use distance/time 
         df['speed'] = df['speed'] / 3.6 # convert speed from km/h to m/s
         
         df.sort_values(by=['vehicle_id', 'time'], inplace=True)
