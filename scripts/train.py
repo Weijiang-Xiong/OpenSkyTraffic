@@ -47,11 +47,11 @@ def main(args):
         trainer.register_hooks([
             hooks.EpochTimer(),
             hooks.StepBasedLRScheduler(scheduler=scheduler),
-            hooks.ValidationHook(lambda m: evaluate(m, dataloaders['train']), metric_suffix='train') if cfg.train.eval_train else None,
-            hooks.ValidationHook(lambda m: evaluate(m, dataloaders['val'])),
+            hooks.EvalHook(lambda m: evaluate(m, dataloaders['train']), metric_suffix='train', eval_after_train=False) if cfg.train.eval_train else None,
+            hooks.EvalHook(lambda m: evaluate(m, dataloaders['val']), metric_suffix='val', eval_after_train=False),
             hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
             hooks.MetricLogger(),
-            hooks.TestHook(lambda m: evaluate(m, dataloaders['test'], verbose=True)),
+            hooks.EvalHook(lambda m: evaluate(m, dataloaders['test'], verbose=True), metric_suffix='final_test', eval_after_epoch=False),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
             hooks.PlotTrainingLog()
         ])
