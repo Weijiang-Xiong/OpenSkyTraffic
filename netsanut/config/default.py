@@ -37,8 +37,7 @@ def default_setup(cfg: DictConfig, args):
     make_dir_if_not_exist(save_dir)
     logger = setup_logger(name="default", log_file="{}/experiment.log".format(save_dir))
     logger.info("Command Line Arguments: {}".format(args))
-    logger.info("Start Training with the following configurations:")
-    logger.info(OmegaConf.to_yaml(cfg))
+    logger.info("Start experiment with the following configurations: \n {}".format(OmegaConf.to_yaml(cfg)))
     if not args.eval_only: # save the training config only
         ConfigLoader.save_cfg(cfg, "{}/config.py".format(save_dir))
     OmegaConf.resolve(cfg)

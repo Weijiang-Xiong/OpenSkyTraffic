@@ -21,11 +21,12 @@ class TensorDataScaler:
 
     """
 
-    def __init__(self, mean: float, std: float, data_dim: int = 0):
+    def __init__(self, mean: float, std: float, data_dim: int = 0, device: str = "cuda"):
         self.data_dim = data_dim
         self.mean = torch.tensor(mean)
         self.std = torch.tensor(std)
         self.inv_std = 1.0 / self.std
+        self.to(device)
 
     def transform(self, data):
         if data.dim() == 4:  # assume N, T, M, C
@@ -42,6 +43,11 @@ class TensorDataScaler:
             data = (data * self.std) + self.mean
 
         return data
+    
+    def to(self, device):
+        self.mean = self.mean.to(device)
+        self.std = self.std.to(device)
+        self.inv_std = self.inv_std.to(device)
 
 
 class HiMSNet(nn.Module):
@@ -140,8 +146,8 @@ class HiMSNet(nn.Module):
             self.adapt_to_metadata(data["metadata"])
         if self.normalize_input:
             source = {
-                "drone_speed": self.data_scalers["drone_speed"].transform(data["drone_speed"]).to(self.device),
-                "ld_speed": self.data_scalers["ld_speed"].transform(data["ld_speed"]).to(self.device),
+                "drone_speed": self.data_scalers["drone_speed"].transform(data["drone_speed"].to(self.device)),
+                "ld_speed": self.data_scalers["ld_speed"].transform(data["ld_speed"].to(self.device)),
             }
         else:
             source = {
@@ -250,8 +256,12 @@ class HiMSNet(nn.Module):
                 self.metadata[key] = value.to(self.device)
                 
         self.data_scalers = {
-            name: TensorDataScaler(mean=metadata["mean_and_std"][name][0], std=metadata["mean_and_std"][name][1])
-            for name in metadata["input_seqs"] + metadata["output_seqs"]
+            name: TensorDataScaler(
+                mean=metadata["mean_and_std"][name][0], 
+                std=metadata["mean_and_std"][name][1],
+                data_dim=0,
+                device=self.device
+            ) for name in metadata["input_seqs"] + metadata["output_seqs"]
         }
         self.metadata["input_seqs"] = metadata["input_seqs"]
         self.metadata["output_seqs"] = metadata["output_seqs"]
