@@ -189,10 +189,13 @@ class PlotTrainingLog(HookBase):
         super().__init__()
         self.dpi = dpi
         self.use_sns = use_sns
+        self.figure_dir = ""
 
     def before_train(self, trainer: TrainerBase):
         # create a directory to save the figures
-        os.makedirs("{}/figures".format(trainer.save_dir), exist_ok=False)
+        self.figure_dir = "{}/figures".format(trainer.save_dir)
+        if not os.path.exists(self.figure_dir):
+            os.makedirs(self.figure_dir, exist_ok=False)
         
     def after_train(self, trainer: TrainerBase):
         if self.use_sns:
@@ -215,9 +218,9 @@ class PlotTrainingLog(HookBase):
             
             save_name = "log_{}".format(key)
             fig.tight_layout()
-            fig.savefig("{}/figures/{}.pdf".format(trainer.save_dir, save_name), dpi=self.dpi)
+            fig.savefig("{}/{}.pdf".format(self.figure_dir, save_name), dpi=self.dpi)
             
             # also save the data as a json file
-            with open("{}/figures/{}.json".format(trainer.save_dir, save_name), "w") as f:
+            with open("{}/{}.json".format(self.figure_dir, save_name), "w") as f:
                 json.dump({"epoch": epoch.tolist(), "value": value.tolist()}, f)
             
