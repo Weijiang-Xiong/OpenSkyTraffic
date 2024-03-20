@@ -46,3 +46,9 @@ scheduler = {
     # gradually increase the learning rate in warmup epochs 
     "warmup": 1.0,
 }
+
+evaluation = {
+    "save_dir": "${..train.output_dir}/evaluation",
+    "save_res": True,
+    "save_note": "default"
+}

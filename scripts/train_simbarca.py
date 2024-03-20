@@ -4,8 +4,16 @@ import numpy as np
 from netsanut.config import default_argument_parser, default_setup, ConfigLoader
 from netsanut.engine import DefaultTrainer, hooks
 from netsanut.models import build_model
-from netsanut.data.datasets.simbarca import build_train_loader, build_test_loader, evaluate
+from netsanut.data.datasets.simbarca import build_train_loader, build_test_loader
+from netsanut.evaluation import SimBarcaEvaluator
 from netsanut.solver import build_optimizer, build_scheduler
+
+def build_evaluator(evaluator_type, save_dir=None, save_res=True, save_note=None, **kwargs):
+    match evaluator_type:
+        case None:
+            raise ValueError('No evaluator is specified')
+        case 'simbarca':
+            return SimBarcaEvaluator(save_dir, save_res, save_note)
 
 def main(args):
     
@@ -19,10 +27,11 @@ def main(args):
     
     if args.eval_only:
         test_loader = build_test_loader(**cfg.data.test)
+        evaluator = build_evaluator(**cfg.evaluation)
         # in evaluation mode, just load the checkpoint and call evaluation function
         state_dict = DefaultTrainer.load_file(ckpt_path=cfg.train.checkpoint)
         model.load_state_dict(state_dict['model'])
-        eval_res = evaluate(
+        eval_res = evaluator(
             model, 
             test_loader,
             verbose=True
@@ -34,6 +43,7 @@ def main(args):
         # build optimizer and scheduler using the corresponding configurations
         optimizer = build_optimizer(model, cfg.optimizer)
         scheduler = build_scheduler(optimizer, cfg.scheduler)
+        evaluator = build_evaluator(**cfg.evaluation)
         
         # the trainer runs a training loop, which iterates the model through batches in 
         # the dataloader, compute loss and call optimizer to update model parameters
@@ -45,12 +55,12 @@ def main(args):
         trainer.register_hooks([
             hooks.EpochTimer(),
             hooks.StepBasedLRScheduler(scheduler=scheduler),
-            hooks.EvalHook(lambda m: evaluate(m, train_loader), metric_suffix='train', eval_after_train=False) if cfg.train.eval_train else None,
-            hooks.EvalHook(lambda m: evaluate(m, test_loader), metric_suffix='test', eval_after_train=False),
+            hooks.EvalHook(lambda m: evaluator(m, train_loader), metric_suffix='train', eval_after_train=False) if cfg.train.eval_train else None,
+            hooks.EvalHook(lambda m: evaluator(m, test_loader), metric_suffix='test', eval_after_train=False),
             hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
             hooks.MetricLogger(),
             # after training, we print the results on the test set
-            hooks.EvalHook(lambda m: evaluate(m, test_loader, verbose=True), metric_suffix='final_test', eval_after_epoch=False),
+            hooks.EvalHook(lambda m: evaluator(m, test_loader, verbose=True), metric_suffix='final_test', eval_after_epoch=False),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
             hooks.PlotTrainingLog()
         ])
@@ -61,5 +71,5 @@ if __name__ == "__main__":
     # the argument parser requires a `--config-file` which specifies how to configure
     # models and training pipeline, and other overrides to the config file can be passed
     # as `something.to.modify=new_value`
-    args = default_argument_parser().parse_args()
+    args = default_argument_parser().parse_args("--config-file config/HiMSNet.py train.output_dir=scratch/debug".split())
     main(args)

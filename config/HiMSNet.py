@@ -1,8 +1,9 @@
-from .common_cfg import train, scheduler
+from .common_cfg import train, scheduler, evaluation
 from .common_cfg import adam as optimizer
 
 train.test_best_ckpt = False
 train.output_dir = "scratch/himsnet"
+evaluation.evaluator_type = "simbarca"
 
 model = {
     "name": "himsnet",

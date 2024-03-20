@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from netsanut.evaluation import inference_on_dataset, uncertainty_metrics, EVAL_CONFS
+from netsanut.evaluation import collect_predictions, uncertainty_metrics, EVAL_CONFS
 from netsanut.util import make_dir_if_not_exist
 
 class Visualizer:
@@ -28,7 +28,7 @@ class Visualizer:
         # self.result_dict: Dict[str, torch.Tensor]
     
     def inference_on_dataset(self, dataloader: DataLoader):
-        result_dict = inference_on_dataset(self.model, dataloader)
+        result_dict = collect_predictions(self.model, dataloader)
         self.src = result_dict['source'][..., 0]
         self.src_tid = result_dict['source'][..., 1]
         self.scale = result_dict['sigma']
