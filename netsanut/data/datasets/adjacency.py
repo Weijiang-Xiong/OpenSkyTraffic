@@ -1,4 +1,5 @@
 """ copied from https://github.com/nnzhan/Graph-WaveNet/blob/master/util.py
+    moved dataloader and error functions to dedicated modules
 """
 
 import pickle
