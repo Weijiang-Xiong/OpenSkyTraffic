@@ -16,7 +16,13 @@ model = {
     "layernorm": True,
     "d_model": 64
 }
-data = {
+
+dataset = {
+    "train": {"name": "simbarca_train", "force_reload": False},
+    "test": {"name": "simbarca_test", "force_reload": False},
+}
+
+dataloader = {
     "train": {"batch_size": 8},
     "test": {"batch_size": 8}
 }

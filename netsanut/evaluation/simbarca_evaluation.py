@@ -18,6 +18,7 @@ class SimBarcaEvaluator:
         self.save_dir = save_dir
         self.save_res = save_res
         self.save_note = save_note if save_note is not None else "default"
+        make_dir_if_not_exist(self.save_dir)
     
     def __call__(self, model: nn.Module, dataloader: DataLoader, **kwargs) -> Dict[str, float]:
         return self.evaluate(model, dataloader, **kwargs)
@@ -86,6 +87,22 @@ class SimBarcaEvaluator:
         # ax.set_ylabel("Speed (m/s)")
         # ax.legend()
         # fig.savefig("example_{}_{}.pdf".format(b, section))
+        
+        # import numpy as np
+        # import matplotlib.pyplot as plt
+        # p = 100 
+        # y1 = all_preds['pred_speed'][:, -1, p]
+        # y2 = all_labels['pred_speed'][:, -1, p]
+        # xx = np.arange(len(y1))
+
+        # fig, ax = plt.subplots()
+        # ax.plot(xx, y1, label='30min_pred')
+        # ax.plot(xx, y2, label='GT', alpha=0.5)
+        # ax.legend()
+        # ax.set_xlabel("Time step (not exactly ...)")
+        # ax.set_ylabel("Speed (m/s)")
+        
+        # fig.savefig("{}/{}_30min.pdf".format(self.save_dir, "p_{}".format(p)))
         
         return all_preds, all_labels
 

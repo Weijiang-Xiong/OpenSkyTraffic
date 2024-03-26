@@ -244,7 +244,9 @@ if __name__.endswith(".simbarca"):
     """this happens when something is imported from this file
     we can register the dataset here
     """
-    DATASET_CATALOG['simbarca'] = SimBarca
+    DATASET_CATALOG['simbarca_train'] = lambda **args: SimBarca(split='train', **args)
+    DATASET_CATALOG['simbarca_test'] = lambda **args: SimBarca(split='test', **args)
+    
 
 if __name__ == "__main__":
     

@@ -4,7 +4,7 @@ import numpy as np
 from netsanut.config import default_argument_parser, default_setup, ConfigLoader
 from netsanut.engine import DefaultTrainer, hooks
 from netsanut.models import build_model
-from netsanut.data.datasets.simbarca import build_train_loader, build_test_loader
+from netsanut.data import build_train_loader, build_test_loader, build_dataset
 from netsanut.evaluation import SimBarcaEvaluator
 from netsanut.solver import build_optimizer, build_scheduler
 
@@ -26,7 +26,7 @@ def main(args):
     model = build_model(cfg.model)
     
     if args.eval_only:
-        test_loader = build_test_loader(**cfg.data.test)
+        test_loader = build_test_loader(build_dataset(cfg.dataset.test), cfg.dataloader.test)
         evaluator = build_evaluator(**cfg.evaluation)
         # in evaluation mode, just load the checkpoint and call evaluation function
         state_dict = DefaultTrainer.load_file(ckpt_path=cfg.train.checkpoint)
@@ -38,8 +38,8 @@ def main(args):
         )
         return eval_res
     else:
-        train_loader = build_train_loader(**cfg.data.train)
-        test_loader = build_test_loader(**cfg.data.test)
+        train_loader = build_train_loader(build_dataset(cfg.dataset.train), cfg.dataloader.train)
+        test_loader = build_test_loader(build_dataset(cfg.dataset.test), cfg.dataloader.test)
         # build optimizer and scheduler using the corresponding configurations
         optimizer = build_optimizer(model, cfg.optimizer)
         scheduler = build_scheduler(optimizer, cfg.scheduler)
@@ -71,5 +71,5 @@ if __name__ == "__main__":
     # the argument parser requires a `--config-file` which specifies how to configure
     # models and training pipeline, and other overrides to the config file can be passed
     # as `something.to.modify=new_value`
-    args = default_argument_parser().parse_args("--config-file config/HiMSNet.py train.output_dir=scratch/debug".split())
+    args = default_argument_parser().parse_args()
     main(args)

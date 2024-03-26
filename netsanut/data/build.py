@@ -1,17 +1,29 @@
-import torch
+from torch.utils.data import Dataset, DataLoader
+from copy import deepcopy
 from typing import List, Tuple, Dict
+from .catalog import DATASET_CATALOG
 
-
-def tensor_collate(list_of_xy:List[Tuple[torch.Tensor]]) -> Tuple[torch.Tensor]:
-    """ assume the input is a list of (x, y), pack the x's and y's into two tensors
+def build_dataset(cfg: Dict):
+    """ instantiate a dataset object, and configurations are passed as kwargs
     """
-    xs = [torch.as_tensor(xy[0]).unsqueeze(0) for xy in list_of_xy]
-    ys = [torch.as_tensor(xy[1]).unsqueeze(0) for xy in list_of_xy]
-    
-    return torch.cat(xs, dim=0), torch.cat(ys, dim=0)
+    dataset_cfg = deepcopy(cfg)
+    dataset_name = dataset_cfg.pop('name')
+    # support for multiple datasets can be added here if necessary
+    dataset = DATASET_CATALOG[dataset_name](**dataset_cfg)
+    return dataset 
 
-def to_contiguous(data:torch.Tensor, label:torch.Tensor) -> Tuple[torch.Tensor]:
-    
-    return {"source": data.contiguous(), "target": label[..., 0].contiguous()}
+def build_train_loader(dataset: Dataset, cfg: Dict):
+    loader_cfg = deepcopy(cfg)
+    shuffle = loader_cfg.pop('shuffle', True) # default to True
+    dataloader = DataLoader(dataset, shuffle=shuffle, collate_fn=dataset.collate_fn, **loader_cfg)
+    return dataloader
 
-tensor_to_contiguous = lambda list_of_xy: to_contiguous(*tensor_collate(list_of_xy))
+def build_test_loader(dataset, cfg: Dict):
+    """ create a test loader, the main differences from the train loader are:
+            1. no data shuffling by default
+            2. no sampler will be used by default
+    """
+    loader_cfg = deepcopy(cfg)
+    shuffle = loader_cfg.pop('shuffle', False) # default to False
+    dataloader = DataLoader(dataset, shuffle=shuffle, collate_fn=dataset.collate_fn, **loader_cfg)
+    return dataloader
