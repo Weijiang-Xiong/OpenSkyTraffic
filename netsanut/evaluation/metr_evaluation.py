@@ -12,7 +12,7 @@ from collections import defaultdict
 
 EVAL_CONFS = np.round(np.arange(0.5, 1.0, 0.05), 2).tolist()
 
-class METREvaluator:
+class MetrEvaluator:
     
     def __init__(self, save_dir: str=None, save_res: bool=True, save_note:str=None) -> None:
         self.save_dir = save_dir

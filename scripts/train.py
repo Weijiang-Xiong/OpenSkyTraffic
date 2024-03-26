@@ -5,15 +5,18 @@ from netsanut.config import default_argument_parser, default_setup, ConfigLoader
 from netsanut.engine import DefaultTrainer, hooks
 from netsanut.models import build_model
 from netsanut.data import build_train_loader, build_test_loader, build_dataset
-from netsanut.evaluation import SimBarcaEvaluator
+from netsanut.evaluation import SimBarcaEvaluator, MetrEvaluator
 from netsanut.solver import build_optimizer, build_scheduler
 
 def build_evaluator(evaluator_type, save_dir=None, save_res=True, save_note=None, **kwargs):
+    
     match evaluator_type:
-        case None:
-            raise ValueError('No evaluator is specified')
         case 'simbarca':
             return SimBarcaEvaluator(save_dir, save_res, save_note)
+        case 'metrla' | 'pemsbay':
+            return MetrEvaluator(save_dir, save_res, save_note)
+        case _:
+            raise ValueError('No evaluator is specified')
 
 def main(args):
     
