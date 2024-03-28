@@ -144,6 +144,7 @@ def get_trivial_forward() -> Callable:
     
     return copy.deepcopy(trivial_forward)
 
+@MODEL_CATALOG.register()
 class NeTSFormer(BaseModel):
 
     """ Networked Time Series Prediction with Transformer
@@ -313,6 +314,3 @@ class NeTSFormer(BaseModel):
         
         return {"det": [param for _, param in det_params],
                 "sto": [param for _, param in sto_params]}
-        
-if __name__.endswith(".netsformer"):
-    MODEL_CATALOG['netsformer'] = NeTSFormer

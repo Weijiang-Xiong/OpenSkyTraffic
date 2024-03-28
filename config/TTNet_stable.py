@@ -3,7 +3,7 @@ from .common_cfg import adam as optimizer
 
 model = {
     # these are information about the model
-    "name": "ttnet",
+    "name": "TTNet",
     "device": "cuda",
     # these are model parameters
     "in_dim": 2, 

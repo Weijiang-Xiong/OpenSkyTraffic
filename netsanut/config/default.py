@@ -4,7 +4,7 @@ import argparse
 
 from omegaconf import OmegaConf, DictConfig
 from netsanut.event_logger import setup_logger
-from netsanut.util import make_dir_if_not_exist
+from netsanut.utils import make_dir_if_not_exist
 from .loader import ConfigLoader
 
 def default_argument_parser() -> argparse.ArgumentParser:

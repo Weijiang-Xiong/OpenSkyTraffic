@@ -6,7 +6,7 @@ train.output_dir = "scratch/himsnet"
 evaluation.evaluator_type = "simbarca"
 
 model = {
-    "name": "himsnet",
+    "name": "HiMSNet",
     "device": "cuda",
     "use_drone": True,
     "use_ld": True,

@@ -24,3 +24,4 @@ def flatten_results_dict(results):
         else:
             r[k] = v
     return r
+

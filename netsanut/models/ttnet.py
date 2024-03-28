@@ -55,7 +55,7 @@ class TrafficTransformer(nn.Module):
         mask = mask.bool()
         return mask
 
-
+@MODEL_CATALOG.register()
 class TTNet(BaseModel):
     """ Traffic Transformer Network modified from, code partly rewritten, fixed a few bugs ... 
         https://github.com/R0oup1iao/Traffic-Transformer
@@ -151,7 +151,4 @@ class TTNet(BaseModel):
         
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'])
         self.set_fixed_mask(metadata['adjacency'])
-        
-if __name__.endswith(".ttnet"):
-    MODEL_CATALOG['ttnet'] = TTNet
     

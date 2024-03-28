@@ -1,10 +1,9 @@
 from .common_cfg import train, scheduler
 from .common_cfg import adam as optimizer
 
-train.model_arch = "netsformer"
 model = {
     # these are information about the model
-    "name": "netsformer",
+    "name": "NeTSFormer",
     "device": "cuda",
     # these are model parameters
     "in_dim": 2, 

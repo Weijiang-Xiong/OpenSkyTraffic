@@ -14,17 +14,13 @@ from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 
 @MODEL_CATALOG.register()
-class HiMSNet(nn.Module):
-    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, 
+class LSTMGNN(nn.Module):
+    def __init__(self, use_global=True, normalize_input=True, scale_output=True, 
                  d_model=64, global_downsample_factor:int=2, layernorm=True, **kwargs):
         super().__init__()
         
-        self.use_drone = use_drone
-        self.use_ld = use_ld
         self.use_global = use_global
-        if self.use_drone==False and self.use_ld==False:
-            self.use_drone=True
-            print("Must use at least one data modality, use drone data by default")
+
         self.normalize_input = normalize_input
         self.scale_output = scale_output
         
@@ -38,20 +34,10 @@ class HiMSNet(nn.Module):
 
         self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570)
         
-        if self.use_drone:
-            self.drone_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
-            self.temporal_encoding_drone = LearnedPositionalEncoding(d_model=d_model)
-            # drone data has higher temporal resolution, so we use two conv layers to down sample
-            self.drone_t_patching_1 = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, stride=3)
-            self.drone_t_patching_2 = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, stride=3)
-            self.drone_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
-            self.drone_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
-            
-        if self.use_ld:
-            self.ld_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
-            self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model)
-            self.ld_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
-            self.ld_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
+        self.ld_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
+        self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model)
+        self.ld_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
+        self.ld_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
 
         if self.use_global:
             # input dimension can be 64 or 128 depending on the data modalities, so we let it be determined at first forward pass
@@ -110,12 +96,10 @@ class HiMSNet(nn.Module):
             self.adapt_to_metadata(data["metadata"])
         if self.normalize_input:
             source = {
-                "drone_speed": self.data_scalers["drone_speed"].transform(data["drone_speed"].to(self.device)),
                 "ld_speed": self.data_scalers["ld_speed"].transform(data["ld_speed"].to(self.device)),
             }
         else:
             source = {
-                "drone_speed": data["drone_speed"].to(self.device),
                 "ld_speed": data["ld_speed"].to(self.device),
             }
         target = {
@@ -136,39 +120,21 @@ class HiMSNet(nn.Module):
         return prediction
 
     def make_prediction(self, source: dict[str, torch.Tensor]) -> torch.Tensor:
-        x_drone, x_ld = source["drone_speed"], source["ld_speed"]
-        N, T_drone, P, C = source["drone_speed"].shape
-        T_ld = source["ld_speed"].shape[1]
+        x_ld = source["ld_speed"]
+        N, _, P, C = x_ld.shape 
 
         all_mode_features = [] # store the features of all modalities
         
-        if self.use_drone:
-            x_drone = rearrange(x_drone, "N T P C -> N C P T")
-            x_drone = self.drone_embedding(x_drone)
-            x_drone = rearrange(x_drone, "N C P T -> (N P) C T")
-            x_drone = self.drone_t_patching_1(x_drone)
-            x_drone = self.drone_t_patching_2(x_drone)
-            x_drone = rearrange(x_drone, "(N P) C T -> (N T) P C", N=N)
-            x_drone = self.spatial_encoding(x_drone)
-            x_drone = rearrange(x_drone, "(N T) P C -> (N P) T C", N=N)
-            x_drone = self.temporal_encoding_drone(x_drone)
-            x_drone, _ = self.drone_temporal(x_drone)  
-            x_drone = self.drone_norm(x_drone)
-            # we take the last step output from the temporal embeddings (LSTM)
-            x_drone = rearrange(x_drone[:, -1, :], "(N P) C -> N P C", N=N)
-            all_mode_features.append(x_drone)
-        
-        if self.use_ld:
-            x_ld = rearrange(x_ld, "N T P C -> N C P T")
-            x_ld = self.ld_embedding(x_ld)
-            x_ld = rearrange(x_ld, "N C P T -> (N T) P C")
-            x_ld = self.spatial_encoding(x_ld)
-            x_ld = rearrange(x_ld, "(N T) P C -> (N P) T C", N=N)
-            x_ld = self.temporal_encoding_ld(x_ld)
-            x_ld, _ = self.ld_temporal(x_ld)
-            x_ld = self.ld_norm(x_ld)
-            x_ld = rearrange(x_ld[:, -1, :], "(N P) C -> N P C", N=N)
-            all_mode_features.append(x_ld)
+        x_ld = rearrange(x_ld, "N T P C -> N C P T")
+        x_ld = self.ld_embedding(x_ld)
+        x_ld = rearrange(x_ld, "N C P T -> (N T) P C")
+        x_ld = self.spatial_encoding(x_ld)
+        x_ld = rearrange(x_ld, "(N T) P C -> (N P) T C", N=N)
+        x_ld = self.temporal_encoding_ld(x_ld)
+        x_ld, _ = self.ld_temporal(x_ld)
+        x_ld = self.ld_norm(x_ld)
+        x_ld = rearrange(x_ld[:, -1, :], "(N P) C -> N P C", N=N)
+        all_mode_features.append(x_ld)
         
         if self.use_global:
             x_global = self.channel_down_sample(torch.cat(all_mode_features, dim=-1))
@@ -237,38 +203,3 @@ class HiMSNet(nn.Module):
             self._distribution = gennorm(beta=int(beta))
 
         return self._distribution
-
-# some initial test codes
-if __name__ == "__main__":
-    adjacency = torch.randint(low=0, high=2, size=(1570, 1570)).cuda()
-    edge_index = adjacency.nonzero().t().contiguous()
-    fake_data_dict = {
-        "drone_speed": torch.rand(size=(2, 360, 1570, 2)).cuda(),
-        "ld_speed": torch.rand(size=(2, 10, 1570, 2)).cuda(),
-        "pred_speed": torch.rand(size=(2, 10, 1570)).cuda(),
-        "pred_speed_regional": torch.rand(size=(2, 10, 4)).cuda(),
-        "metadata": {
-            "adjacency": adjacency,
-            "edge_index": edge_index,
-            "cluster_id": torch.randint(low=0, high=4, size=(1570,)).cuda(),
-            "grid_id": torch.randint(low=0, high=150, size=(1570,)).cuda(),
-            "mean_and_std": {
-                "drone_speed": (0.0, 1.0),
-                "ld_speed": (0.0, 1.0),
-                "pred_speed": (0.0, 1.0),
-                "pred_speed_regional": (0.0, 1.0),
-            },
-            "input_seqs": ["drone_speed", "ld_speed"],
-            "output_seqs": ["pred_speed", "pred_speed_regional"],
-        },
-    }
-
-    model = HiMSNet().cuda()
-
-    model.train()
-    loss_dict = model(fake_data_dict)
-    loss = sum(loss_dict.values())
-    loss.backward()
-
-    model.eval()
-    res = model(fake_data_dict)
