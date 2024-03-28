@@ -1,4 +1,4 @@
-from .common_cfg import train, data, scheduler
+from .common_cfg import train, scheduler
 from .common_cfg import adam as optimizer
 
 train.model_arch = "netsformer"
@@ -30,4 +30,14 @@ model = {
     "alpha": 1.0,
     "ignore_value": 0.0,
     "temp_causal": False # add causal mask to temporal attention of encoder
+}
+
+dataset = {
+    "train": {"name": "metrla_train", "adj_type": "doubletransition"},
+    "test": {"name": "metrla_test", "adj_type": "${..train.adj_type}"}
+}
+
+dataloader = {
+    "train": {"batch_size": 32},
+    "test": {"batch_size": "${..train.batch_size}"}
 }

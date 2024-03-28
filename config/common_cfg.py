@@ -10,12 +10,6 @@ train = {
     "eval_train": True, # run evaluation on train set after each epoch
 }
 
-data = {
-    "dataset": "metr-la",
-    "adj_type": "doubletransition",
-    "batch_size": 32,
-}
-
 adam = {
     "type": "adam",
     "lr": 1e-3,

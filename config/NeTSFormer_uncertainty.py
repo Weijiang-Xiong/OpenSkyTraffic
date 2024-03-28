@@ -1,4 +1,4 @@
-from .NeTSFormer_prediction import train, data, model
+from .NeTSFormer_prediction import train, model
 
 train.checkpoint = "scratch/prediction/model_final.pth"
 train.test_best_ckpt = False
@@ -37,4 +37,14 @@ scheduler = {
     "end": "${..train.max_epoch}",
     "lr_decrease": 0.1, 
     "warmup": 1.0,
+}
+
+dataset = {
+    "train": {"name": "metrla_train", "adj_type": "doubletransition"},
+    "test": {"name": "metrla_test", "adj_type": "${..train.adj_type}"}
+}
+
+dataloader = {
+    "train": {"batch_size": 32},
+    "test": {"batch_size": "${..train.batch_size}"}
 }
