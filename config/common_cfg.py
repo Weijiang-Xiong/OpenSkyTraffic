@@ -5,6 +5,7 @@ train = {
     "device": "cuda",
     # select model by validation set performance, and test the best model
     # will test the final model if set to False
+    "best_metric": "mae_train",
     "test_best_ckpt": True, 
     "grad_clip": 3.0,
     "eval_train": True, # run evaluation on train set after each epoch
@@ -42,6 +43,7 @@ scheduler = {
 }
 
 evaluation = {
+    "evaluator_type": "",
     "save_dir": "${..train.output_dir}/evaluation",
     "save_res": True,
     "save_note": "default"

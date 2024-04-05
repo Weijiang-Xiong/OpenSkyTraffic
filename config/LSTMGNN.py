@@ -10,9 +10,12 @@ model = {
     "device": "cuda",
     "use_global": True,
     "scale_output": True,
-    "normalize_input": False,
+    "normalize_input": True,
     "layernorm": True,
-    "d_model": 64
+    "d_model": 64,
+    "global_downsample_factor": 1,
+    "ignore_value": 0.0,
+    "adjacency_hop": 1
 }
 
 dataset = {

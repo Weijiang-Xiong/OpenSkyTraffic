@@ -106,8 +106,6 @@ class HiMSNet(nn.Module):
             return self.inference(source)
 
     def preprocess(self, data: dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.metadata is None:
-            self.adapt_to_metadata(data["metadata"])
         if self.normalize_input:
             source = {
                 "drone_speed": self.data_scalers["drone_speed"].transform(data["drone_speed"].to(self.device)),

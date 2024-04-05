@@ -10,13 +10,14 @@ from typing import Dict, List, Tuple
 from einops import rearrange
 
 from netsanut.data.transform import TensorDataScaler
-from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
+from .common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 
 @MODEL_CATALOG.register()
 class LSTMGNN(nn.Module):
     def __init__(self, use_global=True, normalize_input=True, scale_output=True, 
-                 d_model=64, global_downsample_factor:int=2, layernorm=True, **kwargs):
+                 d_model=64, global_downsample_factor:int=1, layernorm=True, ignore_value: float=-1.0,
+                 adjacency_hop: int=1):
         super().__init__()
         
         self.use_global = use_global
@@ -28,9 +29,9 @@ class LSTMGNN(nn.Module):
         # self._beta: int = beta
         self._distribution: rv_continuous = None
         # self._set_distribution(beta=1)
-        self.ignore_value = -1.0
+        self.ignore_value = ignore_value
+        self.adjacency_hop = adjacency_hop
         self.metadata: Dict[str, torch.Tensor] = None
-        self.data_scalers: Dict[str, TensorDataScaler] = None
 
         self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570)
         
@@ -55,8 +56,7 @@ class LSTMGNN(nn.Module):
 
             self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
             
-        self.prediction = MLP_LazyInput(hid_dim=int(d_model * 2), out_dim=10, dropout=0.1)
-        self.prediction_regional = MLP_LazyInput(hid_dim=128, out_dim=10, dropout=0.1)
+        self.prediction = MLP_LazyInput(hid_dim=int(d_model * 2), out_dim=12, dropout=0.1)
 
         self.loss = GeneralizedProbRegLoss(aleatoric=False, exponent=1, ignore_value=self.ignore_value)
 
@@ -92,35 +92,25 @@ class LSTMGNN(nn.Module):
             return self.inference(source)
 
     def preprocess(self, data: dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.metadata is None:
-            self.adapt_to_metadata(data["metadata"])
         if self.normalize_input:
             source = {
-                "ld_speed": self.data_scalers["ld_speed"].transform(data["ld_speed"].to(self.device)),
+                "source": self.datascaler.transform(data["source"].to(self.device)),
             }
         else:
-            source = {
-                "ld_speed": data["ld_speed"].to(self.device),
-            }
-        target = {
-            "pred_speed": data["pred_speed"].to(self.device),
-            "pred_speed_regional": data["pred_speed_regional"].to(self.device),
-        }
+            source = {"source": data["source"].to(self.device)}
+        target = {"target": data["target"].to(self.device)}
         
         return source, target
 
     def post_process(self, prediction: torch.Tensor) -> torch.Tensor:
         if self.scale_output:
             # scale back using the inverse_transform of the output scaler
-            prediction["pred_speed"] = self.data_scalers["pred_speed"].inverse_transform(prediction["pred_speed"])
-            prediction["pred_speed_regional"] = self.data_scalers["pred_speed_regional"].inverse_transform(
-                prediction["pred_speed_regional"]
-            )
+            prediction["pred"] = self.datascaler.inverse_transform(prediction["pred"])
 
         return prediction
 
     def make_prediction(self, source: dict[str, torch.Tensor]) -> torch.Tensor:
-        x_ld = source["ld_speed"]
+        x_ld = source["source"]
         N, _, P, C = x_ld.shape 
 
         all_mode_features = [] # store the features of all modalities
@@ -149,57 +139,48 @@ class LSTMGNN(nn.Module):
         fused_features = torch.cat(all_mode_features, dim=-1)
         
         pred = self.prediction(fused_features)
-        
-        regional_feature = torch.cat(
-            [
-                torch.mean(fused_features[:, self.metadata["cluster_id"] == region_id, :], dim=1).unsqueeze(1)
-                for region_id in self.metadata["cluster_id"].unique()
-            ],
-            dim=1,
-        )
-        pred_regional = self.prediction_regional(regional_feature)
 
         return {
-            "pred_speed": rearrange(pred, "N P T -> N T P"),
-            "pred_speed_regional": rearrange(pred_regional, "N P T -> N T P"),
+            "pred": rearrange(pred, "N P T -> N T P"),
         }
 
     def compute_loss(self, source: dict[str, torch.Tensor], target: torch.Tensor) -> torch.Tensor:
         pred_res = self.make_prediction(source)
         pred_res = self.post_process(pred_res) # scale back and then compute loss 
-        loss = self.loss(pred_res["pred_speed"], target["pred_speed"])
-        loss_regional = self.loss(pred_res["pred_speed_regional"], target["pred_speed_regional"])
+        loss = self.loss(pred_res["pred"], target["target"])
 
-        return {"loss": loss, "loss_regional": loss_regional}
+        return {"loss": loss}
 
     def inference(self, source: dict[str, torch.Tensor]) -> torch.Tensor:
         return self.post_process(self.make_prediction(source))
 
     def adapt_to_metadata(self, metadata):
+        
+        assert self.training, "metadata should be loaded in training mode"
+        
         self.metadata = dict()
         
-        # keep the tensors and arrays on the same device as the model
-        for key, value in metadata.items():
-            if isinstance(value, np.ndarray):
-                self.metadata[key] = torch.as_tensor(value).to(self.device)
-            elif isinstance(value, torch.Tensor):
-                self.metadata[key] = value.to(self.device)
+        self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])
+        # adjacency can be one or multiple adjacency matrices 
+        if not isinstance(metadata['adjacency'], (list, tuple)):
+            metadata['adjacency'] = [metadata['adjacency']]
+        adj_mtx = sum([s.detach() for s in metadata['adjacency']])
+        # a True value in self.mask indicates the corresponding key will be ignored
+        binary_adjacency = (adj_mtx > 0)
+        
+        if isinstance(self.adjacency_hop, int) and self.adjacency_hop > 1:
+            # do a loop instead of calling matrix power to avoid numerical problem
+            for _ in range(self.adjacency_hop - 1): 
+                binary_adjacency = torch.mm(binary_adjacency.float(), binary_adjacency.float())
+                binary_adjacency = (binary_adjacency > 0)
                 
-        self.data_scalers = {
-            name: TensorDataScaler(
-                mean=metadata["mean_and_std"][name][0], 
-                std=metadata["mean_and_std"][name][1],
-                data_dim=0,
-                device=self.device
-            ) for name in metadata["input_seqs"] + metadata["output_seqs"]
-        }
-        self.metadata["input_seqs"] = metadata["input_seqs"]
-        self.metadata["output_seqs"] = metadata["output_seqs"]
+        edge_index = torch.nonzero(binary_adjacency, as_tuple=False).T
+        self.metadata['edge_index'] = edge_index.to(self.device)
 
     def _set_distribution(self, beta: int) -> rv_continuous:
         if beta is None:
             self._distribution = None
         else:
             self._distribution = gennorm(beta=int(beta))
-
+        ((((((((((()))))))))))
         return self._distribution

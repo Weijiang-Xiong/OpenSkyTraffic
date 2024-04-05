@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from typing import Dict
 from collections import defaultdict
 
-from netsanut.util import flatten_results_dict, make_dir_if_not_exist
+from netsanut.utils import flatten_results_dict, make_dir_if_not_exist
 from netsanut.evaluation.metrics import prediction_metrics
 
 

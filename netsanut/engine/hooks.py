@@ -107,7 +107,7 @@ class CheckpointSaver(HookBase):
         metric_tuple = trainer.storage.latest().get(self.metric)
         if metric_tuple is None:
             trainer.logger.info(
-                "Given val metric {metric} does not seem to be computed/stored, will not use it for checkpoint selection.".format(metric=self.metric)
+                "Selection metric {metric} is not available, skip checkpoint selection.".format(metric=self.metric)
             )
             self.test_best_ckpt = False
             self.last_ckpt_path = trainer.save_checkpoint()
@@ -224,3 +224,18 @@ class PlotTrainingLog(HookBase):
             with open("{}/{}.json".format(self.figure_dir, save_name), "w") as f:
                 json.dump({"epoch": epoch.tolist(), "value": value.tolist()}, f)
             
+class MetadataHook(HookBase):
+    
+    """ In traffic prediction tasks, the model often needs the adjacency matrix to describe
+    the graph structure, and it may also need the mean and std of the data to normalize them.
+    This hook will call the function `adapt_to_medatada` in the model to save these necessary 
+    information into the model, e.g., self.metadata. The metadata should in principle be kept 
+    in the model's state_dict, so they will be saved to checkpoints and then can be loaded 
+    during testing. 
+    """
+    
+    def __init__(self, metadata: Dict[str, torch.Tensor]) -> None:
+        self.metadata = metadata 
+    
+    def before_train(self, trainer: TrainerBase):
+        trainer.model.adapt_to_metadata(self.metadata)

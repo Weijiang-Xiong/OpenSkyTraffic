@@ -40,8 +40,9 @@ class MetrDataset(Dataset):
         "val": "val.npz",
         "test": "test.npz"
     }
-    adjacency = 'adj_mx_metr.pkl',
+    adjacency = 'adj_mx_metr.pkl'
     geo_locations = 'graph_sensor_locations.csv'
+    data_dim = 0
     
     def __init__(self, name:str='metrla', split='train', compute_metadata=False, adj_type='doubletransition') -> None:
         super().__init__()
@@ -51,8 +52,7 @@ class MetrDataset(Dataset):
         self.data_x = torch.as_tensor(data['x'], dtype=torch.float32)
         self.data_y = torch.as_tensor(data['y'], dtype=torch.float32)
         
-        if self.split == 'train' or compute_metadata:
-            self.metadata = self.compute_metadata(adj_type)
+        self.metadata = self.compute_metadata(adj_type)
 
     def __len__(self) -> int:
         return int(self.data_x.size(0))
@@ -72,10 +72,15 @@ class MetrDataset(Dataset):
         adjacency_matrix: List[torch.Tensor] = [torch.as_tensor(A) for A in adj]
         # separately calculate the mean and std for each channel
         # although it doesn't make sense to do this for time, we can handle it later
-        data_mean = torch.mean(self.data_x, dim=list(range(self.data_x.dim()))[:-1])
-        data_std  = torch.std(self.data_x,  dim=list(range(self.data_x.dim()))[:-1])
+        data_mean = torch.mean(self.data_x, dim=list(range(self.data_x.dim()))[:-1])[self.data_dim]
+        data_std  = torch.std(self.data_x,  dim=list(range(self.data_x.dim()))[:-1])[self.data_dim]
         geo_locations = self.get_geo_locations()
-        return {'adjacency': adjacency_matrix, 'mean': data_mean, 'std': data_std, 'geo_loc':geo_locations}
+        return {'adjacency': adjacency_matrix, 
+                'mean': data_mean, 
+                'std': data_std, 
+                'data_dim': self.data_dim, 
+                'geo_loc':geo_locations
+        }
 
     @staticmethod
     def load_pickle(pickle_file):
@@ -117,7 +122,7 @@ class MetrDataset(Dataset):
     def collate_fn(self, batch):
         return tensor_to_contiguous(batch)
     
-if __name__.startswith('.metrla'):
+if __name__.endswith('.metrla'):
     DATASET_CATALOG['metrla_train'] = lambda **arg: MetrDataset(split='train', **arg)
     DATASET_CATALOG['metrla_val'] = lambda **arg: MetrDataset(split='val', **arg)
     DATASET_CATALOG['metrla_test'] = lambda **arg: MetrDataset(split='test', **arg)

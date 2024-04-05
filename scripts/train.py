@@ -41,8 +41,9 @@ def main(args):
         )
         return eval_res
     else:
-        train_loader = build_train_loader(build_dataset(cfg.dataset.train), cfg.dataloader.train)
-        test_loader = build_test_loader(build_dataset(cfg.dataset.test), cfg.dataloader.test)
+        train_set, test_set = build_dataset(cfg.dataset.train), build_dataset(cfg.dataset.test)
+        train_loader = build_train_loader(train_set, cfg.dataloader.train)
+        test_loader = build_test_loader(test_set, cfg.dataloader.test)
         # build optimizer and scheduler using the corresponding configurations
         optimizer = build_optimizer(model, cfg.optimizer)
         scheduler = build_scheduler(optimizer, cfg.scheduler)
@@ -60,12 +61,13 @@ def main(args):
             hooks.StepBasedLRScheduler(scheduler=scheduler),
             hooks.EvalHook(lambda m: evaluator(m, train_loader), metric_suffix='train', eval_after_train=False) if cfg.train.eval_train else None,
             hooks.EvalHook(lambda m: evaluator(m, test_loader), metric_suffix='test', eval_after_train=False),
-            hooks.CheckpointSaver(test_best_ckpt=cfg.train.test_best_ckpt),
+            hooks.CheckpointSaver(metric=cfg.train.best_metric, test_best_ckpt=cfg.train.test_best_ckpt),
             hooks.MetricLogger(),
             # after training, we print the results on the test set
             hooks.EvalHook(lambda m: evaluator(m, test_loader, verbose=True), metric_suffix='final_test', eval_after_epoch=False),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
-            hooks.PlotTrainingLog()
+            hooks.PlotTrainingLog(),
+            hooks.MetadataHook(metadata=train_set.metadata)
         ])
 
         return trainer.train()

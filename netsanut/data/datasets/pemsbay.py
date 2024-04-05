@@ -10,7 +10,7 @@ class PEMSBayDataset(MetrDataset):
         "val": "val.npz",
         "test": "test.npz"
     }
-    adjacency     = 'pems/adj_mx_bay.pkl',
+    adjacency     = 'pems/adj_mx_bay.pkl'
     geo_locations = 'pems/graph_sensor_locations_bay.csv'
 
     def __init__(self, split, **args) -> None:
@@ -20,7 +20,7 @@ class PEMSBayDataset(MetrDataset):
         return pd.read_csv(DATASET_CATALOG[self.name]['geo_locations'], header=None)[[2,1]].to_numpy()
     
 
-if __name__.startswith(".pemsbay"):
+if __name__.endswith(".pemsbay"):
     DATASET_CATALOG['pemsbay_train'] = lambda **arg: PEMSBayDataset(split='train', **arg)
     DATASET_CATALOG['pemsbay_val'] = lambda **arg: PEMSBayDataset(split='val', **arg)
     DATASET_CATALOG['pemsbay_test'] = lambda **arg: PEMSBayDataset(split='test', **arg)
