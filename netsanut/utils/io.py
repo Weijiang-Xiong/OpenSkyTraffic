@@ -1,10 +1,14 @@
 import os 
 from collections.abc import Mapping
 
-def make_dir_if_not_exist(path):
+def make_dir_if_not_exist(path, exist_ok=True):
     if not os.path.exists(path):
         print("Creating directory: {}".format(path))
         os.makedirs(path)
+    elif exist_ok:
+        print("Using existing directory {}".format(path))
+    else:
+        raise ValueError("Directory {} already exists".format(path))
 
 def flatten_results_dict(results):
     """
