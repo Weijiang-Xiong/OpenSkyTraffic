@@ -9,6 +9,7 @@ train = {
     "test_best_ckpt": True, 
     "grad_clip": 3.0,
     "eval_train": True, # run evaluation on train set after each epoch
+    "save_period": 5, # save checkpoint every n epochs
 }
 
 adam = {

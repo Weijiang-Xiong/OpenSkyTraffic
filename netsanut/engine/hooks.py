@@ -94,15 +94,18 @@ class CheckpointSaver(HookBase):
     
     # TODO add period that corresponds to eval period
     # TODO add option for using a metric that is the higher the better
-    def __init__(self, metric:str=None, test_best_ckpt:bool=True) -> None:
+    def __init__(self, metric:str=None, test_best_ckpt:bool=True, period=5) -> None:
         super().__init__()
         self.metric:str = metric
         self.lowest_loss:float = np.inf
         self.best_ckpt_path: str = ""
         self.last_ckpt_path: str = ""
         self.test_best_ckpt = test_best_ckpt
+        self.period = period
         
     def after_epoch(self, trainer: TrainerBase):
+        if not trainer.epoch_num % self.period == 0:
+            return
         
         metric_tuple = trainer.storage.latest().get(self.metric)
         if metric_tuple is None:
@@ -141,7 +144,7 @@ class CheckpointSaver(HookBase):
             shutil.copyfile(self.last_ckpt_path, copy_path)
             trainer.logger.info("Copying the final model to {}".format(copy_path))
 
-class MetricLogger(HookBase):
+class MetricPrinter(HookBase):
     
     # TODO study detectron2.utils.events.CommonMetricPrinter a improve this part
     def __init__(self) -> None:

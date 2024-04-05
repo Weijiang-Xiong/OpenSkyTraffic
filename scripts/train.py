@@ -61,8 +61,8 @@ def main(args):
             hooks.StepBasedLRScheduler(scheduler=scheduler),
             hooks.EvalHook(lambda m: evaluator(m, train_loader), metric_suffix='train', eval_after_train=False) if cfg.train.eval_train else None,
             hooks.EvalHook(lambda m: evaluator(m, test_loader), metric_suffix='test', eval_after_train=False),
-            hooks.MetricLogger(),
-            hooks.CheckpointSaver(metric=cfg.train.best_metric, test_best_ckpt=cfg.train.test_best_ckpt),
+            hooks.MetricPrinter(),
+            hooks.CheckpointSaver(cfg.train.best_metric, cfg.train.test_best_ckpt, cfg.train.save_period),
             # after training, we print the results on the test set
             hooks.EvalHook(lambda m: evaluator(m, test_loader, verbose=True), metric_suffix='final_test', eval_after_epoch=False),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
