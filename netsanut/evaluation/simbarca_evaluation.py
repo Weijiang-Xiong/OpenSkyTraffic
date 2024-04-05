@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from typing import Dict
 from collections import defaultdict
 
-from netsanut.utils import flatten_results_dict, make_dir_if_not_exist
+from netsanut.utils.io import flatten_results_dict, make_dir_if_not_exist
 from netsanut.evaluation.metrics import prediction_metrics
 
 
@@ -267,7 +267,7 @@ def evaluate_trivial_models(dataloader):
 
 if __name__ == "__main__":
     from netsanut.data.datasets import SimBarca
-    from netsanut.event_logger import setup_logger
+    from netsanut.utils.event_logger import setup_logger
     logger = setup_logger(name="default", level=logging.INFO)
 
     dataset = SimBarca(split="test", force_reload=False)

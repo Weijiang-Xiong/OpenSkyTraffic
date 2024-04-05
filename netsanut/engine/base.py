@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from torch.utils.data import DataLoader
-from netsanut.events import EventStorage
+from netsanut.utils.events import EventStorage
 
 
 class HookBase:

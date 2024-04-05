@@ -11,7 +11,7 @@ import torch.nn as nn
 
 from netsanut.loss import GeneralizedProbRegLoss
 from netsanut.data import TensorDataScaler
-from netsanut.events import get_event_storage
+from netsanut.utils.events import get_event_storage
 
 from .common import PositionalEncoding, LearnedPositionalEncoding
 from .base import BaseModel

@@ -250,7 +250,7 @@ if __name__.endswith(".simbarca"):
 
 if __name__ == "__main__":
     
-    from netsanut.event_logger import setup_logger
+    from netsanut.utils.event_logger import setup_logger
     logger = setup_logger(name="default", level=logging.INFO)
     
     train_loader = build_train_loader()

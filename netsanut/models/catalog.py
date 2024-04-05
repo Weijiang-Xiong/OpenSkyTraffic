@@ -1,7 +1,7 @@
 import torch 
 import torch.nn as nn 
 from omegaconf import DictConfig
-from netsanut.utils import Registry
+from netsanut.utils.registry import Registry
 from copy import deepcopy
 
 MODEL_CATALOG = Registry("MODEL_CATALOG")

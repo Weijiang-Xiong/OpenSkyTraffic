@@ -1,5 +1,10 @@
 import os 
+import logging
+
 from collections.abc import Mapping
+from .event_logger import setup_logger
+
+logger = setup_logger(__name__)
 
 def make_dir_if_not_exist(path, exist_ok=True):
     if not os.path.exists(path):
@@ -8,7 +13,7 @@ def make_dir_if_not_exist(path, exist_ok=True):
     elif exist_ok:
         print("Using existing directory {}".format(path))
     else:
-        raise ValueError("Directory {} already exists".format(path))
+        logger.warning("Directory {} already exists, contents might be overwritten".format(path))
 
 def flatten_results_dict(results):
     """

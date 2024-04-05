@@ -8,7 +8,7 @@ from netsanut.engine import DefaultTrainer
 from netsanut.models import build_model
 from netsanut.data import build_trainvaltest_loaders
 from netsanut.predict import Visualizer
-from netsanut.event_logger import setup_logger
+from netsanut.utils.event_logger import setup_logger
 
 if __name__ == "__main__":
     
