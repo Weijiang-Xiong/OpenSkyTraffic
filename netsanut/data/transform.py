@@ -53,3 +53,11 @@ class TensorDataScaler:
             so we discarded this inductive bias, and let the network learn by itself. 
         """
         return plog_sigma # + 2*torch.log(self.std)
+    
+    @property
+    def device(self):
+        return self.mean.device.type
+    
+    def state_dict(self):
+        return {"mean": self.mean.item(), "std": self.std.item(), 
+                "data_dim": self.data_dim, "device": self.device}

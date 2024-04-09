@@ -182,5 +182,19 @@ class LSTMGNN(nn.Module):
             self._distribution = None
         else:
             self._distribution = gennorm(beta=int(beta))
-        ((((((((((()))))))))))
         return self._distribution
+    
+    def state_dict(self):
+        """ we add datascalar and metadata to the state_dict, so that they will be saved to the checkpoint, 
+        and then can be loaded later.
+        """
+        state = dict()
+        state["model_params"] = super().state_dict()
+        state["metadata"] = self.metadata
+        state["datascaler"] = self.datascaler.state_dict()
+        return state
+    
+    def load_state_dict(self, state_dict):
+        self.datascaler = TensorDataScaler(**state_dict["datascaler"])
+        self.metadata = state_dict["metadata"]
+        super().load_state_dict(state_dict["model_params"])
