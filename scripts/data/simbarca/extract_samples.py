@@ -65,6 +65,8 @@ def agg_raw_to_intervals(item):
     df_ld = pd.DataFrame({k:v for k, v in sec_data.items() if k in ld_cols}, columns=ld_cols)
     # delete the rows with zero LD_count, where the LD_speed is nan
     df_ld = df_ld[df_ld['LD_count'] > 0]
+    # weight the speed with the number of vehicles (then we can divide by vehicle count per group)
+    df_ld['LD_spd_mul_cnt'] = df_ld['LD_speed'] * df_ld['LD_count']
     ld_groups = df_ld.groupby(sec_df['time_steps']//get_modality_step("ld_speed"))
     
     # average speed by statistic time window 
@@ -73,8 +75,8 @@ def agg_raw_to_intervals(item):
     drone_vtime = drone_groups['total_time'].sum()
     pred_vdist = pred_groups['total_dist'].sum()
     pred_vtime = pred_groups['total_time'].sum()
-    ld_speed = ld_groups['LD_speed'].sum()  / ld_groups['LD_count'].sum()
-        
+    ld_speed = ld_groups['LD_spd_mul_cnt'].sum() / ld_groups['LD_count'].sum()
+
     return {'section': section, 
             'drone_vdist': drone_vdist,
             'drone_vtime': drone_vtime, 
@@ -137,9 +139,16 @@ if __name__ == '__main__':
         columns_without_vehicles = np.setdiff1d(section_ids_sorted, modality_data.columns)
         modality_data[columns_without_vehicles] = np.nan
         modality_data = modality_data[section_ids_sorted]
-        # a nan means no vehicles are observed by that kind of sensor, and we replace it with 0
-        modality_data.fillna(0, inplace=True)
+        # we keep the nan values for the timesteps when no vehicles are present
+        # this will be handled in the dataset class
+        # modality_data.fillna(0, inplace=True)
         stats_all_sec[modality] = modality_data
+    
+    # save this, you can plot MFD with it 
+    save_file = "{}/timeseries/agg_timeseries.pkl".format(args.session)
+    print("Saving aggregated time series to {}".format(save_file))
+    with open(save_file, "wb") as f:
+        pickle.dump(stats_all_sec, f)
         
     # using the sliding window approach, and take 30 mins for input and 30 mins for prediction
     print("Extracting samples from time series ...")

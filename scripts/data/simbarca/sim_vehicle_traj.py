@@ -63,7 +63,9 @@ all_folders = sorted(glob.glob(folder_pattern))
 folders_to_sim = [os.path.abspath(folder) for folder in all_folders 
                   if not os.path.exists("{}/aimsun_log.log".format(folder))]
 
-with mp.Pool(processes=8) as pool:
-    pool.map(lambda f: sim_one_folder(f, cleanup=True), folders_to_sim)
+if __name__ == '__main__':
     
-print("All simulations are done!")
+    with mp.Pool(processes=8) as pool:
+        pool.map(sim_one_folder, folders_to_sim)
+        
+    print("All simulations are done!")
