@@ -11,6 +11,7 @@
 import re
 import time
 import json
+import gzip
 import glob
 import argparse
 import numpy as np
@@ -275,7 +276,7 @@ if __name__ == "__main__":
         print("\n Selecting {}% vehicles from {} vehicles".format(args.penetration_rate*100, num_vehicle))
         
     # get the names of trajectory files
-    data_files = sorted(glob.glob("{}/trajectory/*.json".format(args.session_folder)))
+    data_files = sorted(glob.glob("{}/trajectory/*.json.gz".format(args.session_folder)))
     # these files are organized chronologically by time step, so keep the last time step of
     # this file as the init_time_step for the next file
     previous_time_step: pd.DataFrame = None
@@ -288,8 +289,8 @@ if __name__ == "__main__":
         print("Working on file {}".format(file_name))
 
         start_time = time.perf_counter()
-        with open(file_name, "r") as f:
-            data = json.load(f)
+        with gzip.open(file_name, "rt") as f:
+            data = json.loads(f.read())
         print("Loading a file takes {:.2f}s".format(time.perf_counter() - start_time))
         
         # concatenate the last time step with the current data frame

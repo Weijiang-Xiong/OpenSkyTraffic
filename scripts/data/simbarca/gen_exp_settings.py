@@ -60,7 +60,7 @@ if __name__ == "__main__":
     for idx, (seed, cfg) in enumerate(zip(sim_seeds, all_cfg_combs)):
         mask_p, noise_p, noise_scale, global_scale = cfg
         
-        folder_name = "session_{:03d}".format(idx)
+        folder_name = "simulation_sessions/session_{:03d}".format(idx)
         folder_path = "{}/{}".format(args.data_root, folder_name)
         if os.path.exists(folder_path):
             if not args.overwrite:
@@ -70,7 +70,7 @@ if __name__ == "__main__":
                 print("Folder {} already exists, overwriting it".format(folder_path))
                 shutil.rmtree(folder_path)
 
-        os.mkdir(folder_path)
+        os.makedirs(folder_path, exist_ok=False)
         os.mkdir("{}/{}".format(folder_path, "timeseries"))
         os.mkdir("{}/{}".format(folder_path, "trajectory"))
 

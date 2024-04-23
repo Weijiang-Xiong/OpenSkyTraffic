@@ -4,6 +4,7 @@ We generally record two kinds of information, one is the vehicle information at 
 
 """
 import json
+import gzip
 import logging
 import numpy as np
 import pandas as pd
@@ -94,15 +95,16 @@ class DataStorage:
             self.save_to_file("./trajectory/{:02d}_traj_{}.json".format(self.num_saved, time))
             
     def save_to_file(self, file_name):
-        with open(file_name, "w") as json_file:
-            json.dump({
+        compressed_file_name = "{}.gz".format(file_name)
+        contents_to_save = {
                 "info_columns": self.INFO_COLUMNS, 
                 "trajectory": self.traj_info,
                 "inout_columns": self.INOUT_COLUMNS,
                 "entering": self.entering, 
-                "exiting": self.exiting},
-                json_file)
-        self.logger.info("file saved to {}".format(file_name))
+                "exiting": self.exiting}
+        with gzip.open(compressed_file_name, "wt") as f:
+            f.write(json.dumps(contents_to_save))
+        self.logger.info("file saved to {}".format(compressed_file_name))
         self.traj_info.clear()
         self.entering.clear()
         self.exiting.clear()
