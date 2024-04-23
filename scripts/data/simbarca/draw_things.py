@@ -36,7 +36,8 @@ def draw_od_demand(centroid_pos, od_pairs, drop_lower=None):
     ax.set_yticks([])
 
     # save pdf figure
-    fig.savefig("{}/metadata/centroid_pos.pdf".format(data_root), bbox_inches='tight')
+    file_name = "centroid_pos" if drop_lower is None else "centroid_pos_drop_lower_{}".format(drop_lower)
+    fig.savefig("{}/metadata/{}.pdf".format(data_root, file_name), bbox_inches='tight')
 
 def draw_segment_speed_vs_point_speed(stats, save_note=None, start_min=15, end_min=20, sim_time_step=0.5):
     df = pd.DataFrame({
