@@ -103,7 +103,7 @@ class DataStorage:
                 "entering": self.entering, 
                 "exiting": self.exiting}
         with gzip.open(compressed_file_name, "wt") as f:
-            f.write(json.dumps(contents_to_save))
+            json.dump(contents_to_save, f)
         self.logger.info("file saved to {}".format(compressed_file_name))
         self.traj_info.clear()
         self.entering.clear()

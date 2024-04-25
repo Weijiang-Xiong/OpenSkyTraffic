@@ -225,7 +225,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Generate time series data from trajectory data")
     parser.add_argument('--metadata_folder', type=str, default='datasets/simbarca/metadata', help='Path to metadata folder')
-    parser.add_argument('--session_folder', type=str, default='datasets/simbarca/session_000', help='Path to session folder')
+    parser.add_argument('--session_folder', type=str, default='datasets/simbarca/simulation_sessions/session_000', help='Path to session folder')
     parser.add_argument('--penetration_rate', type=float, default=0.05, help='Penetration rate of probe vehicles')
     args = parser.parse_args()
     
@@ -290,7 +290,7 @@ if __name__ == "__main__":
 
         start_time = time.perf_counter()
         with gzip.open(file_name, "rt") as f:
-            data = json.loads(f.read())
+            data = json.load(f)
         print("Loading a file takes {:.2f}s".format(time.perf_counter() - start_time))
         
         # concatenate the last time step with the current data frame
