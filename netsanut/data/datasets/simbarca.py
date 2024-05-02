@@ -79,14 +79,14 @@ class SimBarca(Dataset):
             "cluster_id": self.cluster_id,
             "grid_id": self.grid_id,
         }
-
-        metadata["mean_and_std"] = {
-            att: (
-                torch.mean(getattr(self, att)[..., 0]),
-                torch.std(getattr(self, att)[..., 0]),
-            )
-            for att in self.sequence_names
-        }
+        
+        mean_and_std = dict()
+        for att in self.sequence_names:
+            seq_data = getattr(self, att)[..., 0]
+            seq_data = seq_data[~torch.isnan(seq_data)]
+            mean_and_std[att] = (torch.mean(seq_data), torch.std(seq_data))
+        metadata["mean_and_std"] = mean_and_std
+            
         metadata["input_seqs"] = self.input_seqs
         metadata["output_seqs"] = self.output_seqs
 
@@ -152,7 +152,7 @@ class SimBarca(Dataset):
         print("No processed samples found or forced to reload, processing samples from scratch")
         all_sample_data = defaultdict(list)
         sample_files = sorted(
-            list(Path("{}/{}".format(_root, self.data_root)).glob("session_*/timeseries/samples.npz"))
+            list(Path("{}/{}".format(_root, self.data_root)).glob("simulation_sessions/session_*/timeseries/samples.npz"))
         )
         split_sample_files = self.get_split_samples(sample_files)
 
@@ -170,31 +170,38 @@ class SimBarca(Dataset):
         print("Processing per section data")
         # process the input and predicted speed
         processed_samples = dict()
+        
+        # loop detector readings, no extra computations needed after stacking
+        processed_samples["ld_speed"] = all_sample_data["ld_speed"]
+        processed_samples["pred_ld_speed"] = all_sample_data["pred_ld_speed"]
+        
         # input and predict speed per section, using v = total_dist / total_time
         # each array in all_sample_data have shape (N, T, P, 2), where N is the number of samples, T is the number of time steps, P is the number of sections, and the last dimension 2 corresponds to (time_in_day, value)
         for mod_type in ["drone", "pred"]:
-            vdist_values: np.ndarray = all_sample_data["{}_vdist".format(mod_type)][
-                ..., 0
-            ]  # total vehicle distance
-            vdist_tind: np.ndarray = all_sample_data["{}_vdist".format(mod_type)][..., 1]  # time in day
-            vtime_values: np.ndarray = all_sample_data["{}_vtime".format(mod_type)][..., 0]  # total vehicle time
-            # replace nan values with -1, because it means both distance and time are 0, no vehicle detected
+            vdist_values: np.ndarray = all_sample_data["{}_vdist".format(mod_type)][..., 0] # total vehicle distance
+            vdist_tind: np.ndarray = all_sample_data["{}_vdist".format(mod_type)][..., 1] # time in day
+            vtime_values: np.ndarray = all_sample_data["{}_vtime".format(mod_type)][..., 0] # total vehicle time
+            speed_values = vdist_values / vtime_values
+            # leave the invalid number as nan, and let the model decide how to deal with the nan values
+            # because the nan values here it means both distance and time are 0, no vehicle detected
             # this is different from zero speed, which can also happen when all vehicles are stopped at red lights
-            speed_values = np.nan_to_num(vdist_values / vtime_values, nan=-1)
+            # speed_values = np.nan_to_num(speed_values, nan=-1)
             processed_samples["{}_speed".format(mod_type)] = np.stack([speed_values, vdist_tind], axis=-1)
-        processed_samples["ld_speed"] = all_sample_data["ld_speed"]
-
+        
         print("Processing regional data")
         regional_speed = []
         # aggregate link into regions
         for region_id in np.unique(self.cluster_id):
             region_mask = self.cluster_id == region_id
-            region_vdist_values = np.mean(all_sample_data["pred_vdist"][..., region_mask, 0], axis=-1)
+            # sum the total distance but ignore NaN values, `np.sum` will be NaN if one element is NaN
+            region_vdist_values = np.nansum(all_sample_data["pred_vdist"][..., region_mask, 0], axis=-1)
             # add the time in day here, the first index
             # time in day was copied for all positions, so taking 1 is enough
             region_vdist_tind = all_sample_data["pred_vdist"][..., region_mask, 1][..., 0]
-            region_vtime_values = np.mean(all_sample_data["pred_vtime"][..., region_mask, 0], axis=-1)
-            region_speed_values = np.nan_to_num(region_vdist_values / region_vtime_values, nan=-1)
+            region_vtime_values = np.nansum(all_sample_data["pred_vtime"][..., region_mask, 0], axis=-1)
+            region_speed_values = region_vdist_values / region_vtime_values
+            # the regional speed is very unlikely to be nan, but we still don't exclude this possibility
+            # region_speed_values = np.nan_to_num(region_speed_values, nan=-1)
             regional_speed.append(np.stack([region_speed_values, region_vdist_tind], axis=-1))
         # the elements have shape (N, T, 2), where 2 corresponds to (time_in_day, value)
         # we stack them into shape (N, T, R, 2) where R is the number of regions
@@ -226,18 +233,74 @@ class SimBarca(Dataset):
 
         return data_dict
 
-def build_train_loader(batch_size=8):
-    dataset = SimBarca(split="train", force_reload=False)
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=dataset.collate_fn)
+def visualize_batch(data_dict, pred_dict=None, save_dir="./", batch_num=0, section_num=573):
+    
+    import matplotlib.pyplot as plt
+    import seaborn as sns 
+    sns.set_style("darkgrid")
+    
+    # plot input and output 
+    b, s = batch_num, section_num
+    cluster_id = data_dict['metadata']['cluster_id']
+    drone_in = data_dict['drone_speed'].cpu().numpy()
+    ld_in = data_dict['ld_speed'].cpu().numpy()
 
-    return data_loader
+    label = data_dict['pred_speed'].cpu().numpy()
+    label_regional = data_dict['pred_speed_regional'].cpu().numpy()
+    in1 = drone_in[b, :, s, 0]
+    tin1 = np.linspace(0, 30, len(in1))
+    in2 = ld_in[b, :, s, 0]
+    tin2 = np.linspace(0, 30, len(in2))
+    label1 = label[b, :, s]
+    tlabel1 = np.linspace(33, 60, len(label1))
+    label2 = label_regional[b, :, cluster_id[s]]
+    tlabel2 = np.linspace(33, 60, len(label2))
+    
+    # draw the model predictions if available
+    if pred_dict is not None:
+        pred = pred_dict['pred_speed'].cpu().numpy()
+        pred_regional = pred_dict['pred_speed_regional'].cpu().numpy()
+        out1 = pred[b, :, s]
+        tout1 = np.linspace(33, 60, len(out1))
+        out2 = pred_regional[b, :, cluster_id[s]]
+        tout2 = np.linspace(33, 60, len(out2))
+        
+    fig, ax = plt.subplots(figsize=(6.5, 4))
 
+    ax.plot(tin1, in1, label="drone_input")
+    ax.plot(tin2, in2, label="ld_input")
+    ax.plot(tlabel1, label1, label="label_segment")
+    ax.plot(tlabel2, label2, label="label_regional")
+    
+    try:
+        ax.plot(tout1, out1, label="pred_segment")
+        ax.plot(tout2, out2, label="pred_regional")
+    except:
+        pass
+    
+    ax.set_xlabel("Time (min)")
+    ax.set_ylabel("Speed (m/s)")
+    ax.legend()
+    fig.savefig("{}/example_{}_{}.pdf".format(save_dir, b, s))
 
-def build_test_loader(batch_size=8):
-    dataset = SimBarca(split="test", force_reload=False)
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=dataset.collate_fn)
+def visualize_all_pred(all_preds, all_labels, save_dir="./", node_id=100):
 
-    return data_loader
+    import matplotlib.pyplot as plt
+    
+    p = node_id
+    
+    y1 = all_preds['pred_speed'][:, -1, p]
+    y2 = all_labels['pred_speed'][:, -1, p]
+    xx = np.arange(len(y1))
+
+    fig, ax = plt.subplots()
+    ax.plot(xx, y1, label='30min_pred')
+    ax.plot(xx, y2, label='GT', alpha=0.5)
+    ax.legend()
+    ax.set_xlabel("Time step (not exactly ...)")
+    ax.set_ylabel("Speed (m/s)")
+    
+    fig.savefig("{}/{}_30min.pdf".format(save_dir, "p_{}".format(p)))
 
 
 if __name__.endswith(".simbarca"):
@@ -253,12 +316,16 @@ if __name__ == "__main__":
     from netsanut.utils.event_logger import setup_logger
     logger = setup_logger(name="default", level=logging.INFO)
     
-    train_loader = build_train_loader()
+    train_set = SimBarca(split="train", force_reload=False)
+    test_set = SimBarca(split="test", force_reload=False)
+    
+    train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
+    test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
+
     for data_dict in train_loader:
-        print(data_dict.keys())
+        visualize_batch(data_dict)
         break
 
-    test_loader = build_test_loader()
     for data_dict in test_loader:
-        print(data_dict.keys())
+        visualize_batch(data_dict)
         break

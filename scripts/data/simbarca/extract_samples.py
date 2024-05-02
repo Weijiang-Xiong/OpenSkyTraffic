@@ -140,7 +140,7 @@ if __name__ == '__main__':
         modality_data[columns_without_vehicles] = np.nan
         modality_data = modality_data[section_ids_sorted]
         # we keep the nan values for the timesteps when no vehicles are present
-        # this will be handled in the dataset class
+        # NOTE the dataset processing will also keep the nan, the models should be able to handle them
         # modality_data.fillna(0, inplace=True)
         stats_all_sec[modality] = modality_data
     

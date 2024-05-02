@@ -86,19 +86,20 @@ def draw_mfd(folder):
     plt.close(fig)
 
     # plot the speed of one segment
-    fig, ax = plt.subplots(figsize=(5, 4))
-    ld_speed_seg = data['ld_speed'][9971]
-    gt_speed_seg = (vdist_3min / vtime_3min)[9971]
-    ld_speed_seg.plot(ax=ax, label='LD Speed')
-    gt_speed_seg.plot(ax=ax, label='GT Speed')
-    ax.legend()
-    ax.set_title("LD Speed vs. GT Speed")
-    ax.set_xlabel("Time stamp")
-    ax.set_ylabel("Speed (m/s)")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig('{}/speed_comparison.pdf'.format(folder))
-    plt.close(fig)
+    for sec_id in np.random.choice(data['ld_speed'].columns, 3, replace=False):
+        fig, ax = plt.subplots(figsize=(5, 4))
+        ld_speed_seg = data['ld_speed'][sec_id]
+        gt_speed_seg = (vdist_3min / vtime_3min)[sec_id]
+        ld_speed_seg.plot(ax=ax, label='LD Speed')
+        gt_speed_seg.plot(ax=ax, label='GT Speed')
+        ax.legend()
+        ax.set_title("LD Speed vs. GT Speed")
+        ax.set_xlabel("Time stamp")
+        ax.set_ylabel("Speed (m/s)")
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig('{}/speed_comparison_{}.pdf'.format(folder, sec_id))
+        plt.close(fig)
     
     return data
 

@@ -48,61 +48,6 @@ class SimBarcaEvaluator:
         for res_collection in [all_preds, all_labels]:
             for key, value in res_collection.items():
                 res_collection[key] = torch.cat(value, dim=0).detach().cpu()
-                
-        # # plot input and output 
-        # b, section = 0, 573
-        # dataset = dataloader.dataset
-        # drone_in = data_dict['drone_speed'].cpu().numpy()
-        # ld_in = data_dict['ld_speed'].cpu().numpy()
-        # pred = pred_dict['pred_speed'].cpu().numpy()
-        # pred_regional = pred_dict['pred_speed_regional'].cpu().numpy()
-        # label = data_dict['pred_speed'].cpu().numpy()
-        # label_regional = data_dict['pred_speed_regional'].cpu().numpy()
-        # in1 = drone_in[b, :, section, 0]
-        # tin1 = np.linspace(0, 30, len(in1))
-        # in2 = ld_in[b, :, section, 0]
-        # tin2 = np.linspace(0, 30, len(in2))
-        # out1 = pred[b, :, section]
-        # tout1 = np.linspace(33, 60, len(out1))
-        # out2 = pred_regional[b, :, dataset.cluster_id[section]]
-        # tout2 = np.linspace(33, 60, len(out2))
-        # label1 = label[b, :, section]
-        # tlabel1 = np.linspace(33, 60, len(label1))
-        # label2 = label_regional[b, :, dataset.cluster_id[section]]
-        # tlabel2 = np.linspace(33, 60, len(label2))
-        
-        # import matplotlib.pyplot as plt
-        # import seaborn as sns 
-        # sns.set_style("darkgrid")
-
-        # fig, ax = plt.subplots(figsize=(6.5, 4))
-
-        # ax.plot(tin1, in1, label="drone_input")
-        # ax.plot(tin2, in2, label="ld_input")
-        # ax.plot(tout1, out1, label="pred_segment")
-        # ax.plot(tout2, out2, label="pred_regional")
-        # ax.plot(tlabel1, label1, label="label_segment")
-        # ax.plot(tlabel2, label2, label="label_regional")
-        # ax.set_xlabel("Time (min)")
-        # ax.set_ylabel("Speed (m/s)")
-        # ax.legend()
-        # fig.savefig("example_{}_{}.pdf".format(b, section))
-        
-        # import numpy as np
-        # import matplotlib.pyplot as plt
-        # p = 100 
-        # y1 = all_preds['pred_speed'][:, -1, p]
-        # y2 = all_labels['pred_speed'][:, -1, p]
-        # xx = np.arange(len(y1))
-
-        # fig, ax = plt.subplots()
-        # ax.plot(xx, y1, label='30min_pred')
-        # ax.plot(xx, y2, label='GT', alpha=0.5)
-        # ax.legend()
-        # ax.set_xlabel("Time step (not exactly ...)")
-        # ax.set_ylabel("Speed (m/s)")
-        
-        # fig.savefig("{}/{}_30min.pdf".format(self.save_dir, "p_{}".format(p)))
         
         return all_preds, all_labels
 
@@ -200,19 +145,50 @@ class InputAverageModel(nn.Module):
         
     def forward(self, data_dict):
         cluster_id = torch.as_tensor(data_dict["metadata"]["cluster_id"])
-        data_seq = nan_to_global_avg(invalid_to_nan(data_dict[self.seq_name][..., 0], null_value=-1.0))
+        data_seq = data_dict[self.seq_name][..., 0]
         
-        pred_speed = torch.mean(data_seq, dim=1, keepdim=True).tile(1, 10, 1)
+        pred_speed = torch.nanmean(data_seq, dim=1, keepdim=True).tile(1, 10, 1)
         regional_speed = torch.cat(
             [
-                torch.mean(pred_speed[:, :,  cluster_id==region_id], dim=2).unsqueeze(2)
+                torch.nanmean(pred_speed[:, :,  cluster_id==region_id], dim=2).unsqueeze(2)
                 for region_id in cluster_id.unique()
             ],
             dim=2,
         )
         return {
-            "pred_speed": pred_speed,
-            "pred_speed_regional": regional_speed
+            "pred_speed": nan_to_global_avg(pred_speed),
+            "pred_speed_regional": nan_to_global_avg(regional_speed)
+        }
+
+class LastObservedModel(nn.Module):
+    
+    def __init__(self, seq_name):
+        super().__init__()
+        self.seq_name = seq_name
+    
+    def forward(self, data_dict):
+        cluster_id = torch.as_tensor(data_dict["metadata"]["cluster_id"])
+        data_seq = data_dict[self.seq_name][..., 0]
+        
+        # https://github.com/pandas-dev/pandas/blob/d9cdd2ee5a58015ef6f4d15c7226110c9aab8140/pandas/core/missing.py#L224
+        is_valid = torch.logical_not(torch.isnan(data_seq))
+        last_valid_index = is_valid.size(1) - 1 - is_valid.flip(1).type(torch.float).argmax(dim=1)
+        # generalized from this 2d indexing case (we have 3d here)
+        # https://discuss.pytorch.org/t/selecting-from-a-2d-tensor-with-rows-of-column-indexes/167717/2
+        # basically the indexes by torch.arange is boradcasted to match the size of last_valid_index
+        # check for example data_seq[5, :, 1111] and pred_speed[5, 1111] to see if the last valid index is correct
+        pred_speed = data_seq[torch.arange(data_seq.size(0)).unsqueeze(1), last_valid_index, torch.arange(data_seq.size(2)).unsqueeze(0)]
+        pred_speed = pred_speed.unsqueeze(1).tile(1, 10, 1)
+        pred_speed_regional = torch.cat(
+            [
+                torch.nanmean(pred_speed[:, :,  cluster_id==region_id], dim=2).unsqueeze(2)
+                for region_id in cluster_id.unique()
+            ],
+            dim=2,
+        )
+        return {
+            "pred_speed": nan_to_global_avg(pred_speed),
+            "pred_speed_regional": nan_to_global_avg(pred_speed_regional)
         }
 
 class HistoricalAverageModel(nn.Module):
@@ -229,9 +205,10 @@ class HistoricalAverageModel(nn.Module):
         for batch in dataloader:
             all_pred_speed.append(batch['pred_speed'])
             all_pred_speed_regional.append(batch['pred_speed_regional'])
-            
-        all_pred_speed = invalid_to_nan(torch.cat(all_pred_speed, dim=0), null_value=-1.0)
-        all_pred_speed_regional = invalid_to_nan(torch.cat(all_pred_speed_regional, dim=0), null_value=-1.0)
+
+        all_pred_speed = torch.cat(all_pred_speed, dim=0)
+        all_pred_speed_regional = torch.cat(all_pred_speed_regional, dim=0)
+
         N, T, P = all_pred_speed.shape
         pred_speed = torch.nanmean(all_pred_speed[:, 0, :], dim=0, keepdim=True).unsqueeze(1).tile(1, T, 1)
         regional_speed = torch.nanmean(all_pred_speed_regional[:, 0, :], dim=0, keepdim=True).unsqueeze(1).tile(1, T, 1)
@@ -254,10 +231,11 @@ def evaluate_trivial_models(dataloader):
     make_dir_if_not_exist(save_dir)
     evaluator = SimBarcaEvaluator(save_dir)
     
-    for mode in ["ld_speed", "drone_speed"]:
-        print("Evaluating trivial models {}".format(mode))
-        res = evaluator.evaluate(InputAverageModel(mode), dataloader, verbose=True)
-        save_res_to_dir(save_dir, res, "{}".format(mode))
+    for model_class in [InputAverageModel, LastObservedModel]:
+        for mode in ["ld_speed", "drone_speed"]:
+            print("Evaluating trivial models {} {}".format(model_class.__name__, mode))
+            res = evaluator.evaluate(model_class(mode), dataloader, verbose=True)
+            save_res_to_dir(save_dir, res, "{}".format(mode))
 
     # historical average
     print("Evaluating trivial models historical_avg")
