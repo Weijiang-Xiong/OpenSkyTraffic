@@ -19,18 +19,20 @@ from netsanut.data import SimBarca
 
 class SimBarcaEvaluator:
 
-    def __init__(self, save_dir: str=None, save_res: bool=True) -> None:
+    def __init__(self, save_dir: str=None, save_res: bool=True, ignore_value=-1.0, mape_threshold=5) -> None:
         self.save_dir = save_dir
         self.save_res = save_res
+        self.ignore_value = ignore_value
+        self.mape_threshold = mape_threshold
         make_dir_if_not_exist(self.save_dir)
     
-    def __call__(self, model: nn.Module, dataloader: DataLoader, **kwargs) -> Dict[str, float]:
-        return self.evaluate(model, dataloader, **kwargs)
+    def __call__(self, model: nn.Module, data_loader: DataLoader, **kwargs) -> Dict[str, float]:
+        return self.evaluate(model, data_loader, **kwargs)
 
     def collect_predictions(self, 
-        model: nn.Module, dataloader: DataLoader, seq_names=[]
+        model: nn.Module, data_loader: DataLoader, seq_names=[]
     ) -> Dict[str, torch.Tensor]:
-        """run inference of the model on the dataloader
+        """run inference of the model on the data_loader
         concatenate all predictions and corresponding labels.
 
         Returns: predictions, labels
@@ -40,7 +42,7 @@ class SimBarcaEvaluator:
         all_preds = defaultdict(list)
         all_labels = defaultdict(list)
 
-        for data_dict in dataloader:
+        for data_dict in data_loader:
             with torch.no_grad():
                 pred_dict = model(data_dict)
 
@@ -57,11 +59,11 @@ class SimBarcaEvaluator:
 
 
     def evaluate(self,
-        model: nn.Module, dataloader: DataLoader, ignore_value=-1.0, mape_threshold=5, verbose=False, visualize=False, save_note="example"
+        model: nn.Module, data_loader: DataLoader, verbose=False, visualize=False, save_note="example"
     ) -> Dict[str, float]:
         logger = logging.getLogger("default")
 
-        all_preds, all_labels = self.collect_predictions(model, dataloader, ["pred_speed", "pred_speed_regional"])
+        all_preds, all_labels = self.collect_predictions(model, data_loader, ["pred_speed", "pred_speed_regional"])
 
         avg_eval_res = dict() # average over all time steps
         eval_res_over_time = defaultdict(lambda: defaultdict(list))
@@ -75,7 +77,7 @@ class SimBarcaEvaluator:
             for i in range(seq_preds.shape[1]):  # number of predicted time step
                 pred = seq_preds[:, i, :]
                 real = seq_labels[:, i, :]
-                step_metrics = prediction_metrics(pred, real, ignore_value=ignore_value, mape_threshold=mape_threshold)
+                step_metrics = prediction_metrics(pred, real, self.ignore_value, self.mape_threshold)
                 for k, v in step_metrics.items():
                     eval_res_over_time[seq_name][k].append(v)
                     
@@ -88,9 +90,7 @@ class SimBarcaEvaluator:
                     )
 
             # average performance on all prediction steps, usually not reported in papers, but this can be useful in logging
-            seq_res = prediction_metrics(
-                seq_preds, seq_labels, ignore_value=ignore_value, mape_threshold=mape_threshold
-            )
+            seq_res = prediction_metrics(seq_preds, seq_labels, self.ignore_value, self.mape_threshold)
             if verbose:
                 logger.info("On average over different time steps")
                 logger.info(
@@ -107,7 +107,8 @@ class SimBarcaEvaluator:
             
         if visualize:
             
-            dataset: SimBarca = dataloader.dataset
+            data_dict = next(iter(data_loader))
+            dataset: SimBarca = data_loader.dataset
             model.eval()
             
             section_num = torch.randint(0, dataset.node_coordinates.shape[0], (1,)).item()
@@ -116,7 +117,9 @@ class SimBarcaEvaluator:
             dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=save_note)
             
         res = flatten_results_dict(avg_eval_res)
-        save_res_to_dir(self.save_dir, res, save_note)
+        
+        if self.save_res:
+            save_res_to_dir(self.save_dir, res, save_note)
         
         return res 
 
@@ -130,7 +133,7 @@ def save_res_to_dir(save_dir, res, save_note="default"):
             res[k] = dict(v)
         
     # save res to a json file
-    with open("{}/{}.json".format(save_dir, save_note), "w") as f:
+    with open("{}/Eval_res_{}.json".format(save_dir, save_note), "w") as f:
         json.dump(res, f, indent=4)
 
 
@@ -196,16 +199,16 @@ class LastObservedModel(nn.Module):
 
 class HistoricalAverageModel(nn.Module):
     
-    def __init__(self, dataloader) -> None:
+    def __init__(self, data_loader) -> None:
         super().__init__()
-        self.set_historial_avg_from_dataloader(dataloader)
+        self.set_historial_avg_from_dataloader(data_loader)
     
-    def set_historial_avg_from_dataloader(self, dataloader):
-        """ go through the dataloader and calculate the historical average speed
+    def set_historial_avg_from_dataloader(self, data_loader):
+        """ go through the data_loader and calculate the historical average speed
         """
         
         all_pred_speed, all_pred_speed_regional = [], []
-        for batch in dataloader:
+        for batch in data_loader:
             all_pred_speed.append(batch['pred_speed'])
             all_pred_speed_regional.append(batch['pred_speed_regional'])
 
@@ -228,7 +231,7 @@ class HistoricalAverageModel(nn.Module):
         }
 
 
-def evaluate_trivial_models(dataloader):
+def evaluate_trivial_models(data_loader):
 
     save_dir = "{}/{}".format("./scratch", "simbarca_trivial_baselines")
     evaluator = SimBarcaEvaluator(save_dir, save_res=True)
@@ -237,13 +240,11 @@ def evaluate_trivial_models(dataloader):
     for model_class in [InputAverageModel, LastObservedModel]:
         for mode in ["ld_speed", "drone_speed"]:
             print("Evaluating trivial models {} {}".format(model_class.__name__, mode))
-            res = evaluator.evaluate(model_class(mode), dataloader, verbose=True, visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
-            save_res_to_dir(save_dir, res, "{}".format(mode))
+            res = evaluator.evaluate(model_class(mode), data_loader, verbose=True, visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
 
     # historical average
     print("Evaluating trivial models historical_avg")
-    res = evaluator.evaluate(HistoricalAverageModel(dataloader=dataloader), dataloader, verbose=True, visualize=True, save_note="HistoricalAverageModel")
-    save_res_to_dir(save_dir, res, "historical_avg")
+    res = evaluator.evaluate(HistoricalAverageModel(data_loader=data_loader), data_loader, verbose=True, visualize=True, save_note="HistoricalAverageModel")
     
 
 if __name__ == "__main__":
@@ -253,14 +254,7 @@ if __name__ == "__main__":
 
     dataset = SimBarca(split="test", force_reload=False)
     data_loader = DataLoader(dataset, batch_size=8, shuffle=False, collate_fn=dataset.collate_fn)
-    for data_dict in data_loader:
-        print(data_dict.keys())
-        break
-    
+
     evaluate_trivial_models(data_loader)
-    HA_model = HistoricalAverageModel(data_loader)
-    for batch in data_loader:
-        pred = HA_model(batch)
-        SimBarca.visualize_batch(batch, pred, save_dir="./scratch/simbarca_trivial_baselines/")
-        break
+
     
