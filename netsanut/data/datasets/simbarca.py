@@ -232,75 +232,77 @@ class SimBarca(Dataset):
         data_dict["metadata"] = self.metadata
 
         return data_dict
-
-def visualize_batch(data_dict, pred_dict=None, save_dir="./", batch_num=0, section_num=573):
     
-    import matplotlib.pyplot as plt
-    import seaborn as sns 
-    sns.set_style("darkgrid")
-    
-    # plot input and output 
-    b, s = batch_num, section_num
-    cluster_id = data_dict['metadata']['cluster_id']
-    drone_in = data_dict['drone_speed'].cpu().numpy()
-    ld_in = data_dict['ld_speed'].cpu().numpy()
-
-    label = data_dict['pred_speed'].cpu().numpy()
-    label_regional = data_dict['pred_speed_regional'].cpu().numpy()
-    in1 = drone_in[b, :, s, 0]
-    tin1 = np.linspace(0, 30, len(in1))
-    in2 = ld_in[b, :, s, 0]
-    tin2 = np.linspace(0, 30, len(in2))
-    label1 = label[b, :, s]
-    tlabel1 = np.linspace(33, 60, len(label1))
-    label2 = label_regional[b, :, cluster_id[s]]
-    tlabel2 = np.linspace(33, 60, len(label2))
-    
-    # draw the model predictions if available
-    if pred_dict is not None:
-        pred = pred_dict['pred_speed'].cpu().numpy()
-        pred_regional = pred_dict['pred_speed_regional'].cpu().numpy()
-        out1 = pred[b, :, s]
-        tout1 = np.linspace(33, 60, len(out1))
-        out2 = pred_regional[b, :, cluster_id[s]]
-        tout2 = np.linspace(33, 60, len(out2))
+    @staticmethod
+    def visualize_batch(data_dict, pred_dict=None, save_dir="./", batch_num=0, section_num=573):
         
-    fig, ax = plt.subplots(figsize=(6.5, 4))
+        import matplotlib.pyplot as plt
+        import seaborn as sns 
+        sns.set_style("darkgrid")
+        
+        # plot input and output 
+        b, s = batch_num, section_num
+        cluster_id = data_dict['metadata']['cluster_id']
+        drone_in = data_dict['drone_speed'].cpu().numpy()
+        ld_in = data_dict['ld_speed'].cpu().numpy()
 
-    ax.plot(tin1, in1, label="drone_input")
-    ax.plot(tin2, in2, label="ld_input")
-    ax.plot(tlabel1, label1, label="label_segment")
-    ax.plot(tlabel2, label2, label="label_regional")
-    
-    try:
-        ax.plot(tout1, out1, label="pred_segment")
-        ax.plot(tout2, out2, label="pred_regional")
-    except:
-        pass
-    
-    ax.set_xlabel("Time (min)")
-    ax.set_ylabel("Speed (m/s)")
-    ax.legend()
-    fig.savefig("{}/example_{}_{}.pdf".format(save_dir, b, s))
+        label = data_dict['pred_speed'].cpu().numpy()
+        label_regional = data_dict['pred_speed_regional'].cpu().numpy()
+        in1 = drone_in[b, :, s, 0]
+        tin1 = np.linspace(0, 30, len(in1))
+        in2 = ld_in[b, :, s, 0]
+        tin2 = np.linspace(0, 30, len(in2))
+        label1 = label[b, :, s]
+        tlabel1 = np.linspace(33, 60, len(label1))
+        label2 = label_regional[b, :, cluster_id[s]]
+        tlabel2 = np.linspace(33, 60, len(label2))
+        
+        # draw the model predictions if available
+        if pred_dict is not None:
+            pred = pred_dict['pred_speed'].cpu().numpy()
+            pred_regional = pred_dict['pred_speed_regional'].cpu().numpy()
+            out1 = pred[b, :, s]
+            tout1 = np.linspace(33, 60, len(out1))
+            out2 = pred_regional[b, :, cluster_id[s]]
+            tout2 = np.linspace(33, 60, len(out2))
+            
+        fig, ax = plt.subplots(figsize=(6.5, 4))
 
-def visualize_all_pred(all_preds, all_labels, save_dir="./", node_id=100):
+        ax.plot(tin1, in1, label="drone_input")
+        ax.plot(tin2, in2, label="ld_input")
+        ax.plot(tlabel1, label1, label="label_segment")
+        ax.plot(tlabel2, label2, label="label_regional")
+        
+        try:
+            ax.plot(tout1, out1, label="pred_segment")
+            ax.plot(tout2, out2, label="pred_regional")
+        except:
+            pass
+        
+        ax.set_xlabel("Time (min)")
+        ax.set_ylabel("Speed (m/s)")
+        ax.legend()
+        fig.savefig("{}/example_{}_{}.pdf".format(save_dir, b, s))
 
-    import matplotlib.pyplot as plt
-    
-    p = node_id
-    
-    y1 = all_preds['pred_speed'][:, -1, p]
-    y2 = all_labels['pred_speed'][:, -1, p]
-    xx = np.arange(len(y1))
+    @staticmethod
+    def visualize_all_pred(all_preds, all_labels, save_dir="./", section_num=100):
 
-    fig, ax = plt.subplots()
-    ax.plot(xx, y1, label='30min_pred')
-    ax.plot(xx, y2, label='GT', alpha=0.5)
-    ax.legend()
-    ax.set_xlabel("Time step (not exactly ...)")
-    ax.set_ylabel("Speed (m/s)")
-    
-    fig.savefig("{}/{}_30min.pdf".format(save_dir, "p_{}".format(p)))
+        import matplotlib.pyplot as plt
+        
+        p = section_num
+        
+        y1 = all_preds['pred_speed'][:, -1, p]
+        y2 = all_labels['pred_speed'][:, -1, p]
+        xx = np.arange(len(y1))
+
+        fig, ax = plt.subplots()
+        ax.plot(xx, y1, label='30min_pred')
+        ax.plot(xx, y2, label='GT', alpha=0.5)
+        ax.legend()
+        ax.set_xlabel("Time step (not exactly ...)")
+        ax.set_ylabel("Speed (m/s)")
+        
+        fig.savefig("{}/{}_30min.pdf".format(save_dir, "p_{}".format(p)))
 
 
 if __name__.endswith(".simbarca"):
@@ -323,9 +325,9 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
 
     for data_dict in train_loader:
-        visualize_batch(data_dict)
+        SimBarca.visualize_batch(data_dict)
         break
 
     for data_dict in test_loader:
-        visualize_batch(data_dict)
+        SimBarca.visualize_batch(data_dict)
         break

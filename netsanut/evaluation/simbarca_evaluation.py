@@ -5,6 +5,10 @@ import torch
 import torch.nn as nn 
 from torch.utils.data import DataLoader
 
+import matplotlib.pyplot as plt
+import seaborn as sns 
+sns.set_style('darkgrid')
+
 from typing import Dict
 from collections import defaultdict
 
@@ -14,10 +18,9 @@ from netsanut.evaluation.metrics import prediction_metrics
 
 class SimBarcaEvaluator:
 
-    def __init__(self, save_dir: str=None, save_res: bool=True, save_note:str=None) -> None:
+    def __init__(self, save_dir: str=None, save_res: bool=True) -> None:
         self.save_dir = save_dir
         self.save_res = save_res
-        self.save_note = save_note if save_note is not None else "default"
         make_dir_if_not_exist(self.save_dir)
     
     def __call__(self, model: nn.Module, dataloader: DataLoader, **kwargs) -> Dict[str, float]:
@@ -53,7 +56,7 @@ class SimBarcaEvaluator:
 
 
     def evaluate(self,
-        model: nn.Module, dataloader: DataLoader, ignore_value=-1.0, mape_threshold=5, verbose=False, visualize=False
+        model: nn.Module, dataloader: DataLoader, ignore_value=-1.0, mape_threshold=5, verbose=False, visualize=False, save_note="example"
     ) -> Dict[str, float]:
         logger = logging.getLogger("default")
 
@@ -100,20 +103,24 @@ class SimBarcaEvaluator:
             #     res_u = uncertainty_metrics(all_preds, all_labels, all_scales, offset_coeffs, verbose=verbose)
             #     res.update(res_u)
             avg_eval_res[seq_name] = seq_res
-
-            # MAE = torch.abs(all_preds['pred_speed'] - all_labels['pred_speed'])
-            # mae_by_section = torch.mean(MAE, dim=(0,1))
-            # node_positions = dataloader.dataset.node_coordinates
-            # fig, ax = plt.subplots(figsize=(6.5, 4))
-            # im = ax.scatter(node_positions[:, 0], node_positions[:, 1], c=mae_by_section.numpy(), s=2)
-            # fig.colorbar(im, ax=ax)
-            # ax.set_xlabel("X Coordinates")
-            # ax.set_ylabel("Y Coordinates")
-            # fig.tight_layout()
-            # fig.savefig("average_mae.pdf")
+            
+        if visualize:
+            
+            MAE = torch.abs(all_preds['pred_speed'] - all_labels['pred_speed'])
+            mae_by_section = torch.nanmean(MAE, dim=(0,1))
+            node_positions = dataloader.dataset.node_coordinates
+            fig, ax = plt.subplots(figsize=(6.5, 4))
+            im = ax.scatter(node_positions[:, 0], node_positions[:, 1], c=mae_by_section.numpy(), s=2)
+            fig.colorbar(im, ax=ax)
+            ax.set_xlabel("X Coordinates")
+            ax.set_ylabel("Y Coordinates")
+            fig.tight_layout()
+            fig.savefig("{}/average_mae_{}.pdf".format(self.save_dir, save_note))
+            
+            
             
         res = flatten_results_dict(avg_eval_res)
-        save_res_to_dir(self.save_dir, res, self.save_note)
+        save_res_to_dir(self.save_dir, res, save_note)
         
         return res 
 
@@ -227,19 +234,19 @@ class HistoricalAverageModel(nn.Module):
 
 def evaluate_trivial_models(dataloader):
 
-    save_dir = "{}/{}".format(SimBarca.data_root, "trivial_models")
+    save_dir = "{}/{}".format("./scratch", "simbarca_trivial_baselines")
+    evaluator = SimBarcaEvaluator(save_dir, save_res=True)
     make_dir_if_not_exist(save_dir)
-    evaluator = SimBarcaEvaluator(save_dir)
     
     for model_class in [InputAverageModel, LastObservedModel]:
         for mode in ["ld_speed", "drone_speed"]:
             print("Evaluating trivial models {} {}".format(model_class.__name__, mode))
-            res = evaluator.evaluate(model_class(mode), dataloader, verbose=True)
+            res = evaluator.evaluate(model_class(mode), dataloader, verbose=True, visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
             save_res_to_dir(save_dir, res, "{}".format(mode))
 
     # historical average
     print("Evaluating trivial models historical_avg")
-    res = evaluator.evaluate(HistoricalAverageModel(dataloader=dataloader), dataloader, verbose=True)
+    res = evaluator.evaluate(HistoricalAverageModel(dataloader=dataloader), dataloader, verbose=True, visualize=True, save_note="HistoricalAverageModel")
     save_res_to_dir(save_dir, res, "historical_avg")
     
 
@@ -255,3 +262,9 @@ if __name__ == "__main__":
         break
     
     evaluate_trivial_models(data_loader)
+    HA_model = HistoricalAverageModel(data_loader)
+    for batch in data_loader:
+        pred = HA_model(batch)
+        SimBarca.visualize_batch(batch, pred, save_dir="./scratch/simbarca_trivial_baselines/")
+        break
+    
