@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 
 import torch
 import torch.nn as nn 
@@ -14,7 +15,7 @@ from collections import defaultdict
 
 from netsanut.utils.io import flatten_results_dict, make_dir_if_not_exist
 from netsanut.evaluation.metrics import prediction_metrics
-
+from netsanut.data import SimBarca
 
 class SimBarcaEvaluator:
 
@@ -106,18 +107,13 @@ class SimBarcaEvaluator:
             
         if visualize:
             
-            MAE = torch.abs(all_preds['pred_speed'] - all_labels['pred_speed'])
-            mae_by_section = torch.nanmean(MAE, dim=(0,1))
-            node_positions = dataloader.dataset.node_coordinates
-            fig, ax = plt.subplots(figsize=(6.5, 4))
-            im = ax.scatter(node_positions[:, 0], node_positions[:, 1], c=mae_by_section.numpy(), s=2)
-            fig.colorbar(im, ax=ax)
-            ax.set_xlabel("X Coordinates")
-            ax.set_ylabel("Y Coordinates")
-            fig.tight_layout()
-            fig.savefig("{}/average_mae_{}.pdf".format(self.save_dir, save_note))
+            dataset: SimBarca = dataloader.dataset
+            model.eval()
             
-            
+            section_num = torch.randint(0, dataset.node_coordinates.shape[0], (1,)).item()
+            dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=save_note)
+            dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=save_note)
+            dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=save_note)
             
         res = flatten_results_dict(avg_eval_res)
         save_res_to_dir(self.save_dir, res, save_note)

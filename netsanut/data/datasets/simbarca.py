@@ -9,6 +9,10 @@ from typing import List, Dict
 import numpy as np
 import pandas as pd
 
+import matplotlib.pyplot as plt
+import seaborn as sns 
+sns.set_style("darkgrid")
+
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -234,11 +238,7 @@ class SimBarca(Dataset):
         return data_dict
     
     @staticmethod
-    def visualize_batch(data_dict, pred_dict=None, save_dir="./", batch_num=0, section_num=573):
-        
-        import matplotlib.pyplot as plt
-        import seaborn as sns 
-        sns.set_style("darkgrid")
+    def visualize_batch(data_dict, pred_dict=None, save_dir="./", batch_num=0, section_num=573, save_note="example"):
         
         # plot input and output 
         b, s = batch_num, section_num
@@ -282,13 +282,11 @@ class SimBarca(Dataset):
         ax.set_xlabel("Time (min)")
         ax.set_ylabel("Speed (m/s)")
         ax.legend()
-        fig.savefig("{}/example_{}_{}.pdf".format(save_dir, b, s))
+        fig.savefig("{}/pred_sample_b{}s{}_{}.pdf".format(save_dir, b, s, save_note))
 
     @staticmethod
-    def visualize_all_pred(all_preds, all_labels, save_dir="./", section_num=100):
+    def plot_pred_for_section(all_preds, all_labels, save_dir="./", section_num=100, save_note="example"):
 
-        import matplotlib.pyplot as plt
-        
         p = section_num
         
         y1 = all_preds['pred_speed'][:, -1, p]
@@ -302,8 +300,20 @@ class SimBarca(Dataset):
         ax.set_xlabel("Time step (not exactly ...)")
         ax.set_ylabel("Speed (m/s)")
         
-        fig.savefig("{}/{}_30min.pdf".format(save_dir, "p_{}".format(p)))
+        fig.savefig("{}/30min_ahead_pred_{}_{}.pdf".format(save_dir, p, save_note))
 
+    @staticmethod
+    def plot_MAE_by_location(node_coordinates, all_preds, all_labels, save_dir="./", save_note="example"):
+        MAE = torch.abs(all_preds['pred_speed'] - all_labels['pred_speed'])
+        mae_by_section = torch.nanmean(MAE, dim=(0,1))
+        fig, ax = plt.subplots(figsize=(6.5, 4))
+        im = ax.scatter(node_coordinates[:, 0], node_coordinates[:, 1], c=mae_by_section.numpy(), s=2)
+        fig.colorbar(im, ax=ax)
+        ax.set_xlabel("X Coordinates")
+        ax.set_ylabel("Y Coordinates")
+        fig.tight_layout()
+        fig.savefig("{}/average_mae_{}.pdf".format(save_dir, save_note))
+        
 
 if __name__.endswith(".simbarca"):
     """this happens when something is imported from this file
