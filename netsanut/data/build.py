@@ -14,7 +14,7 @@ def build_dataset(cfg: Dict):
 
 def build_train_loader(dataset: Dataset, cfg: Dict):
     loader_cfg = deepcopy(cfg)
-    shuffle = loader_cfg.pop('shuffle', True) # default to True
+    shuffle = loader_cfg.pop('shuffle', True) # default to True if not specified in config 
     dataloader = DataLoader(dataset, shuffle=shuffle, collate_fn=dataset.collate_fn, **loader_cfg)
     return dataloader
 
@@ -24,6 +24,6 @@ def build_test_loader(dataset, cfg: Dict):
             2. no sampler will be used by default
     """
     loader_cfg = deepcopy(cfg)
-    shuffle = loader_cfg.pop('shuffle', False) # default to False
+    shuffle = loader_cfg.pop('shuffle', False) # default to False if not specified in config 
     dataloader = DataLoader(dataset, shuffle=shuffle, collate_fn=dataset.collate_fn, **loader_cfg)
     return dataloader

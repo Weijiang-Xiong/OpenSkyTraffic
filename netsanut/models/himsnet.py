@@ -13,7 +13,6 @@ from netsanut.data.transform import TensorDataScaler
 from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 
-@MODEL_CATALOG.register()
 class HiMSNet(nn.Module):
     def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, 
                  d_model=64, global_downsample_factor:int=2, layernorm=True, **kwargs):
@@ -39,7 +38,7 @@ class HiMSNet(nn.Module):
         self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570)
         
         if self.use_drone:
-            self.drone_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
+            self.drone_embedding = ValueEmbedding(d_model=d_model)
             self.temporal_encoding_drone = LearnedPositionalEncoding(d_model=d_model)
             # drone data has higher temporal resolution, so we use two conv layers to down sample
             self.drone_t_patching_1 = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, stride=3)
@@ -48,7 +47,7 @@ class HiMSNet(nn.Module):
             self.drone_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
             
         if self.use_ld:
-            self.ld_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
+            self.ld_embedding = ValueEmbedding(d_model=d_model)
             self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model)
             self.ld_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
             self.ld_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
@@ -117,8 +116,8 @@ class HiMSNet(nn.Module):
                 "ld_speed": data["ld_speed"].to(self.device),
             }
         target = {
-            "pred_speed": data["pred_speed"].to(self.device),
-            "pred_speed_regional": data["pred_speed_regional"].to(self.device),
+            "pred_speed": data["pred_speed"].nan_to_num(nan=self.ignore_value).to(self.device),
+            "pred_speed_regional": data["pred_speed_regional"].nan_to_num(nan=self.ignore_value).to(self.device),
         }
         
         return source, target
@@ -141,9 +140,8 @@ class HiMSNet(nn.Module):
         all_mode_features = [] # store the features of all modalities
         
         if self.use_drone:
-            x_drone = rearrange(x_drone, "N T P C -> N C P T")
             x_drone = self.drone_embedding(x_drone)
-            x_drone = rearrange(x_drone, "N C P T -> (N P) C T")
+            x_drone = rearrange(x_drone, "N T P C -> (N P) C T")
             x_drone = self.drone_t_patching_1(x_drone)
             x_drone = self.drone_t_patching_2(x_drone)
             x_drone = rearrange(x_drone, "(N P) C T -> (N T) P C", N=N)
@@ -157,9 +155,8 @@ class HiMSNet(nn.Module):
             all_mode_features.append(x_drone)
         
         if self.use_ld:
-            x_ld = rearrange(x_ld, "N T P C -> N C P T")
             x_ld = self.ld_embedding(x_ld)
-            x_ld = rearrange(x_ld, "N C P T -> (N T) P C")
+            x_ld = rearrange(x_ld, "N T P C -> (N T) P C")
             x_ld = self.spatial_encoding(x_ld)
             x_ld = rearrange(x_ld, "(N T) P C -> (N P) T C", N=N)
             x_ld = self.temporal_encoding_ld(x_ld)
@@ -236,37 +233,60 @@ class HiMSNet(nn.Module):
 
         return self._distribution
 
-# some initial test codes
-if __name__ == "__main__":
-    adjacency = torch.randint(low=0, high=2, size=(1570, 1570)).cuda()
-    edge_index = adjacency.nonzero().t().contiguous()
-    fake_data_dict = {
-        "drone_speed": torch.rand(size=(2, 360, 1570, 2)).cuda(),
-        "ld_speed": torch.rand(size=(2, 10, 1570, 2)).cuda(),
-        "pred_speed": torch.rand(size=(2, 10, 1570)).cuda(),
-        "pred_speed_regional": torch.rand(size=(2, 10, 4)).cuda(),
-        "metadata": {
-            "adjacency": adjacency,
-            "edge_index": edge_index,
-            "cluster_id": torch.randint(low=0, high=4, size=(1570,)).cuda(),
-            "grid_id": torch.randint(low=0, high=150, size=(1570,)).cuda(),
-            "mean_and_std": {
-                "drone_speed": (0.0, 1.0),
-                "ld_speed": (0.0, 1.0),
-                "pred_speed": (0.0, 1.0),
-                "pred_speed_regional": (0.0, 1.0),
-            },
-            "input_seqs": ["drone_speed", "ld_speed"],
-            "output_seqs": ["pred_speed", "pred_speed_regional"],
-        },
-    }
 
-    model = HiMSNet().cuda()
+class ValueEmbedding(nn.Module):
+    
+    def __init__(self, d_model:int, nan_place_holder=-1.0) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.time_emb_w = nn.Parameter(torch.randn(1, d_model))
+        self.time_emb_b = nn.Parameter(torch.randn(1, d_model))
+        self.value_emb_w = nn.Parameter(torch.randn(1, d_model))
+        self.value_emb_b = nn.Parameter(torch.randn(1, d_model))
+        self.empty_token = nn.Parameter(torch.randn(d_model)) # fit the tensor shape N, C, H, W
+        self.unmonitored_token = nn.Parameter(torch.randn(d_model))
+        
+    def forward(self, x, empty_value = torch.nan, unmonitored: torch.Tensor = None):
+        """_summary_
 
-    model.train()
-    loss_dict = model(fake_data_dict)
-    loss = sum(loss_dict.values())
-    loss.backward()
+        Args:
+            x (torch.Tensor): _description_
+            empty_value (torch.Tensor): _description_. Defaults to torch.nan.
+            unmonitored (torch.Tensor): _description_. Defaults to None.
 
-    model.eval()
-    res = model(fake_data_dict)
+        Returns:
+            _type_: _description_
+        """
+        N, T, P, C = x.shape
+        value, time = x[:, :, :, 0], x[:, :, :, 1]
+        
+        time_emb = time.unsqueeze(-1) * self.time_emb_w + self.time_emb_b
+        
+        # comparing by == doesn't work with nan
+        if empty_value in [float("nan"), np.nan, torch.nan, None]:
+            empty_mask = torch.isnan(value)
+        else:
+            empty_mask = (value == empty_value)
+        
+        # replace the empty values (NaN) with the corresponding token
+        value_emb = torch.empty(size=(N, T, P, self.d_model), device=self.device)
+        value_emb[~empty_mask] = value.unsqueeze(-1)[~empty_mask] * self.value_emb_w+ self.value_emb_b
+        value_emb[empty_mask] = self.empty_token
+        
+        # replace the unmonitored values using the unmonitored token
+        if unmonitored is not None:
+            value_emb[unmonitored] = self.unmonitored_token
+            
+        emb = time_emb + value_emb
+        
+        return emb.contiguous()
+
+    @property
+    def device(self):
+        return list(self.parameters())[0].device
+
+# one can write this as a decorator above the class definition, but that will lose the type hints 
+# because in general one can not know what the decorator will return, so the type of the defined 
+# model will be hinted as "Any", instead of the model class it belongs to
+if __name__.endswith("himsnet"):
+    MODEL_CATALOG.register(HiMSNet)

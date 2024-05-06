@@ -8,13 +8,13 @@ from netsanut.data import build_train_loader, build_test_loader, build_dataset
 from netsanut.evaluation import SimBarcaEvaluator, MetrEvaluator
 from netsanut.solver import build_optimizer, build_scheduler
 
-def build_evaluator(evaluator_type, save_dir=None, save_res=True, save_note=None, **kwargs):
+def build_evaluator(evaluator_type, **kwargs):
     
     match evaluator_type:
         case 'simbarca':
-            return SimBarcaEvaluator(save_dir, save_res, save_note)
+            return SimBarcaEvaluator(**kwargs)
         case 'metrla' | 'pemsbay':
-            return MetrEvaluator(save_dir, save_res, save_note)
+            return MetrEvaluator(**kwargs)
         case _:
             raise ValueError('No evaluator is specified')
 
@@ -76,5 +76,5 @@ if __name__ == "__main__":
     # the argument parser requires a `--config-file` which specifies how to configure
     # models and training pipeline, and other overrides to the config file can be passed
     # as `something.to.modify=new_value`
-    args = default_argument_parser().parse_args()
+    args = default_argument_parser().parse_args("--config-file config/HiMSNet.py".split())
     main(args)

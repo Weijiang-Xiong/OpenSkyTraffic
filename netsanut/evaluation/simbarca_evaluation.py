@@ -19,11 +19,13 @@ from netsanut.data import SimBarca
 
 class SimBarcaEvaluator:
 
-    def __init__(self, save_dir: str=None, save_res: bool=True, ignore_value=-1.0, mape_threshold=5) -> None:
-        self.save_dir = save_dir
-        self.save_res = save_res
+    def __init__(self, ignore_value=-1.0, mape_threshold=5, save_dir: str=None, save_res: bool=True, save_note="example", visualize=False) -> None:
         self.ignore_value = ignore_value
         self.mape_threshold = mape_threshold
+        self.save_dir = save_dir
+        self.save_res = save_res
+        self.save_note = save_note
+        self.visualize = visualize
         make_dir_if_not_exist(self.save_dir)
     
     def __call__(self, model: nn.Module, data_loader: DataLoader, **kwargs) -> Dict[str, float]:
@@ -58,9 +60,7 @@ class SimBarcaEvaluator:
         return all_preds, all_labels
 
 
-    def evaluate(self,
-        model: nn.Module, data_loader: DataLoader, verbose=False, visualize=False, save_note="example"
-    ) -> Dict[str, float]:
+    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
         logger = logging.getLogger("default")
 
         all_preds, all_labels = self.collect_predictions(model, data_loader, ["pred_speed", "pred_speed_regional"])
@@ -105,21 +105,21 @@ class SimBarcaEvaluator:
             #     res.update(res_u)
             avg_eval_res[seq_name] = seq_res
             
-        if visualize:
+        if self.visualize:
             
             data_dict = next(iter(data_loader))
             dataset: SimBarca = data_loader.dataset
             model.eval()
             
             section_num = torch.randint(0, dataset.node_coordinates.shape[0], (1,)).item()
-            dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=save_note)
-            dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=save_note)
-            dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=save_note)
+            dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=self.save_note)
+            dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
+            dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=self.save_note)
             
         res = flatten_results_dict(avg_eval_res)
         
         if self.save_res:
-            save_res_to_dir(self.save_dir, res, save_note)
+            save_res_to_dir(self.save_dir, res, self.save_note)
         
         return res 
 
@@ -234,17 +234,19 @@ class HistoricalAverageModel(nn.Module):
 def evaluate_trivial_models(data_loader):
 
     save_dir = "{}/{}".format("./scratch", "simbarca_trivial_baselines")
-    evaluator = SimBarcaEvaluator(save_dir, save_res=True)
+
     make_dir_if_not_exist(save_dir)
     
     for model_class in [InputAverageModel, LastObservedModel]:
         for mode in ["ld_speed", "drone_speed"]:
             print("Evaluating trivial models {} {}".format(model_class.__name__, mode))
-            res = evaluator.evaluate(model_class(mode), data_loader, verbose=True, visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
+            evaluator = SimBarcaEvaluator(save_dir=save_dir, save_res=True, visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
+            res = evaluator.evaluate(model_class(mode), data_loader, verbose=True)
 
     # historical average
     print("Evaluating trivial models historical_avg")
-    res = evaluator.evaluate(HistoricalAverageModel(data_loader=data_loader), data_loader, verbose=True, visualize=True, save_note="HistoricalAverageModel")
+    evaluator = SimBarcaEvaluator(save_dir=save_dir, save_res=True, visualize=True, save_note="HistoricalAverageModel")
+    res = evaluator.evaluate(HistoricalAverageModel(data_loader=data_loader), data_loader, verbose=True)
     
 
 if __name__ == "__main__":
