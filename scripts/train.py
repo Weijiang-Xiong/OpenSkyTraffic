@@ -76,5 +76,5 @@ if __name__ == "__main__":
     # the argument parser requires a `--config-file` which specifies how to configure
     # models and training pipeline, and other overrides to the config file can be passed
     # as `something.to.modify=new_value`
-    args = default_argument_parser().parse_args("--config-file config/HiMSNet.py".split())
+    args = default_argument_parser().parse_args()
     main(args)

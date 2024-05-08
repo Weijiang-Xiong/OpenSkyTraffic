@@ -116,12 +116,14 @@ class SimBarcaEvaluator:
             dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
             dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=self.save_note)
             
-        res = flatten_results_dict(avg_eval_res)
+        avg_eval_res = flatten_results_dict(avg_eval_res)
         
+        # during training, the evaluation metricsover time steps  will be saved to event storage, 
+        # there is no need to save the average results again, but we can do it if really needed
         if self.save_res:
-            save_res_to_dir(self.save_dir, res, self.save_note)
+            save_res_to_dir(self.save_dir, avg_eval_res, self.save_note)
         
-        return res 
+        return avg_eval_res 
 
 
 def save_res_to_dir(save_dir, res, save_note="default"):

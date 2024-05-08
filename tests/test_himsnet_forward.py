@@ -37,20 +37,20 @@ class TestHimsNetForward(unittest.TestCase):
             "ld_speed": torch.rand(size=(2, 10, 1570, 2)).cuda(),
             "pred_speed": torch.rand(size=(2, 10, 1570)).cuda(),
             "pred_speed_regional": torch.rand(size=(2, 10, 4)).cuda(),
-            "metadata": {
-                "adjacency": adjacency,
-                "edge_index": edge_index,
-                "cluster_id": torch.randint(low=0, high=4, size=(1570,)).cuda(),
-                "grid_id": torch.randint(low=0, high=150, size=(1570,)).cuda(),
-                "mean_and_std": {
-                    "drone_speed": (0.0, 1.0),
-                    "ld_speed": (0.0, 1.0),
-                    "pred_speed": (0.0, 1.0),
-                    "pred_speed_regional": (0.0, 1.0),
-                },
-                "input_seqs": ["drone_speed", "ld_speed"],
-                "output_seqs": ["pred_speed", "pred_speed_regional"],
+        }
+        metadata = {
+            "adjacency": adjacency,
+            "edge_index": edge_index,
+            "cluster_id": torch.randint(low=0, high=4, size=(1570,)).cuda(),
+            "grid_id": torch.randint(low=0, high=150, size=(1570,)).cuda(),
+            "mean_and_std": {
+                "drone_speed": (0.0, 1.0),
+                "ld_speed": (0.0, 1.0),
+                "pred_speed": (0.0, 1.0),
+                "pred_speed_regional": (0.0, 1.0),
             },
+            "input_seqs": ["drone_speed", "ld_speed"],
+            "output_seqs": ["pred_speed", "pred_speed_regional"],
         }
         empty_mask = torch.rand_like(fake_data_dict['drone_speed'][:,:,:,0]) < 0.1
         unmonitored_mask = torch.rand_like(fake_data_dict['drone_speed']) > 0.8
@@ -58,7 +58,7 @@ class TestHimsNetForward(unittest.TestCase):
         fake_data_dict['drone_unmonitored'] = unmonitored_mask
         
         model = HiMSNet().cuda()
-        model.adapt_to_metadata(fake_data_dict['metadata'])
+        model.adapt_to_metadata(metadata)
         model.train()
         loss_dict = model(fake_data_dict)
         loss = sum(loss_dict.values())
@@ -66,6 +66,30 @@ class TestHimsNetForward(unittest.TestCase):
 
         model.eval()
         res = model(fake_data_dict)
+        
+    def test_state_dict(self):
+        
+        model = HiMSNet().cuda()
+        adjacency = torch.randint(low=0, high=2, size=(1570, 1570)).cuda()
+        edge_index = adjacency.nonzero().t().contiguous()
+        metadata = {
+            "adjacency": adjacency,
+            "edge_index": edge_index,
+            "cluster_id": torch.randint(low=0, high=4, size=(1570,)).cuda(),
+            "grid_id": torch.randint(low=0, high=150, size=(1570,)).cuda(),
+            "mean_and_std": {
+                "drone_speed": (0.0, 1.0),
+                "ld_speed": (0.0, 1.0),
+                "pred_speed": (0.0, 1.0),
+                "pred_speed_regional": (0.0, 1.0),
+            },
+            "input_seqs": ["drone_speed", "ld_speed"],
+            "output_seqs": ["pred_speed", "pred_speed_regional"],
+        }
+        model.adapt_to_metadata(metadata)
+        
+        state_dict = model.state_dict()
+        model.load_state_dict(state_dict)
 
 if __name__ == "__main__":
     unittest.main()

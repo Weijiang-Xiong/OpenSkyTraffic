@@ -4,6 +4,7 @@ from .common_cfg import adam as optimizer
 train.test_best_ckpt = False
 train.output_dir = "scratch/himsnet"
 evaluation.evaluator_type = "simbarca"
+evaluation.save_res = False
 
 model = {
     "name": "HiMSNet",

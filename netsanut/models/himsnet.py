@@ -232,7 +232,21 @@ class HiMSNet(nn.Module):
             self._distribution = gennorm(beta=int(beta))
 
         return self._distribution
+    
+    def state_dict(self):
+        state = dict()
+        state["model_params"] = super().state_dict()
+        state["metadata"] = self.metadata
+        state["data_scalers"] = {name: scaler.state_dict() for name, scaler in self.data_scalers.items()}
+        return state
 
+    def load_state_dict(self, state_dict):
+        self.metadata = state_dict["metadata"]
+        self.data_scalers = {
+            name: TensorDataScaler(**state)
+            for name, state in state_dict["data_scalers"].items()
+        }
+        super().load_state_dict(state_dict["model_params"])
 
 class ValueEmbedding(nn.Module):
     
@@ -284,6 +298,9 @@ class ValueEmbedding(nn.Module):
     @property
     def device(self):
         return list(self.parameters())[0].device
+    
+    def extra_repr(self) -> str:
+        return "d_model={}".format(self.d_model)
 
 # one can write this as a decorator above the class definition, but that will lose the type hints 
 # because in general one can not know what the decorator will return, so the type of the defined 

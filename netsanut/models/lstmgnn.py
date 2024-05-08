@@ -13,7 +13,6 @@ from netsanut.data.transform import TensorDataScaler
 from .common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 
-@MODEL_CATALOG.register()
 class LSTMGNN(nn.Module):
     def __init__(self, use_global=True, normalize_input=True, scale_output=True, 
                  d_model=64, global_downsample_factor:int=1, layernorm=True, ignore_value: float=-1.0,
@@ -198,3 +197,6 @@ class LSTMGNN(nn.Module):
         self.datascaler = TensorDataScaler(**state_dict["datascaler"])
         self.metadata = state_dict["metadata"]
         super().load_state_dict(state_dict["model_params"])
+        
+if __name__.endswith("lstmgnn"):
+    MODEL_CATALOG.register(LSTMGNN)
