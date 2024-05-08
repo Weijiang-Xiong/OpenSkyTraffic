@@ -140,7 +140,7 @@ class CheckpointSaver(HookBase):
             trainer.logger.info("Loading the model from {}".format(self.best_ckpt_path))
             trainer.load_checkpoint(self.best_ckpt_path, resume=False)
         
-        final_model_path = trainer.save_checkpoint(additional_note="final")
+        final_model_path = trainer.save_checkpoint()
         copy_path = "{}/model_final.pth".format(trainer.save_dir)
         shutil.copyfile(final_model_path, copy_path)
         trainer.logger.info("Copying the final model to {}".format(copy_path))
