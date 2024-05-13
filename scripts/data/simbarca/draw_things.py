@@ -38,6 +38,7 @@ def draw_od_demand(centroid_pos, od_pairs, drop_lower=None):
     # save pdf figure
     file_name = "centroid_pos" if drop_lower is None else "centroid_pos_drop_lower_{}".format(drop_lower)
     fig.savefig("{}/metadata/{}.pdf".format(data_root, file_name), bbox_inches='tight')
+    print("file saved to {}/metadata/{}.pdf".format(data_root, file_name))
 
 def draw_segment_speed_vs_point_speed(stats, save_note=None, start_min=15, end_min=20, sim_time_step=0.5):
     df = pd.DataFrame({
@@ -69,13 +70,14 @@ def draw_segment_speed_vs_point_speed(stats, save_note=None, start_min=15, end_m
     # save pdf figure
     file_base_name = "segment_speed_vs_point_speed{}".format("" if save_note is None else "_{}".format(save_note)) 
     fig.savefig("{}/metadata/{}.pdf".format(data_root, file_base_name), bbox_inches='tight')
-
+    print("file saved to {}/metadata/{}.pdf".format(data_root, file_base_name))
+          
 def draw_different_sim_runs(session_folders, section):
     
     ts_all_runs, segment_speed_all_runs = [], []
     
-    for folder in session_folders:
-        section_stats = json.load(open("{}/section_statistics.json".format(folder)))
+    for folder in np.random.choice(session_folders, 10, replace=False):
+        section_stats = json.load(open("{}//timeseries/section_statistics.json".format(folder)))
         stats = section_stats['statistics'][section]
         df = pd.DataFrame({
             "time_steps": stats["time_steps"],
@@ -101,7 +103,7 @@ def draw_different_sim_runs(session_folders, section):
     ax.set_ylabel("Speed (km/h)")
     # save pdf figure
     fig.savefig("{}/metadata/segment_speed_multi_runs.pdf".format(data_root), bbox_inches='tight')
-    
+    print("file saved to {}/metadata/segment_speed_multi_runs.pdf".format(data_root))
 
 if __name__ == "__main__":
     
@@ -111,15 +113,15 @@ if __name__ == "__main__":
     centroid_pos = pd.read_csv("{}/centroid_pos.csv".format(metadata_dir), header=0, index_col=0)
     od_pairs = json.load(open("{}/od_pairs.json".format(metadata_dir)))['od_pairs']
     
-    # draw_od_demand(centroid_pos, od_pairs)
+    draw_od_demand(centroid_pos, od_pairs)
     draw_od_demand(centroid_pos, od_pairs, drop_lower=0.9)
     
-    session_folders = sorted(glob.glob("{}/session_*".format(data_root)))
-    section_stats = json.load(open("{}/section_statistics.json".format(session_folders[0])))
+    session_folders = sorted(glob.glob("{}/simulation_sessions/session_*".format(data_root)))
+    section_stats = json.load(open("{}/timeseries/section_statistics.json".format(session_folders[0])))
 
-    # draw_segment_speed_vs_point_speed(section_stats['statistics']['9971'], save_note="short_queue")
-    # draw_segment_speed_vs_point_speed(section_stats['statistics']['9453'], save_note="long_queue")
+    draw_segment_speed_vs_point_speed(section_stats['statistics']['9971'], save_note="short_queue")
+    draw_segment_speed_vs_point_speed(section_stats['statistics']['9453'], save_note="long_queue")
     
-    # draw_different_sim_runs(session_folders, section="9971")
+    draw_different_sim_runs(session_folders, section="9971")
     
     
