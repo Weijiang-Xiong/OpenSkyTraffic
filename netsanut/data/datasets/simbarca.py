@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from collections import defaultdict
 from typing import List, Dict
+from itertools import product
 
 import numpy as np
 import pandas as pd
@@ -33,21 +34,20 @@ class SimBarca(Dataset):
     output_seqs = ["pred_speed", "pred_speed_regional"]
     train_split_size = 0.75
 
-    def __init__(self, split="train", force_reload=False):
+    def __init__(self, split="train", force_reload=False, filter_short: float = None):
         self.split = split
         self.force_reload = force_reload
-        self.read_graph_structure()
+        self.read_graph_structure(filter_short=filter_short)
         samples = self.load_or_process_samples()
         for attribute in self.sequence_names:
-            setattr(
-                self,
-                attribute,
-                torch.as_tensor(samples[attribute], dtype=torch.float32),
-            )
-
+            attr_data = torch.as_tensor(samples[attribute], dtype=torch.float32)
+            if self.node_filter_mask is not None and attribute != "pred_speed_regional":
+                # shape (N, T, P, C), apply the node masking on the dimension of P
+                attr_data = attr_data[:, :, self.node_filter_mask, :] 
+            setattr(self, attribute, attr_data)
         self.metadata = self.set_metadata_dict()
         self.data_augmentations = []
-
+        
     def __getitem__(self, index):
         # don't use tuple comprehension here, otherwise it will return a generator instead of actual data
         data_seqs = [getattr(self, attribute)[index] for attribute in self.sequence_names]
@@ -96,7 +96,9 @@ class SimBarca(Dataset):
 
         return metadata
 
-    def read_graph_structure(self):
+    def read_graph_structure(self, filter_short: float = None):
+        """ read the graph structure for the road network from Aimsun-exported metadata.
+        """
         folder = "{}/{}".format(_root, self.meta_data_folder)
         connections = pd.read_csv(
             "{}/connections.csv".format(folder),
@@ -138,6 +140,19 @@ class SimBarca(Dataset):
             # make it symmetric 
             adjacency_matrix[section_id_to_index[row.dst], section_id_to_index[row.org]] = 1
         edge_index = np.array(adjacency_matrix.nonzero())
+        
+        # filter out the short sections
+        if filter_short is None:
+            self.node_filter_mask = None
+        else:
+            adjacency_matrix = delete_nodes(adjacency_matrix, link_bboxes["length"] < filter_short)
+            edge_index = np.array(adjacency_matrix.nonzero())
+            self.node_filter_mask = (link_bboxes["length"] >= filter_short).to_numpy()
+            node_coordinates = node_coordinates[self.node_filter_mask]
+            section_cluster = section_cluster[self.node_filter_mask]
+            section_grid_id = section_grid_id[self.node_filter_mask]
+            section_ids_sorted = section_ids_sorted[self.node_filter_mask]
+            index_to_section_id = {index: section_id for index, section_id in enumerate(section_ids_sorted)}
         
         self.adjacency = adjacency_matrix
         self.edge_index = edge_index
@@ -314,6 +329,24 @@ class SimBarca(Dataset):
         fig.tight_layout()
         fig.savefig("{}/average_mae_{}.pdf".format(save_dir, save_note))
         
+def delete_nodes(adj_mtx, delete_mask):
+    # get the indexes of the nodes to be deleted
+    deleted_nodes = np.nonzero(delete_mask)[0]
+
+    # For each deleted node, connect its neighbors directly
+    for node in deleted_nodes:
+        in_nodes = np.nonzero(adj_mtx[:, node])[0]
+        out_nodes = np.nonzero(adj_mtx[node, :])[0]
+        for i, j in product(in_nodes, out_nodes):
+            if i == j: # avoid self-loop
+                continue
+            adj_mtx[i, j] = 1
+
+    # remove rows and columns of deleted nodes
+    adj_mtx = np.delete(adj_mtx, deleted_nodes, axis=0)
+    adj_mtx = np.delete(adj_mtx, deleted_nodes, axis=1)
+
+    return adj_mtx
 
 if __name__.endswith(".simbarca"):
     """this happens when something is imported from this file
@@ -328,8 +361,8 @@ if __name__ == "__main__":
     from netsanut.utils.event_logger import setup_logger
     logger = setup_logger(name="default", level=logging.INFO)
     
-    train_set = SimBarca(split="train", force_reload=False)
-    test_set = SimBarca(split="test", force_reload=False)
+    train_set = SimBarca(split="train", force_reload=False, filter_short=10)
+    test_set = SimBarca(split="test", force_reload=False, filter_short=10)
     
     train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
     test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)

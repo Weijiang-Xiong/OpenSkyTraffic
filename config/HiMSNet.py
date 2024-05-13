@@ -19,8 +19,8 @@ model = {
 }
 
 dataset = {
-    "train": {"name": "simbarca_train", "force_reload": False},
-    "test": {"name": "simbarca_test", "force_reload": False},
+    "train": {"name": "simbarca_train", "force_reload": False, "filter_short": 10.0},
+    "test": {"name": "simbarca_test", "force_reload": False, "filter_short":"${..train.filter_short}"},
 }
 
 dataloader = {
