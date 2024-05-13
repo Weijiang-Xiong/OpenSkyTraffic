@@ -110,7 +110,7 @@ class CheckpointSaver(HookBase):
         metric_tuple = trainer.storage.latest().get(self.metric)
         if metric_tuple is None:
             trainer.logger.info(
-                "Selection metric {metric} is not available, skip checkpoint selection.".format(metric=self.metric)
+                "Selection metric {} is not available, skip checkpoint selection. available metrics are {}".format(self.metric, trainer.storage.latest().keys())
             )
             self.test_best_ckpt = False
             self.last_ckpt_path = trainer.save_checkpoint()

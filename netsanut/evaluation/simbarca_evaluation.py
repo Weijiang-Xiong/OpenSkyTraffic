@@ -128,7 +128,6 @@ class SimBarcaEvaluator:
 
 def save_res_to_dir(save_dir, res, save_note="default"):
     res = dict(res)
-    make_dir_if_not_exist(save_dir)
     
     for k, v in res.items():
         if isinstance(v, dict):

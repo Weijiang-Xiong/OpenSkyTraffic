@@ -15,12 +15,14 @@ model = {
     "scale_output": True,
     "normalize_input": False,
     "layernorm": True,
-    "d_model": 64
+    "d_model": 64,
+    "simple_fillna": False,
+    "global_downsample_factor": 1,
 }
 
 dataset = {
-    "train": {"name": "simbarca_train", "force_reload": False},
-    "test": {"name": "simbarca_test", "force_reload": False},
+    "train": {"name": "simbarca_train", "force_reload": False, "use_clean_data": True},
+    "test": {"name": "simbarca_test", "force_reload": False, "use_clean_data": "${..train.use_clean_data}"},
 }
 
 dataloader = {

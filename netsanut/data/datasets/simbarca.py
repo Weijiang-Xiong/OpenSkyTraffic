@@ -25,6 +25,12 @@ _package_init_file = netsanut.__file__
 _root: Path = (Path(_package_init_file).parent.parent).resolve()
 assert _root.exists(), "please check detectron2 installation"
 
+logger = logging.getLogger("default")
+
+def add_gaussian_noise(data, std=0.1):
+    noise = torch.normal(0, std, size=data.size())
+    return data + noise * data
+
 class SimBarca(Dataset):
     data_root = "datasets/simbarca"
     meta_data_folder = "datasets/simbarca/metadata"
@@ -33,7 +39,7 @@ class SimBarca(Dataset):
     output_seqs = ["pred_speed", "pred_speed_regional"]
     train_split_size = 0.75
 
-    def __init__(self, split="train", force_reload=False):
+    def __init__(self, split="train", force_reload=False, use_clean_data=True):
         self.split = split
         self.force_reload = force_reload
         self.read_graph_structure()
@@ -47,6 +53,20 @@ class SimBarca(Dataset):
 
         self.metadata = self.set_metadata_dict()
         self.data_augmentations = []
+
+        if not use_clean_data:
+            logger.info("Using corrupted data for train set, but clean label for test set")
+            # NOTE quick and dirty data augmentation ... not configuratle, not scalable ... 
+            if self.split == "train":
+                # we train on corrupted data to make the model more robust
+                self.drone_speed = add_gaussian_noise(self.drone_speed, std=0.05)
+                self.ld_speed = add_gaussian_noise(self.ld_speed, std=0.15)
+                self.pred_speed = add_gaussian_noise(self.pred_speed, std=0.05)
+            elif self.split == "test":
+                # for test data, the input is corrupted but the label is not for evaulating the model
+                self.drone_speed = add_gaussian_noise(self.drone_speed, std=0.05)
+                self.ld_speed = add_gaussian_noise(self.ld_speed, std=0.15)
+    
 
     def __getitem__(self, index):
         # don't use tuple comprehension here, otherwise it will return a generator instead of actual data

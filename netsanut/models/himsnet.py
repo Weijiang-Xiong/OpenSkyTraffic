@@ -14,10 +14,10 @@ from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 
 class HiMSNet(nn.Module):
-    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, 
-                 d_model=64, global_downsample_factor:int=2, layernorm=True, **kwargs):
+    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, **kwargs):
         super().__init__()
         
+        self.simple_fillna = simple_fillna
         self.use_drone = use_drone
         self.use_ld = use_ld
         self.use_global = use_global
@@ -115,6 +115,12 @@ class HiMSNet(nn.Module):
                 "drone_speed": data["drone_speed"].to(self.device),
                 "ld_speed": data["ld_speed"].to(self.device),
             }
+        # use these to replace NaN values with the mean of the data or other constants
+        # and this will simply make the value embedding ineffective
+        if self.simple_fillna:
+            source["drone_speed"] = source["drone_speed"].nan_to_num(nan=self.data_scalers['drone_speed'].mean)
+            source["ld_speed"] = source["ld_speed"].nan_to_num(nan=self.data_scalers['ld_speed'].mean)
+
         target = {
             "pred_speed": data["pred_speed"].nan_to_num(nan=self.ignore_value).to(self.device),
             "pred_speed_regional": data["pred_speed_regional"].nan_to_num(nan=self.ignore_value).to(self.device),
