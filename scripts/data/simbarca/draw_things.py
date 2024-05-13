@@ -37,8 +37,8 @@ def draw_od_demand(centroid_pos, od_pairs, drop_lower=None):
 
     # save pdf figure
     file_name = "centroid_pos" if drop_lower is None else "centroid_pos_drop_lower_{}".format(drop_lower)
-    fig.savefig("{}/metadata/{}.pdf".format(data_root, file_name), bbox_inches='tight')
-    print("file saved to {}/metadata/{}.pdf".format(data_root, file_name))
+    fig.savefig("{}/figures/{}.pdf".format(data_root, file_name), bbox_inches='tight')
+    print("file saved to {}/figures/{}.pdf".format(data_root, file_name))
 
 def draw_segment_speed_vs_point_speed(stats, save_note=None, start_min=15, end_min=20, sim_time_step=0.5):
     df = pd.DataFrame({
@@ -69,8 +69,8 @@ def draw_segment_speed_vs_point_speed(stats, save_note=None, start_min=15, end_m
     ax.set_ylabel("Speed (km/h)")
     # save pdf figure
     file_base_name = "segment_speed_vs_point_speed{}".format("" if save_note is None else "_{}".format(save_note)) 
-    fig.savefig("{}/metadata/{}.pdf".format(data_root, file_base_name), bbox_inches='tight')
-    print("file saved to {}/metadata/{}.pdf".format(data_root, file_base_name))
+    fig.savefig("{}/figures/{}.pdf".format(data_root, file_base_name), bbox_inches='tight')
+    print("file saved to {}/figures/{}.pdf".format(data_root, file_base_name))
           
 def draw_different_sim_runs(session_folders, section):
     
@@ -102,8 +102,8 @@ def draw_different_sim_runs(session_folders, section):
     ax.set_xlabel("Time (min)")
     ax.set_ylabel("Speed (km/h)")
     # save pdf figure
-    fig.savefig("{}/metadata/segment_speed_multi_runs.pdf".format(data_root), bbox_inches='tight')
-    print("file saved to {}/metadata/segment_speed_multi_runs.pdf".format(data_root))
+    fig.savefig("{}/figures/segment_speed_multi_runs.pdf".format(data_root), bbox_inches='tight')
+    print("file saved to {}/figures/segment_speed_multi_runs.pdf".format(data_root))
 
 if __name__ == "__main__":
     
