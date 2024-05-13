@@ -164,7 +164,6 @@ class LSTMGNN(nn.Module):
         if not isinstance(metadata['adjacency'], (list, tuple)):
             metadata['adjacency'] = [metadata['adjacency']]
         adj_mtx = sum([s.detach() for s in metadata['adjacency']])
-        # a True value in self.mask indicates the corresponding key will be ignored
         binary_adjacency = (adj_mtx > 0)
         
         if isinstance(self.adjacency_hop, int) and self.adjacency_hop > 1:
