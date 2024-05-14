@@ -316,6 +316,7 @@ class SimBarca(Dataset):
         ax.set_xlabel("Time (min)")
         ax.set_ylabel("Speed (m/s)")
         ax.legend()
+        fig.tight_layout()
         fig.savefig("{}/pred_sample_b{}s{}_{}.pdf".format(save_dir, b, s, save_note))
 
     @staticmethod
@@ -327,13 +328,14 @@ class SimBarca(Dataset):
         y2 = all_labels['pred_speed'][:, -1, p]
         xx = np.arange(len(y1))
 
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(13, 5))
         ax.plot(xx, y1, label='30min_pred')
         ax.plot(xx, y2, label='GT', alpha=0.5)
         ax.legend()
         ax.set_xlabel("Time step (not exactly ...)")
         ax.set_ylabel("Speed (m/s)")
         
+        fig.tight_layout()
         fig.savefig("{}/30min_ahead_pred_{}_{}.pdf".format(save_dir, p, save_note))
 
     @staticmethod
