@@ -3,6 +3,8 @@ import logging
 import torch 
 import torch.nn as nn 
 
+import numpy as np 
+
 logger = logging.getLogger("default")
 class GeneralizedProbRegLoss(nn.Module):
     
@@ -56,7 +58,10 @@ class GeneralizedProbRegLoss(nn.Module):
         # the masking part is modified from DCRNN 
         # https://github.com/liyaguang/DCRNN/blob/master/lib/metrics.py#L75
         if self.ignore_value is not None:
-            mask = (label != self.ignore_value).type(torch.float32)
+            if np.isnan(self.ignore_value): # == and != do not work with nan values
+                mask = ~torch.isnan(label).type(torch.float32)
+            else:
+                mask = (label != self.ignore_value).type(torch.float32)
             mask /= torch.mean(mask)
             mask = self.nan_to_num(mask)
             loss *= mask
@@ -76,7 +81,7 @@ class GeneralizedProbRegLoss(nn.Module):
         
         if torch.any(torch.isnan(tensor)):
             logger.warning("Encountered Nan, replacing them with 0, but training could collapse")
-            tensor = torch.nan_to_num(tensor, nan=0.0)
+            tensor = torch.where(torch.isnan(tensor), torch.zeros_like(tensor), tensor)
             
         return tensor 
     
