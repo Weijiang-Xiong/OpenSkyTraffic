@@ -53,18 +53,18 @@ class GeneralizedProbRegLoss(nn.Module):
             else:
                 logger.warning("Did not receive p-log-sigma for loss computation, skip aleatoric part")
         
-        loss = self.nan_to_num(loss)
-        
         # the masking part is modified from DCRNN 
         # https://github.com/liyaguang/DCRNN/blob/master/lib/metrics.py#L75
         if self.ignore_value is not None:
             if np.isnan(self.ignore_value): # == and != do not work with nan values
-                mask = ~torch.isnan(label).type(torch.float32)
+                mask = (~torch.isnan(label)).type(torch.float32)
             else:
                 mask = (label != self.ignore_value).type(torch.float32)
             mask /= torch.mean(mask)
             mask = self.nan_to_num(mask)
             loss *= mask
+
+        loss = self.nan_to_num(loss)
         
         match self.reduction:
             case "mean":
@@ -78,12 +78,7 @@ class GeneralizedProbRegLoss(nn.Module):
     
     @staticmethod
     def nan_to_num(tensor):
-        
-        if torch.any(torch.isnan(tensor)):
-            logger.warning("Encountered Nan, replacing them with 0, but training could collapse")
-            tensor = torch.where(torch.isnan(tensor), torch.zeros_like(tensor), tensor)
-            
-        return tensor 
+        return torch.where(torch.isnan(tensor), torch.zeros_like(tensor), tensor)
     
     # this appears in `print`
     def extra_repr(self) -> str:

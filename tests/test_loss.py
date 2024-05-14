@@ -37,7 +37,16 @@ class TestLoss(unittest.TestCase):
         criterion = GeneralizedProbRegLoss(reduction=None, aleatoric=False, ignore_value=0.0)
         loss = criterion(rand_output, rand_label)
         self.assertTrue(torch.allclose(loss, torch.tensor(0.0)))
-
+        
+    def test_ignore_value_2(self):
+        rand_output = torch.ones(size=(5,5), requires_grad=True)
+        rand_label  = torch.ones_like(rand_output)
+        rand_label[0, ...] = float("nan")
+        
+        criterion = GeneralizedProbRegLoss(reduction=None, aleatoric=False, ignore_value=float("nan"))
+        loss = criterion(rand_output, rand_label)
+        self.assertTrue(torch.allclose(loss, torch.tensor(0.0)))
+        
     def test_nan_to_num(self):
         rand_output = torch.ones(size=(5,5), requires_grad=True)
         rand_label  = torch.zeros_like(rand_output)
