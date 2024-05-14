@@ -18,6 +18,7 @@ model = {
     "d_model": 64,
     "simple_fillna": False,
     "global_downsample_factor": 1,
+    "adjacency_hop": 1,
 }
 
 dataset = {

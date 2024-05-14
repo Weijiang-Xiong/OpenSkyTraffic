@@ -14,10 +14,11 @@ from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 
 class HiMSNet(nn.Module):
-    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, **kwargs):
+    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=1, **kwargs):
         super().__init__()
         
         self.simple_fillna = simple_fillna
+        self.adjacency_hop = adjacency_hop
         self.use_drone = use_drone
         self.use_ld = use_ld
         self.use_global = use_global
@@ -211,6 +212,9 @@ class HiMSNet(nn.Module):
         return self.post_process(self.make_prediction(source))
 
     def adapt_to_metadata(self, metadata):
+        
+        assert self.training, "metadata should be loaded in training mode"
+        
         self.metadata = dict()
         
         # keep the tensors and arrays on the same device as the model
@@ -230,7 +234,17 @@ class HiMSNet(nn.Module):
         }
         self.metadata["input_seqs"] = metadata["input_seqs"]
         self.metadata["output_seqs"] = metadata["output_seqs"]
-
+        
+        # use K-hop adjacency matrix for graph convolution
+        if isinstance(self.adjacency_hop, int) and self.adjacency_hop > 1:
+            binary_adjacency = self.metadata['adjacency']
+            # do a loop instead of calling matrix power to avoid numerical problem
+            for _ in range(self.adjacency_hop - 1): 
+                binary_adjacency = torch.mm(binary_adjacency.float(), binary_adjacency.float())
+                binary_adjacency = (binary_adjacency > 0)
+            self.metadata['edge_index'] = torch.nonzero(binary_adjacency, as_tuple=False).T
+            print("Number of edges in the graph:", self.metadata['edge_index'].shape)
+            
     def _set_distribution(self, beta: int) -> rv_continuous:
         if beta is None:
             self._distribution = None

@@ -106,19 +106,20 @@ class SimBarcaEvaluator:
             avg_eval_res[seq_name] = seq_res
             
         if self.visualize:
-            
-            data_dict = next(iter(data_loader))
-            dataset: SimBarca = data_loader.dataset
-            model.eval()
-            
-            section_num = torch.randint(0, dataset.node_coordinates.shape[0], (1,)).item()
-            dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=self.save_note)
-            dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
-            dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=self.save_note)
+            # disable gradient computation, so we don't need .detach() for the model outputs
+            with torch.no_grad():
+                data_dict = next(iter(data_loader))
+                dataset: SimBarca = data_loader.dataset
+                model.eval()
+                
+                section_num = torch.randint(0, dataset.node_coordinates.shape[0], (1,)).item()
+                dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=self.save_note)
+                dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
+                dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=self.save_note)
             
         avg_eval_res = flatten_results_dict(avg_eval_res)
         
-        # during training, the evaluation metricsover time steps  will be saved to event storage, 
+        # during training, the evaluation metrics will be saved to event storage, 
         # there is no need to save the average results again, but we can do it if really needed
         if self.save_res:
             save_res_to_dir(self.save_dir, avg_eval_res, self.save_note)
