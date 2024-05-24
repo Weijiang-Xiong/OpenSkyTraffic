@@ -331,6 +331,9 @@ class SimBarca(Dataset):
         fig, ax = plt.subplots(figsize=(13, 5))
         ax.plot(xx, y1, label='30min_pred')
         ax.plot(xx, y2, label='GT', alpha=0.5)
+        # add vertical line every 20 time steps
+        for i in range(0, len(xx), 20):
+            ax.axvline(i, color='gray', linestyle='--', linewidth=0.5, alpha=0.5)
         ax.legend()
         ax.set_xlabel("Time step (not exactly ...)")
         ax.set_ylabel("Speed (m/s)")

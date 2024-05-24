@@ -12,6 +12,8 @@ sns.set_theme(style="darkgrid")
 from multiprocessing import Pool
 from tqdm import tqdm
 
+IDS_OF_INTEREST = [int(x) for x in open("datasets/simbarca/metadata/sections_of_interest.txt", "r").read().split(",")]
+
 def draw_od_demand(centroid_pos, od_pairs, drop_lower=None, save_folder="./"):
     
     # drop the xx percent entires with lowest demand
@@ -45,10 +47,10 @@ def draw_od_demand(centroid_pos, od_pairs, drop_lower=None, save_folder="./"):
     # save pdf figure
     file_name = "centroid_pos" if drop_lower is None else "centroid_pos_drop_lower_{}".format(drop_lower)
     fig.savefig("{}/figures/{}.pdf".format(save_folder, file_name), bbox_inches='tight')
-    plt.close()
-    print("file saved to {}/figures/{}.pdf".format(save_folder, file_name))
+    plt.close(fig)
+    # print("file saved to {}/figures/{}.pdf".format(save_folder, file_name))
 
-def draw_segment_speed_vs_point_speed(stats, start_min=15, end_min=20, sim_time_step=0.5, 
+def draw_segment_speed_vs_point_speed(stats, start_min=0, end_min=20, sim_time_step=0.5, 
     save_note=None, save_folder="./"):
     df = pd.DataFrame({
         "time_steps": stats["time_steps"],
@@ -79,8 +81,8 @@ def draw_segment_speed_vs_point_speed(stats, start_min=15, end_min=20, sim_time_
     # save pdf figure
     file_base_name = "segment_speed_vs_point_speed{}".format("" if save_note is None else "_{}".format(save_note)) 
     fig.savefig("{}/figures/{}.pdf".format(save_folder, file_base_name), bbox_inches='tight')
-    plt.close()
-    print("file saved to {}/figures/{}.pdf".format(save_folder, file_base_name))
+    plt.close(fig)
+    # print("file saved to {}/figures/{}.pdf".format(save_folder, file_base_name))
           
 def draw_different_sim_runs(session_folders, section, save_folder="./"):
     
@@ -113,11 +115,11 @@ def draw_different_sim_runs(session_folders, section, save_folder="./"):
     ax.set_ylabel("Speed (km/h)")
     # save pdf figure
     fig.savefig("{}/figures/segment_speed_multi_runs.pdf".format(save_folder), bbox_inches='tight')
-    plt.close()
-    print("file saved to {}/figures/segment_speed_multi_runs.pdf".format(save_folder))
+    plt.close(fig)
+    # print("file saved to {}/figures/segment_speed_multi_runs.pdf".format(save_folder))
 
-def draw_segment_speed_color_by_num_veh(stats, start_min=15, end_min=30, sim_time_step=0.5, 
-    save_note=None, save_folder="./"):
+def draw_segment_speed_color_by_num_veh(stats, start_min=0, end_min=30, sim_time_step=0.5, 
+    save_note=None, save_folder="./", figsize=(15, 4)):
     
     df = pd.DataFrame({
         "time_steps": stats["time_steps"],
@@ -135,7 +137,7 @@ def draw_segment_speed_color_by_num_veh(stats, start_min=15, end_min=30, sim_tim
     cycle_speed = cycle_group['total_dist'].sum() / cycle_group['total_time'].sum() * 3.6 # m/s => km/h
     cycle_time = (np.sort(cycle_num.unique()) + 1) * cycle_len # min, put the point at the end of the cycle time
     
-    fig, ax = plt.subplots(figsize=(15, 4))
+    fig, ax = plt.subplots(figsize=figsize)
     ax.plot(cycle_time, cycle_speed, label="Cycle Average")
     im = ax.scatter(ts, segment_speed, s=3, label="Segment Speed", c=df_cp['num_vehicle'])
     fig.colorbar(im, ax=ax)
@@ -149,10 +151,10 @@ def draw_segment_speed_color_by_num_veh(stats, start_min=15, end_min=30, sim_tim
     # save pdf figure
     file_base_name = "segment_speed_color_by_num_veh{}".format("" if save_note is None else "_{}".format(save_note)) 
     fig.savefig("{}/figures/{}.pdf".format(save_folder, file_base_name), bbox_inches='tight')
-    plt.close()
-    print("file saved to {}/figures/{}.pdf".format(save_folder, file_base_name))
+    plt.close(fig)
+    # print("file saved to {}/figures/{}.pdf".format(save_folder, file_base_name))
     
-def compare_stats_with_agg(stats, agg, section_num, start_min=15, end_min=75, sim_time_step=0.5, save_folder="./"):
+def compare_stats_with_agg(stats, agg, section_num, start_min=0, end_min=75, sim_time_step=0.5, save_folder="./", figsize=(15, 4)):
     sec_stats = stats[str(section_num)]
     df = pd.DataFrame({
         "time_steps": sec_stats["time_steps"],
@@ -183,7 +185,7 @@ def compare_stats_with_agg(stats, agg, section_num, start_min=15, end_min=75, si
     ts_pred = time_from_start_min[interval_to_plot]
     pred_speed = pred_speed[interval_to_plot] * 3.6 # m/s => km/h
     
-    fig, ax = plt.subplots(figsize=(15, 4))
+    fig, ax = plt.subplots(figsize=figsize)
     ax.plot(cycle_time, cycle_speed, label="Cycle Average")
     ax.plot(ts_drone, drone_speed, label="Drone Speed")
     ax.plot(ts_pred, pred_speed, label="Predicted Speed")
@@ -199,11 +201,11 @@ def compare_stats_with_agg(stats, agg, section_num, start_min=15, end_min=75, si
     # save pdf figure
     file_base_name = "raw_stats_vs_agg_{}".format(section_num) 
     fig.savefig("{}/figures/{}.pdf".format(save_folder, file_base_name), bbox_inches='tight')
-    plt.close()
-    print("file saved to {}/figures/{}.pdf".format(save_folder, file_base_name))
+    plt.close(fig)
+    # print("file saved to {}/figures/{}.pdf".format(save_folder, file_base_name))
 
 
-def compare_agg_with_sample(agg, sample, section_num, section_id_to_index, start_min=15, end_min=75, sim_time_step=0.5, save_folder="./"):
+def compare_agg_with_sample(agg, sample, section_num, section_id_to_index, start_min=0, end_min=75, sim_time_step=0.5, save_folder="./", figsize=(15, 4)):
     
     sim_start_time = np.datetime64("2005-05-10 07:45:00")
     drone_speed = agg['drone_vdist'][section_num] / agg['drone_vtime'][section_num]
@@ -218,7 +220,7 @@ def compare_agg_with_sample(agg, sample, section_num, section_id_to_index, start
     ts_pred = time_from_start_min[interval_to_plot]
     pred_speed = pred_speed[interval_to_plot] * 3.6 # m/s => km/h
     
-    b, i = 0, section_id_to_index[section_num]
+    b, i = 2, section_id_to_index[section_num]
     drone_speed_sample = (sample['drone_vdist'][b, :, i, 0] / sample['drone_vtime'][b, :, i, 0]) * 3.6 # m/s => km/h
     time_in_day = sample['drone_vdist'][b, :, i, 1] # a number from 0 to 1 representing time in a day
     ts_drone_sample = (time_in_day * 24 - 7.75) * 60 # 7:45 is the start time, 7.75 hours from 0:00
@@ -226,11 +228,11 @@ def compare_agg_with_sample(agg, sample, section_num, section_id_to_index, start
     pred_time_in_day = sample['pred_vdist'][b, :, i, 1]
     ts_pred_sample = (pred_time_in_day * 24 - 7.75) * 60
         
-    fig, ax = plt.subplots(figsize=(15, 4))
+    fig, ax = plt.subplots(figsize=figsize)
     ax.plot(ts_drone, drone_speed, label="Drone Speed")
     ax.plot(ts_pred, pred_speed, label="Predicted Speed")
-    ax.plot(ts_drone_sample, drone_speed_sample, label="Input Drone Speed")
-    ax.plot(ts_pred_sample, pred_speed_sample, label="Train Label Speed")
+    ax.plot(ts_drone_sample, drone_speed_sample, label="Input Drone Speed B2")
+    ax.plot(ts_pred_sample, pred_speed_sample, label="Train Label Speed B2")
     # set title and legend
     ax.set_title("Speed Comparison between Aggregated and Sampled Data")
     # put legend to upper right corner
@@ -241,39 +243,30 @@ def compare_agg_with_sample(agg, sample, section_num, section_id_to_index, start
     # save pdf figure
     file_base_name = "agg_vs_sample_{}".format(section_num)
     fig.savefig("{}/figures/{}.pdf".format(save_folder, file_base_name), bbox_inches='tight')
-    plt.close()
-    print("file saved to {}/figures/{}.pdf".format(save_folder, file_base_name))
+    plt.close(fig)
+    # print("file saved to {}/figures/{}.pdf".format(save_folder, file_base_name))
 
 if __name__ == "__main__":
     
     data_root = "datasets/simbarca"
     metadata_dir = "{}/metadata".format(data_root)
     
-    centroid_pos = pd.read_csv("{}/centroid_pos.csv".format(metadata_dir), header=0, index_col=0)
-    od_pairs = json.load(open("{}/od_pairs.json".format(metadata_dir)))['od_pairs']
-    
-    draw_od_demand(centroid_pos, od_pairs, save_folder=data_root)
-    draw_od_demand(centroid_pos, od_pairs, drop_lower=0.9, save_folder=data_root)
-    
     session_folders = sorted(glob.glob("{}/simulation_sessions/session_*".format(data_root)))
-    # draw_different_sim_runs(session_folders, section="9971", save_folder=data_root)
-    
     
     def draw_one_folder(folder):
-        print("Processing folder: {}".format(folder))
+        # print("Processing folder: {}".format(folder))
         
         if not os.path.exists("{}/figures".format(folder)):
             os.mkdir("{}/figures".format(folder))
         # the first three are main roads, the last two are side roads
-        ids_of_interest = [9971, 9453, 9864, 9831, 10052]
         section_ids = pd.read_csv("{}/link_bboxes_clustered.csv".format(metadata_dir))['id']
         section_id_to_index = {section_id: index for index, section_id in enumerate(sorted(section_ids))}
         
         section_stats = json.load(open("{}/timeseries/section_statistics.json".format(folder)))
 
         stats = section_stats['statistics']
-        for section_num in ids_of_interest:
-            draw_segment_speed_color_by_num_veh(stats[str(section_num)], start_min=15, end_min=75, save_note="sec_{}".format(section_num), save_folder=folder)
+        for section_num in IDS_OF_INTEREST:
+            draw_segment_speed_color_by_num_veh(stats[str(section_num)], start_min=0, end_min=150, save_note="sec_{}".format(section_num), save_folder=folder, figsize=(25, 4))
 
         
         draw_segment_speed_vs_point_speed(stats['9971'], save_note="short_queue", save_folder=folder)
@@ -284,9 +277,20 @@ if __name__ == "__main__":
         sample_data_npz = np.load(open("{}/timeseries/samples.npz".format(folder), "rb"))
         sample_data = {key: sample_data_npz[key] for key in sample_data_npz.keys()}
         
-        for section_num in ids_of_interest:
-            compare_stats_with_agg(stats, agg_ts_data, section_num, start_min=15, end_min=75, save_folder=folder)
-            compare_agg_with_sample(agg_ts_data, sample_data, section_num, section_id_to_index, start_min=15, end_min=75, save_folder=folder)
+        for section_num in IDS_OF_INTEREST:
+            compare_stats_with_agg(stats, agg_ts_data, section_num, start_min=0, end_min=150, save_folder=folder, figsize=(25, 4))
+            compare_agg_with_sample(agg_ts_data, sample_data, section_num, section_id_to_index, start_min=0, end_min=150, save_folder=folder, figsize=(25, 4))
+    
+    draw_one_folder(session_folders[0])
     
     with Pool(processes=8) as pool:
         all_data = list(tqdm(pool.imap(draw_one_folder, session_folders), total=len(session_folders)))
+        
+    # looks like putting this part below the multiprocessing will speed up the multiprocessing part, not sure about the casue
+    # but is still better because the child processes won't have to worry about these variables in the parent process
+    centroid_pos = pd.read_csv("{}/centroid_pos.csv".format(metadata_dir), header=0, index_col=0)
+    od_pairs = json.load(open("{}/od_pairs.json".format(metadata_dir)))['od_pairs']
+    
+    draw_od_demand(centroid_pos, od_pairs, save_folder=data_root)
+    draw_od_demand(centroid_pos, od_pairs, drop_lower=0.9, save_folder=data_root)
+    draw_different_sim_runs(session_folders, section="9971", save_folder=data_root)

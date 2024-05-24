@@ -112,10 +112,15 @@ class SimBarcaEvaluator:
                 dataset: SimBarca = data_loader.dataset
                 model.eval()
                 
+                # debug purpose 
+                # section_id_to_index = {v:k for k, v in dataset.index_to_section_id.items()}
+                # for section_id in [9971, 9453, 9864, 9831, 10052]:
+                #    section_num = section_id_to_index[section_id]
                 section_num = torch.randint(0, dataset.node_coordinates.shape[0], (1,)).item()
-                dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=self.save_note)
+                aimsun_sec_id = "_{}".format(dataset.index_to_section_id[section_num])
+                dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=self.save_note+aimsun_sec_id)
                 dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
-                dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=self.save_note)
+                dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=self.save_note+aimsun_sec_id)
             
         avg_eval_res = flatten_results_dict(avg_eval_res)
         
