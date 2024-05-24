@@ -91,5 +91,35 @@ class TestHimsNetForward(unittest.TestCase):
         state_dict = model.state_dict()
         model.load_state_dict(state_dict)
 
+    def test_gnn_forward(self):
+        from torch_geometric.nn import GCNConv
+        gcn = GCNConv(5, 5, node_dim=1)
+        gcn.lin.weight.data = torch.eye(5)
+        gcn.bias.data.fill_(0.0)
+        
+        # create one hot node encoding as input
+        # this is equivalent to torch.eye(5).unsqueeze(0).tile((3, 1, 1)), just try advanced indexing
+        x = torch.zeros(2, 5, 5)
+        indexes = torch.arange(5).tile((2, 1)).reshape(-1, 5)
+        x[torch.arange(2).reshape(-1, 1), torch.arange(5).reshape(1, -1), indexes] = 1
+        self.assertTrue(torch.allclose(x, torch.eye(5).unsqueeze(0).tile((2, 1, 1))))
+        
+        edge_index = torch.tensor([
+            [0, 1, 2, 3, 4, 4],
+            [1, 2, 3, 4, 0, 1]
+        ]) # basically a directed ring with a special case 4 -> 2
+        
+        # one can create adjacency matrix from edge_index with advanced indexing technique
+        # adj = torch.zeros(3, 3)
+        # adj[edge_index[0], edge_index[1]] = 1
+        
+        out = gcn(x, edge_index)
+        for org, dst in zip(edge_index[0], edge_index[1]):
+            self.assertTrue(torch.all(out[:, dst, org]))
+            out[:, dst, org] = 0.0
+        # self-loops are enabled by default initialization settings, so we need to zero them out
+        out[:, torch.arange(5), torch.arange(5)] = 0.0
+        self.assertTrue(torch.all(out == 0.0))
+        
 if __name__ == "__main__":
     unittest.main()
