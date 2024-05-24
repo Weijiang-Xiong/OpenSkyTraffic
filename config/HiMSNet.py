@@ -5,6 +5,9 @@ train.test_best_ckpt = False
 train.output_dir = "scratch/himsnet"
 evaluation.evaluator_type = "simbarca"
 evaluation.save_res = False
+evaluation.save_note = "example"
+evaluation.mape_threshold = 1.0
+evaluation.ignore_value = float("nan")
 
 model = {
     "name": "HiMSNet",

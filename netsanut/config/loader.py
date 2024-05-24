@@ -11,6 +11,7 @@ import uuid
 import logging
 import importlib
 import builtins 
+import numpy as np
 from contextlib import contextmanager
 from omegaconf import OmegaConf, DictConfig, ListConfig
 from typing import List
@@ -171,7 +172,7 @@ class ConfigLoader:
             except NameError:
                 pass
             except SyntaxError:
-                # in case of checkpoint, the '.' in the file name will cause a syntax error
+                # in case of checkpoint, the '.pth' in the file name will cause a syntax error
                 if os.path.isfile(value) and "checkpoint" in key:
                     pass 
                 else:
@@ -222,6 +223,10 @@ class ConfigLoader:
                     # don't call repr for the second argument because the braces { } and indents needs to be 
                     # recognized as the codes of a dictionary value, not string like '{' '}' '\t' '\n'
                     out_string += "{}: {},\n".format(repr(key), dict_to_str(value, key_indent=key_indent+1))
+                elif isinstance(value, float) and np.isnan(value):
+                    # this special case is required because repr(float('nan')) returns 'nan', which doesn't 
+                    # gives back the float('nan') when called with eval
+                    out_string += "{}: float('nan'),\n".format(repr(key))
                 else:
                     # use repr to keep the quotation marks of the returned string
                     out_string += "{}: {},\n".format(repr(key), repr(value))
