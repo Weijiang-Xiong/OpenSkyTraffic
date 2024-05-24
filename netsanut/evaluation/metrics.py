@@ -1,66 +1,60 @@
-""" masked MAE, MAPE, RMSE are modified from https://github.com/nnzhan/Graph-WaveNet/blob/master/util.py
-"""
-
 import torch
 import logging 
 from typing import Dict
 
 import numpy as np
 
-def masked_mse(preds, labels, null_val=np.nan):
-    report_nan(preds)
-    if np.isnan(null_val):
-        mask = ~torch.isnan(labels)
+def MAE(pred, label, ignore_value=np.nan) -> float:
+    # label can contain nan values to indicate no valid observations, 
+    # but pred should not since it is the output of a neural network
+    report_nan(pred)
+    if np.isnan(ignore_value):
+        mask = ~torch.isnan(label)
     else:
-        mask = (labels!=null_val)
-    mask = mask.float()
-    mask /= torch.mean((mask))
-    mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
-    loss = (preds-labels)**2
-    loss = loss * mask
-    loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
-    return torch.mean(loss)
+        mask = (label!=ignore_value)
+    
+    error = torch.abs(pred-label)
+    error = error[mask]
+    return torch.mean(error).item()
 
-def masked_rmse(preds, labels, null_val=np.nan):
-    report_nan(preds)
-    return torch.sqrt(masked_mse(preds=preds, labels=labels, null_val=null_val))
-
-
-def masked_mae(preds, labels, null_val=np.nan):
-    report_nan(preds)
-    if np.isnan(null_val):
-        mask = ~torch.isnan(labels)
+def RMSE(pred, label, ignore_value=np.nan) -> float:
+    # label can contain nan values to indicate no valid observations, 
+    # but pred should not since it is the output of a neural network
+    report_nan(pred)
+    if np.isnan(ignore_value):
+        mask = ~torch.isnan(label)
     else:
-        mask = (labels!=null_val)
-    mask = mask.float()
-    mask /=  torch.mean((mask))
-    mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
-    loss = torch.abs(preds-labels)
-    loss = loss * mask
-    loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
-    return torch.mean(loss)
+        mask = (label!=ignore_value)
+    
+    error = (pred-label)**2
+    error = error[mask]
+    return torch.sqrt(torch.mean(error)).item()
 
-
-def masked_mape(preds, labels, null_val=np.nan):
-    report_nan(preds)
-    if np.isnan(null_val):
-        mask = ~torch.isnan(labels)
+def MAPE(pred, label, ignore_value=np.nan, threshold=None) -> float:
+    # label can contain nan values to indicate no valid observations, 
+    # but pred should not since it is the output of a neural network
+    report_nan(pred)
+    if np.isnan(ignore_value):
+        mask = ~torch.isnan(label)
     else:
-        mask = (labels!=null_val)
-    mask = mask.float()
-    mask /=  torch.mean((mask))
-    mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
-    loss = torch.abs(preds-labels)/labels
-    loss = loss * mask
-    loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
-    return torch.mean(loss)
+        mask = (label!=ignore_value)
+    
+    # we only keep the data points that are valid (not ignore_value) and larger than threshold
+    if threshold is not None:
+        mask = mask & (label > threshold)
+    
+    error = torch.abs(pred-label)/label
+    error = error[mask]
+    return torch.mean(error).item()
 
-def masked_mape_with_threshold(preds, labels, null_val=np.nan, threshold=10):
-    less_than_threshold = labels < threshold
-    preds, labels = preds.clone(), labels.clone()
-    preds[less_than_threshold] = null_val
-    labels[less_than_threshold] = null_val
-    return masked_mape(preds, labels, null_val)
+def prediction_metrics(pred, label, ignore_value=0.0, mape_threshold=1.0):
+    
+    mae = MAE(pred,label,ignore_value)
+    mape = MAPE(pred,label,ignore_value, threshold=mape_threshold)
+    rmse = RMSE(pred,label,ignore_value)
+    
+    return {"mae":mae, "mape":mape, "rmse":rmse}
+
 
 def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Tensor, 
                         offset_coeffs: Dict[float, float], ignore_value=0.0, verbose=False):
@@ -124,14 +118,6 @@ def uncertainty_metrics(pred: torch.Tensor, target: torch.Tensor, scale:torch.Te
 
     return res
 
-def prediction_metrics(pred, label, ignore_value=0.0, mape_threshold=0.0):
-    
-    mae = masked_mae(pred,label,ignore_value).item()
-    mape = masked_mape_with_threshold(pred,label,ignore_value, threshold=mape_threshold).item()
-    rmse = masked_rmse(pred,label,ignore_value).item()
-    
-    return {"mae":mae, "mape":mape, "rmse":rmse}
-
 
 def report_nan(res:torch.tensor, use_logger=True):
     logger = logging.getLogger("default")
@@ -141,3 +127,65 @@ def report_nan(res:torch.tensor, use_logger=True):
             print("number of nan in result: {}".format(torch.sum(torch.isnan(res)).item()))
         else:
             logger.warning("number of nan in result: {}".format(torch.sum(torch.isnan(res)).item()))
+            
+
+""" The following are from https://github.com/nnzhan/Graph-WaveNet/blob/master/util.py, and they are used in METR-LA and PEMS-BAY datasets.
+
+"""
+
+def masked_prediction_metrics(pred, label, ignore_value=0.0):
+
+    mae = masked_mae(pred,label,ignore_value).item()
+    mape = masked_mape(pred,label,ignore_value).item()
+    rmse = masked_rmse(pred,label,ignore_value).item()
+    
+    return {"mae":mae, "mape":mape, "rmse":rmse}
+
+
+def masked_mse(preds, labels, null_val=np.nan):
+    report_nan(preds)
+    if np.isnan(null_val):
+        mask = ~torch.isnan(labels)
+    else:
+        mask = (labels!=null_val)
+    mask = mask.float()
+    mask /= torch.mean((mask))
+    mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
+    loss = (preds-labels)**2
+    loss = loss * mask
+    loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
+    return torch.mean(loss)
+
+def masked_rmse(preds, labels, null_val=np.nan):
+    report_nan(preds)
+    return torch.sqrt(masked_mse(preds=preds, labels=labels, null_val=null_val))
+
+
+def masked_mae(preds, labels, null_val=np.nan):
+    report_nan(preds)
+    if np.isnan(null_val):
+        mask = ~torch.isnan(labels)
+    else:
+        mask = (labels!=null_val)
+    mask = mask.float()
+    mask /=  torch.mean((mask))
+    mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
+    loss = torch.abs(preds-labels)
+    loss = loss * mask
+    loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
+    return torch.mean(loss)
+
+
+def masked_mape(preds, labels, null_val=np.nan):
+    report_nan(preds)
+    if np.isnan(null_val):
+        mask = ~torch.isnan(labels)
+    else:
+        mask = (labels!=null_val)
+    mask = mask.float()
+    mask /=  torch.mean((mask))
+    mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
+    loss = torch.abs(preds-labels)/labels
+    loss = loss * mask
+    loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
+    return torch.mean(loss)

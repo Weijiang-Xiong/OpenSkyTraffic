@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from .metrics import prediction_metrics, uncertainty_metrics
+from .metrics import masked_prediction_metrics, uncertainty_metrics
 from collections import defaultdict
 
 EVAL_CONFS = np.round(np.arange(0.5, 1.0, 0.05), 2).tolist()
@@ -57,7 +57,7 @@ class MetrEvaluator:
         for i in range(12):  # number of predicted time step
             pred = all_preds[:, i, :]
             real = all_labels[:, i, :]
-            step_metrics = prediction_metrics(pred, real)
+            step_metrics = masked_prediction_metrics(pred, real)
 
             if verbose:
                 logger.info('Evaluate model on test data at {:d} time step'.format(i+1))
@@ -67,7 +67,7 @@ class MetrEvaluator:
                 )
 
         # average performance on all 12 prediction steps, usually not reported in papers
-        res = prediction_metrics(all_preds, all_labels)
+        res = masked_prediction_metrics(all_preds, all_labels)
         if verbose:
             logger.info('On average over 12 different time steps')
             logger.info('MAE: {:.4f}, MAPE: {:.4f}, RMSE: {:.4f}'.format(
