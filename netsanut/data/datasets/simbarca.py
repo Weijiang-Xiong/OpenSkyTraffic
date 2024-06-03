@@ -1,5 +1,7 @@
+import os
 import json
 import tqdm
+import pickle
 import logging
 
 from pathlib import Path
@@ -44,12 +46,22 @@ class SimBarca(Dataset):
         self.split = split
         self.force_reload = force_reload
         self.read_graph_structure(filter_short=filter_short)
+        # data sequences in the dataset 
+        self.drone_speed: torch.Tensor
+        self.ld_speed: torch.Tensor
+        self.pred_speed: torch.Tensor
+        self.pred_speed_regional: torch.Tensor
+        # metadata for the dataset
+        self.adjacency: np.ndarray
+        self.edge_index: np.ndarray
+        self.node_coordinates: np.ndarray
+        self.cluster_id: np.ndarray
+        self.grid_id: np.ndarray 
+        self.index_to_section_id: Dict[int, int]
+        
         samples = self.load_or_process_samples()
         for attribute in self.sequence_names:
             attr_data = torch.as_tensor(samples[attribute], dtype=torch.float32)
-            if self.node_filter_mask is not None and attribute != "pred_speed_regional":
-                # shape (N, T, P, C), apply the node masking on the dimension of P
-                attr_data = attr_data[:, :, self.node_filter_mask, :] 
             setattr(self, attribute, attr_data)
         self.metadata = self.set_metadata_dict()
         self.data_augmentations = []
@@ -66,7 +78,9 @@ class SimBarca(Dataset):
                 # for test data, the input is corrupted but the label is not for evaulating the model
                 self.drone_speed = add_gaussian_noise(self.drone_speed, std=0.05)
                 self.ld_speed = add_gaussian_noise(self.ld_speed, std=0.15)
-                
+        
+        self.edit_graph_structure(filter_short=filter_short)
+        
     def __getitem__(self, index):
         # don't use tuple comprehension here, otherwise it will return a generator instead of actual data
         data_seqs = [getattr(self, attribute)[index] for attribute in self.sequence_names]
@@ -152,7 +166,8 @@ class SimBarca(Dataset):
         section_cluster = link_bboxes["cluster"].to_numpy()  # check with the csv file
         section_grid_id = link_bboxes["grid_nb"].to_numpy()  # check with the csv file
         node_coordinates = link_bboxes[["c_x", "c_y"]].to_numpy()
-
+        segment_lengths = link_bboxes["length"].to_numpy()
+        
         adjacency_matrix = np.zeros((len(section_ids_sorted), len(section_ids_sorted)))
         for row in connections.itertuples():
             adjacency_matrix[section_id_to_index[row.org], section_id_to_index[row.dst]] = 1
@@ -160,26 +175,37 @@ class SimBarca(Dataset):
             adjacency_matrix[section_id_to_index[row.dst], section_id_to_index[row.org]] = 1
         edge_index = np.array(adjacency_matrix.nonzero())
         
-        # filter out the short sections
-        if filter_short is None:
-            self.node_filter_mask = None
-        else:
-            adjacency_matrix = delete_nodes(adjacency_matrix, link_bboxes["length"] < filter_short)
-            edge_index = np.array(adjacency_matrix.nonzero())
-            self.node_filter_mask = (link_bboxes["length"] >= filter_short).to_numpy()
-            node_coordinates = node_coordinates[self.node_filter_mask]
-            section_cluster = section_cluster[self.node_filter_mask]
-            section_grid_id = section_grid_id[self.node_filter_mask]
-            section_ids_sorted = section_ids_sorted[self.node_filter_mask]
-            index_to_section_id = {index: section_id for index, section_id in enumerate(section_ids_sorted)}
-        
         self.adjacency = adjacency_matrix
+        self.segment_lengths = segment_lengths
         self.edge_index = edge_index
         self.node_coordinates = node_coordinates
         self.cluster_id: np.ndarray = section_cluster
         self.grid_id: np.ndarray = section_grid_id
         self.index_to_section_id: Dict = index_to_section_id
 
+    def edit_graph_structure(self, filter_short: float = None):
+        # filter out the short sections
+        if filter_short is None:
+            self.node_filter_mask = None
+        else:
+            self.adjacency_matrix = delete_nodes(self.adjacency_matrix, self.segment_lengths < filter_short)
+            self.edge_index = np.array(self.adjacency_matrix.nonzero())
+            self.node_filter_mask = (self.segment_lengths >= filter_short).to_numpy()
+            self.node_coordinates = self.node_coordinates[self.node_filter_mask]
+            self.section_cluster = self.section_cluster[self.node_filter_mask]
+            self.section_grid_id = self.section_grid_id[self.node_filter_mask]
+            self.section_ids_sorted = self.section_ids_sorted[self.node_filter_mask]
+            self.index_to_section_id = {index: section_id for index, section_id in 
+                                        enumerate(self.section_ids_sorted)}
+            self.segment_lengths = self.segment_lengths[self.node_filter_mask]
+            
+        if self.node_filter_mask is not None:
+            for attribute in self.sequence_names:
+                if attribute == "pred_speed_regional":
+                    continue
+                # shape (N, T, P, C), apply the node masking on the dimension of P
+                setattr(self, attribute, getattr(self, attribute)[:, :, self.node_filter_mask, :])
+                
     def load_or_process_samples(self) -> List[Dict[str, pd.DataFrame | np.ndarray]]:
         if Path(self.get_processed_file_name()).exists() and not self.force_reload:
             print("Trying to load existing processed samples for {} split".format(self.split))
@@ -244,6 +270,12 @@ class SimBarca(Dataset):
         # the elements have shape (N, T, 2), where 2 corresponds to (time_in_day, value)
         # we stack them into shape (N, T, R, 2) where R is the number of regions
         processed_samples["pred_speed_regional"] = np.stack(regional_speed, axis=2)
+
+        # we also keep the vehicle distances and time for the drone
+        processed_samples["drone_vdist"] = all_sample_data["drone_vdist"]
+        processed_samples["pred_vdist"] = all_sample_data["pred_vdist"]
+        processed_samples["drone_vtime"] = all_sample_data["drone_vtime"]
+        processed_samples["pred_vtime"] = all_sample_data["pred_vtime"]
 
         # save all samples as a compressed npz file
         print("Saving processed samples to {}".format(self.get_processed_file_name()))
@@ -372,21 +404,143 @@ def delete_nodes(adj_mtx, delete_mask):
 
     return adj_mtx
 
+class SimBarcaRandomObservation(SimBarca):
+    """ This class implements randomized drone observations and loop detector observations. The purpose is to make the dataset more realistic, because in reality, we don't have loop detectors for all road segments, and we can hardly fly enough drones to cover a whole city. Therefore, dealing with partial information is inevitable. 
+
+    Concretely, 10% of the road segments will have loop detector observations, which will be initialized at the first time and later saved to file for reuse. In this way the loop detector positions are fixed across experiments, and the results can be fairly compared. 
+    
+    The drone observaions will be available for random 10% of the grid IDs (but not directly road segments), since we assume a drone to observe nearly all vehicles in its square-shaped FOV. To imitate a real-world scenario, each simulation session will be regarded as an individual day, when we fly the drones in different ways. We want the drone positions to mimic the flight plan for the simulation sessions, which will be consistent in all epochs in the same experiment and also across all experiments.
+    
+    While it's simple that the training and testing splits should share the same loop detector positions, the drone positions are more complicated. The training samples are generated in a sliding-window way based on the traffic statistics of the whole simulation. Therefore the drone positions should also be a "sliding-window", which means neighboring samples should have overlapped drone positions with only 1 time step difference. Check `load_or_init_drone_pos` for implementation. 
+    
+    Besides, for the training split, we exclude the data of the unmonitored road segments from both the input and output, which means partial input and partial label for the model to learn. The labels for regional speed predictions will also be created based on partial information (which makes it biased but that's the best we could do for now). However, for the test set, we still use the full information for evaluation (so don't train on the test set).
+    """
+    
+    def __init__(self, ld_per=0.1, drone_per=0.1, reinit_pos = False, random_state = 42, **kwargs):
+        super().__init__(**kwargs)
+        self.sample_per_session = 20 # hard coded for now ... better saved in sample files
+        self.ld_per = ld_per
+        self.drone_per = drone_per
+        self.random_state = random_state
+        self.reinit_pos = reinit_pos
+        self.ld_mask: torch.Tensor
+        self.drone_mask: torch.Tensor
+        self.load_or_init_ld_mask()
+        self.load_or_init_drone_mask()
+    
+    @property
+    def ld_mask_file(self):
+        return "{}/processed/ld_mask.pkl".format(self.data_root)
+
+    @property
+    def drone_mask_file(self):
+        return "{}/processed/drone_mask_{}.pkl".format(self.data_root, self.split)
+    
+    def load_or_init_ld_mask(self):
+        if os.path.exists(self.ld_mask_file) and not self.reinit_pos:
+            with open(self.ld_mask_file, "rb") as f:
+                ld_mask = pickle.load(f)
+            if ld_mask.sum() != int(self.ld_per * self.adjacency.shape[0]):
+                logger.warning("The loop detector coverage in the file are not consistent with the current settings, check `ld_per` argument or set `reinit_pos=True`")
+        else:
+            rng = np.random.default_rng(self.random_state)
+            # randomly select a few indexes of the road segments to have loop detectors
+            ld_pos = rng.choice(
+                    np.arange(self.adjacency.shape[0]), 
+                    size=int(self.ld_per * self.adjacency.shape[0]), 
+                    replace=False
+                    )
+            ld_mask = np.zeros(shape=self.adjacency.shape[0], dtype=bool)
+            ld_mask[ld_pos] = True
+            
+            with open(self.ld_mask_file, "wb") as f:
+                pickle.dump(ld_mask, f)
+        
+        self.ld_mask = torch.as_tensor(ld_mask, dtype=torch.long)
+
+    def load_or_init_drone_mask(self):
+        
+        if os.path.exists(self.drone_mask_file) and not self.reinit_pos:
+            all_drone_mask = pickle.load(open(self.drone_mask_file, "rb"))
+            if all_drone_mask.shape[-1] != int(self.drone_per * len(self.grid_id)):
+                logger.warning("The drone coverage in the file are not consistent with the current settings, check `drone_per` argument or set `reinit_pos=True`")
+        else:
+            grid_cells = np.sort(np.unique(self.grid_id))
+            rng = np.random.default_rng(self.random_state + 777) # avoid using the same random seed as ld_pos
+            
+            all_drone_mask = []
+            for _ in range(len(self) // self.sample_per_session): # different simulation session
+                # init drone positions for the first sample in each session
+                # 30min input, 30min output, change every 3 mins, so that's 20 x num_grid 
+                drone_mask = np.stack(
+                    [np.isin(self.grid_id, 
+                             rng.choice(grid_cells, size=int(self.drone_per * len(grid_cells)), replace=False)
+                    ) for _ in range(20)]
+                )
+                all_drone_mask.append(drone_mask)
+                # for every 3 min, sample a new set of drone positions and discard the earliest step
+                for _ in range(1, self.sample_per_session):
+                    next_step_drone_mask = np.isin(
+                        self.grid_id, 
+                        rng.choice(grid_cells, size=(int(self.drone_per * len(grid_cells))), replace=False)
+                    )
+                    drone_mask = np.concatenate((drone_mask[1:, :], next_step_drone_mask.reshape(1, -1)), axis=0)
+                    all_drone_mask.append(drone_mask)
+            all_drone_mask = np.stack(all_drone_mask, axis=0)
+            with open(self.drone_mask_file, "wb") as f:
+                pickle.dump(all_drone_mask, f)
+        
+        self.drone_mask = torch.as_tensor(all_drone_mask, dtype=torch.long)
+        
+    def apply_masking(self, dict):
+        """ Apply the masking of loop detector and drone data to the input and label
+        
+            For both train and test sets:
+                1. Set all INPUT modalities for unmonitored road segments to nan
+            For train set only:
+                1. Set all OUTPUT modalities for unmonitored road segments to nan
+                2. Recalculate regional speed values based on the monitored road segments
+
+            For the test set, we keep the output values as they are, because we want to evaluate the model's performance on the full information, even when the model is trained with partial data.
+        """
+        pass
+    
+    def __getitem__(self, index):
+        """ 
+        In the files, we save the drone mask every 3 mins, since we assume the drones will move to monitor different locations every 3 minutes. However, the drone input is given every 5 seconds, so we need to extend the drone mask to the same time resolution as the drone input.
+        
+        The mask for loop detector is a 0-1 tensor of shape P, where P is the number of road segments. Since loop detectors are installed as fixed infrastructure, ld_mask remain unchanged over time.
+        The mask for drone input of ONE sample is also a 0-1 tensor but it has shape (T, P), where P is the number of road segments, and T is the number of time steps. To avoid complex transition states, we assume drones to jump from one grid to another. 
+        """
+        data_dict = super().__getitem__(index)
+        data_dict['ld_mask'] = self.ld_mask
+        data_dict['drone_mask'] = self.drone_mask[index]
+        
+        return self.apply_masking(data_dict)
+        
+    def collate_fn(self, list_of_seq: List[Dict]) -> Dict[str, torch.Tensor]:
+        raise NotImplementedError("This method is not implemented yet")
+    
+    def visualize_drone_pos(self):
+        pass
+    
+        
 if __name__.endswith(".simbarca"):
     """this happens when something is imported from this file
     we can register the dataset here
     """
     DATASET_CATALOG['simbarca_train'] = lambda **args: SimBarca(split='train', **args)
     DATASET_CATALOG['simbarca_test'] = lambda **args: SimBarca(split='test', **args)
-    
+    DATASET_CATALOG['simbarca_rnd_train'] = lambda **args: SimBarcaRandomObservation(split='train', **args)
+    DATASET_CATALOG['simbarca_rnd_test'] = lambda **args: SimBarcaRandomObservation(split='test', **args)
 
 if __name__ == "__main__":
     
     from netsanut.utils.event_logger import setup_logger
     logger = setup_logger(name="default", level=logging.INFO)
     
-    train_set = SimBarca(split="train", force_reload=False, filter_short=10)
-    test_set = SimBarca(split="test", force_reload=False, filter_short=10)
+    train_set = SimBarca(split="train", force_reload=True, filter_short=10)
+    test_set = SimBarca(split="test", force_reload=True, filter_short=10)
     
     train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
     test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
@@ -398,3 +552,6 @@ if __name__ == "__main__":
     for data_dict in test_loader:
         SimBarca.visualize_batch(data_dict)
         break
+    
+    debug_set = SimBarcaRandomObservation(split='train', random_state=42)
+    sample = debug_set[0]
