@@ -3,6 +3,7 @@ import json
 import tqdm
 import pickle
 import logging
+import argparse
 
 from pathlib import Path
 from collections import defaultdict
@@ -63,6 +64,7 @@ class SimBarca(Dataset):
         for attribute in self.sequence_names:
             attr_data = torch.as_tensor(samples[attribute], dtype=torch.float32)
             setattr(self, attribute, attr_data)
+            del samples[attribute] # free memory otherwise 64 GB won't be enough ... 
         self.metadata = self.set_metadata_dict()
         self.data_augmentations = []
         
@@ -81,9 +83,9 @@ class SimBarca(Dataset):
         
         self.edit_graph_structure(filter_short=filter_short)
         
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> Dict[str, torch.Tensor]:
         # don't use tuple comprehension here, otherwise it will return a generator instead of actual data
-        data_seqs = [getattr(self, attribute)[index] for attribute in self.sequence_names]
+        data_seqs = {attr: getattr(self, attr)[index] for attr in self.sequence_names}
 
         return data_seqs
 
@@ -163,7 +165,7 @@ class SimBarca(Dataset):
         section_ids_sorted = link_bboxes["id"].to_numpy()
         section_id_to_index = {link_id: index for index, link_id in enumerate(section_ids_sorted)}
         index_to_section_id = {index: section_id for index, section_id in enumerate(section_ids_sorted)}
-        section_cluster = link_bboxes["cluster"].to_numpy()  # check with the csv file
+        cluster_id = link_bboxes["cluster"].to_numpy()  # check with the csv file
         section_grid_id = link_bboxes["grid_nb"].to_numpy()  # check with the csv file
         node_coordinates = link_bboxes[["c_x", "c_y"]].to_numpy()
         segment_lengths = link_bboxes["length"].to_numpy()
@@ -175,12 +177,13 @@ class SimBarca(Dataset):
             adjacency_matrix[section_id_to_index[row.dst], section_id_to_index[row.org]] = 1
         edge_index = np.array(adjacency_matrix.nonzero())
         
-        self.adjacency = adjacency_matrix
-        self.segment_lengths = segment_lengths
-        self.edge_index = edge_index
-        self.node_coordinates = node_coordinates
-        self.cluster_id: np.ndarray = section_cluster
-        self.grid_id: np.ndarray = section_grid_id
+        self.adjacency: torch.Tensor = torch.as_tensor(adjacency_matrix)
+        self.segment_lengths: torch.Tensor = torch.as_tensor(segment_lengths)
+        self.edge_index: torch.Tensor = torch.as_tensor(edge_index)
+        self.node_coordinates: torch.Tensor = torch.as_tensor(node_coordinates)
+        self.cluster_id: torch.Tensor = torch.as_tensor(cluster_id)
+        self.grid_id: torch.Tensor = torch.as_tensor(section_grid_id)
+        self.section_ids_sorted: torch.Tensor = torch.as_tensor(section_ids_sorted)
         self.index_to_section_id: Dict = index_to_section_id
 
     def edit_graph_structure(self, filter_short: float = None):
@@ -188,12 +191,12 @@ class SimBarca(Dataset):
         if filter_short is None:
             self.node_filter_mask = None
         else:
-            self.adjacency_matrix = delete_nodes(self.adjacency_matrix, self.segment_lengths < filter_short)
-            self.edge_index = np.array(self.adjacency_matrix.nonzero())
-            self.node_filter_mask = (self.segment_lengths >= filter_short).to_numpy()
+            self.adjacency = delete_nodes(self.adjacency, self.segment_lengths < filter_short)
+            self.edge_index = self.adjacency.nonzero()
+            self.node_filter_mask = (self.segment_lengths >= filter_short)
             self.node_coordinates = self.node_coordinates[self.node_filter_mask]
-            self.section_cluster = self.section_cluster[self.node_filter_mask]
-            self.section_grid_id = self.section_grid_id[self.node_filter_mask]
+            self.cluster_id = self.cluster_id[self.node_filter_mask]
+            self.grid_id = self.grid_id[self.node_filter_mask]
             self.section_ids_sorted = self.section_ids_sorted[self.node_filter_mask]
             self.index_to_section_id = {index: section_id for index, section_id in 
                                         enumerate(self.section_ids_sorted)}
@@ -211,7 +214,7 @@ class SimBarca(Dataset):
             print("Trying to load existing processed samples for {} split".format(self.split))
             with open(self.get_processed_file_name(), "rb") as f:
                 loaded_data = np.load(f)
-                return {key: value for key, value in loaded_data.items()}
+                return {key: value for key, value in loaded_data.items() if key in self.sequence_names}
 
         print("No processed samples found or forced to reload, processing samples from scratch")
         all_sample_data = defaultdict(list)
@@ -281,27 +284,27 @@ class SimBarca(Dataset):
         print("Saving processed samples to {}".format(self.get_processed_file_name()))
         with open(self.get_processed_file_name(), "wb") as f:
             np.savez_compressed(f, **processed_samples)
-
+        
         return processed_samples
 
-    def collate_fn(self, list_of_seq: List[Dict]) -> Dict[str, torch.Tensor]:
-        data_dict = dict()
-        for attr_id, attribute in enumerate(self.sequence_names):
-            data_dict[attribute] = torch.cat(
-                [seq[attr_id].unsqueeze(0) for seq in list_of_seq], dim=0
+    def collate_fn(self, list_of_seq: List[Dict], add_seq=[]) -> Dict[str, torch.Tensor]:
+        batch_data = dict()
+        for attr in self.sequence_names + add_seq:
+            batch_data[attr] = torch.cat(
+                [seq[attr].unsqueeze(0) for seq in list_of_seq], dim=0
             ).contiguous()
 
         # assume the output values have 0 index in the last dimension,
         # the other dimensions are time in day, day in week etc.
         for name in self.output_seqs:
-            data_dict[name] = data_dict[name][..., 0]
+            batch_data[name] = batch_data[name][..., 0]
 
         for aug in self.data_augmentations:
-            data_dict = aug(data_dict)
+            batch_data = aug(batch_data)
 
-        data_dict["metadata"] = self.metadata
+        batch_data["metadata"] = self.metadata
 
-        return data_dict
+        return batch_data
     
     @staticmethod
     def visualize_batch(data_dict, pred_dict=None, save_dir="./", batch_num=0, section_num=573, save_note="example"):
@@ -374,7 +377,7 @@ class SimBarca(Dataset):
         fig.savefig("{}/30min_ahead_pred_{}_{}.pdf".format(save_dir, p, save_note))
 
     @staticmethod
-    def plot_MAE_by_location(node_coordinates, all_preds, all_labels, save_dir="./", save_note="example"):
+    def plot_MAE_by_location(node_coordinates, all_preds, all_labels, save_dir=".F/", save_note="example"):
         MAE = torch.abs(all_preds['pred_speed'] - all_labels['pred_speed'])
         mae_by_section = torch.nanmean(MAE, dim=(0,1))
         fig, ax = plt.subplots(figsize=(6.5, 4))
@@ -386,6 +389,8 @@ class SimBarca(Dataset):
         fig.savefig("{}/average_mae_{}.pdf".format(save_dir, save_note))
         
 def delete_nodes(adj_mtx, delete_mask):
+    if isinstance(adj_mtx, torch.Tensor):
+        adj_mtx = adj_mtx.numpy()
     # get the indexes of the nodes to be deleted
     deleted_nodes = np.nonzero(delete_mask)[0]
 
@@ -402,7 +407,7 @@ def delete_nodes(adj_mtx, delete_mask):
     adj_mtx = np.delete(adj_mtx, deleted_nodes, axis=0)
     adj_mtx = np.delete(adj_mtx, deleted_nodes, axis=1)
 
-    return adj_mtx
+    return torch.as_tensor(adj_mtx)
 
 class SimBarcaRandomObservation(SimBarca):
     """ This class implements randomized drone observations and loop detector observations. The purpose is to make the dataset more realistic, because in reality, we don't have loop detectors for all road segments, and we can hardly fly enough drones to cover a whole city. Therefore, dealing with partial information is inevitable. 
@@ -417,14 +422,18 @@ class SimBarcaRandomObservation(SimBarca):
     """
     
     def __init__(self, ld_per=0.1, drone_per=0.1, reinit_pos = False, random_state = 42, **kwargs):
+        self.input_seqs = super().input_seqs # + ["drone_vdist", "drone_vtime"]
+        self.output_seqs = super().output_seqs + ["pred_vdist", "pred_vtime"]
         super().__init__(**kwargs)
+        self.pred_vdist: torch.Tensor
+        self.pred_vtime: torch.Tensor
         self.sample_per_session = 20 # hard coded for now ... better saved in sample files
         self.ld_per = ld_per
         self.drone_per = drone_per
         self.random_state = random_state
         self.reinit_pos = reinit_pos
         self.ld_mask: torch.Tensor
-        self.drone_mask: torch.Tensor
+        self.drone_flight_mask: torch.Tensor
         self.load_or_init_ld_mask()
         self.load_or_init_drone_mask()
     
@@ -444,12 +453,11 @@ class SimBarcaRandomObservation(SimBarca):
                 logger.warning("The loop detector coverage in the file are not consistent with the current settings, check `ld_per` argument or set `reinit_pos=True`")
         else:
             rng = np.random.default_rng(self.random_state)
-            # randomly select a few indexes of the road segments to have loop detectors
-            ld_pos = rng.choice(
-                    np.arange(self.adjacency.shape[0]), 
-                    size=int(self.ld_per * self.adjacency.shape[0]), 
-                    replace=False
-                    )
+            # exclude the locations with too many nan, (which means these roads have insufficient vehicles)
+            # and then randomly select a few indexes of the road segments to have loop detectors
+            nan_by_location = np.mean(torch.isnan(self.ld_speed[..., 0]).numpy().astype(float), axis=(0, 1))
+            valid_pos = np.nonzero(nan_by_location)[0]
+            ld_pos = rng.choice(valid_pos, size=int(self.ld_per * self.adjacency.shape[0]), replace=False)
             ld_mask = np.zeros(shape=self.adjacency.shape[0], dtype=bool)
             ld_mask[ld_pos] = True
             
@@ -462,8 +470,8 @@ class SimBarcaRandomObservation(SimBarca):
         
         if os.path.exists(self.drone_mask_file) and not self.reinit_pos:
             all_drone_mask = pickle.load(open(self.drone_mask_file, "rb"))
-            if all_drone_mask.shape[-1] != int(self.drone_per * len(self.grid_id)):
-                logger.warning("The drone coverage in the file are not consistent with the current settings, check `drone_per` argument or set `reinit_pos=True`")
+            if np.abs(all_drone_mask.mean() - self.drone_per) > 0.05:
+                logger.warning("The drone coverage in the file appears to be higher than config, check if `drone_per` argument has changed or set `reinit_pos=True`")
         else:
             grid_cells = np.sort(np.unique(self.grid_id))
             rng = np.random.default_rng(self.random_state + 777) # avoid using the same random seed as ld_pos
@@ -490,9 +498,9 @@ class SimBarcaRandomObservation(SimBarca):
             with open(self.drone_mask_file, "wb") as f:
                 pickle.dump(all_drone_mask, f)
         
-        self.drone_mask = torch.as_tensor(all_drone_mask, dtype=torch.long)
-        
-    def apply_masking(self, dict):
+        self.drone_flight_mask = torch.as_tensor(all_drone_mask, dtype=torch.long)
+
+    def apply_masking(self, sample: Dict, ld_mask:torch.Tensor, drone_flight_mask: torch.Tensor) -> Dict:
         """ Apply the masking of loop detector and drone data to the input and label
         
             For both train and test sets:
@@ -503,8 +511,42 @@ class SimBarcaRandomObservation(SimBarca):
 
             For the test set, we keep the output values as they are, because we want to evaluate the model's performance on the full information, even when the model is trained with partial data.
         """
-        pass
-    
+        sample['ld_speed'][:, ld_mask == 0, 0] = torch.nan
+        sample['ld_mask'] = ld_mask
+        # the input and output sequences corresponds to a continuous 1 hour time window
+        # and the drone_flight_mask is for this 1 hour. We take the first half hour for input 
+        drone_mask = drone_flight_mask[:int(drone_flight_mask.shape[0]/2), :]
+        drone_mask = torch.repeat_interleave(
+                            drone_mask, 
+                            int(sample['drone_speed'].shape[0]/drone_mask.shape[0]), 
+                            dim=0)
+        sample['drone_speed'][..., 0][drone_mask == 0] = torch.nan
+        sample['drone_mask'] = drone_mask
+        
+        if self.split == "train":
+            pred_mask = drone_flight_mask[int(drone_flight_mask.shape[0]/2):, :]
+            sample['pred_speed'][..., 0][pred_mask == 0] = torch.nan
+            sample['pred_mask'] = pred_mask
+            
+            # compute regional speed based on the monitored road segments
+            regional_speed = []
+            # aggregate link into regions
+            for region_id in torch.unique(self.cluster_id):
+                region_mask = torch.logical_and((self.cluster_id == region_id).reshape(1, -1), pred_mask)
+                # sum the total distance but ignore NaN values, the sum will be NaN if one element is NaN
+                region_vdist_values = torch.nansum(sample["pred_vdist"][..., 0]*region_mask.float(), dim=-1) 
+                # add the time in day here, the first index
+                # time in day was copied for all positions, so taking 1 is enough
+                region_vdist_tind = sample["pred_vdist"][..., 0, 1]
+                region_vtime_values = torch.nansum(sample["pred_vtime"][..., 0]*region_mask.float(), dim=-1)
+                region_speed_values = region_vdist_values / region_vtime_values
+                regional_speed.append(torch.stack([region_speed_values, region_vdist_tind], dim=-1))
+            # the elements have shape (N, T, 2), where 2 corresponds to (time_in_day, value)
+            # we stack them into shape (N, T, R, 2) where R is the number of regions
+            sample["pred_speed_regional"] = torch.stack(regional_speed, dim=1)
+            
+        return sample
+        
     def __getitem__(self, index):
         """ 
         In the files, we save the drone mask every 3 mins, since we assume the drones will move to monitor different locations every 3 minutes. However, the drone input is given every 5 seconds, so we need to extend the drone mask to the same time resolution as the drone input.
@@ -513,13 +555,16 @@ class SimBarcaRandomObservation(SimBarca):
         The mask for drone input of ONE sample is also a 0-1 tensor but it has shape (T, P), where P is the number of road segments, and T is the number of time steps. To avoid complex transition states, we assume drones to jump from one grid to another. 
         """
         data_dict = super().__getitem__(index)
-        data_dict['ld_mask'] = self.ld_mask
-        data_dict['drone_mask'] = self.drone_mask[index]
-        
-        return self.apply_masking(data_dict)
+        data_dict = self.apply_masking(data_dict, self.ld_mask, self.drone_flight_mask[index])
+        return data_dict
         
     def collate_fn(self, list_of_seq: List[Dict]) -> Dict[str, torch.Tensor]:
-        raise NotImplementedError("This method is not implemented yet")
+        batch_data = super().collate_fn(list_of_seq, add_seq=['ld_mask', 'drone_mask', 'pred_mask'])
+        # we don't do speed and flow prediction for now ... 
+        del batch_data['pred_vdist']
+        del batch_data['pred_vtime']
+        
+        return batch_data
     
     def visualize_drone_pos(self):
         pass
@@ -538,20 +583,24 @@ if __name__ == "__main__":
     
     from netsanut.utils.event_logger import setup_logger
     logger = setup_logger(name="default", level=logging.INFO)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force_reload", action="store_true", help="Reprocess the samples from scratch")
+    args = parser.parse_args()
     
-    train_set = SimBarca(split="train", force_reload=True, filter_short=10)
-    test_set = SimBarca(split="test", force_reload=True, filter_short=10)
+    train_set = SimBarca(split="train", force_reload=args.force_reload, filter_short=10)
+    test_set = SimBarca(split="test", force_reload=args.force_reload, filter_short=10)
     
     train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
     test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
 
     for data_dict in train_loader:
-        SimBarca.visualize_batch(data_dict)
+        SimBarca.visualize_batch(data_dict, save_note="train")
         break
 
     for data_dict in test_loader:
-        SimBarca.visualize_batch(data_dict)
+        SimBarca.visualize_batch(data_dict, save_note="test")
         break
-    
-    debug_set = SimBarcaRandomObservation(split='train', random_state=42)
+
+    debug_set = SimBarcaRandomObservation(split='train', reinit_pos=True, random_state=42)
     sample = debug_set[0]
+    batch = debug_set.collate_fn([debug_set[0], debug_set[100]])
