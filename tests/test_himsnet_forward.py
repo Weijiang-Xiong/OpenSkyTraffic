@@ -53,9 +53,12 @@ class TestHimsNetForward(unittest.TestCase):
             "output_seqs": ["pred_speed", "pred_speed_regional"],
         }
         empty_mask = torch.rand_like(fake_data_dict['drone_speed'][:,:,:,0]) < 0.1
-        unmonitored_mask = torch.rand_like(fake_data_dict['drone_speed']) > 0.8
-        fake_data_dict['drone_speed'][:,:,:,0][empty_mask] = torch.nan
-        fake_data_dict['drone_unmonitored'] = unmonitored_mask
+        unmonitored_mask = torch.rand_like(fake_data_dict['drone_speed'][:,:,:,0]) < 0.9
+        fake_data_dict['drone_speed'][:,:,:,0][torch.logical_or(empty_mask, unmonitored_mask)] = torch.nan
+        ld_mask = torch.rand(2, 1570) < 0.1
+        fake_data_dict['ld_speed'][:, :, :, 0][ld_mask.unsqueeze(1).tile((1, 10, 1))] = torch.nan
+        fake_data_dict['drone_mask'] = unmonitored_mask
+        fake_data_dict['ld_mask']  = ld_mask
         
         model = HiMSNet().cuda()
         model.adapt_to_metadata(metadata)

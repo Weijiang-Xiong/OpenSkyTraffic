@@ -116,6 +116,14 @@ class HiMSNet(nn.Module):
                 "drone_speed": data["drone_speed"].to(self.device),
                 "ld_speed": data["ld_speed"].to(self.device),
             }
+        
+        # load the mask data if available
+        try:
+            source["ld_mask"] = data["ld_mask"].to(self.device)
+            source['drone_mask'] = data['drone_mask'].to(self.device)
+        except KeyError:
+            pass
+        
         # use these to replace NaN values with the mean of the data or other constants
         # and this will simply make the value embedding ineffective
         if self.simple_fillna:
@@ -141,13 +149,14 @@ class HiMSNet(nn.Module):
 
     def make_prediction(self, source: dict[str, torch.Tensor]) -> torch.Tensor:
         x_drone, x_ld = source["drone_speed"], source["ld_speed"]
+        drone_mask, ld_mask = source.get("drone_mask", None), source.get("ld_mask", None)
         N, T_drone, P, C = source["drone_speed"].shape
         T_ld = source["ld_speed"].shape[1]
 
         all_mode_features = [] # store the features of all modalities
         
         if self.use_drone:
-            x_drone = self.drone_embedding(x_drone)
+            x_drone = self.drone_embedding(x_drone, unmonitored = drone_mask)
             x_drone = rearrange(x_drone, "N T P C -> (N P) C T")
             x_drone = self.drone_t_patching_1(x_drone)
             x_drone = self.drone_t_patching_2(x_drone)
@@ -162,7 +171,7 @@ class HiMSNet(nn.Module):
             all_mode_features.append(x_drone)
         
         if self.use_ld:
-            x_ld = self.ld_embedding(x_ld)
+            x_ld = self.ld_embedding(x_ld, unmonitored = ld_mask.unsqueeze(1).tile(1, T_ld, 1))
             x_ld = rearrange(x_ld, "N T P C -> (N T) P C")
             x_ld = self.spatial_encoding(x_ld)
             x_ld = rearrange(x_ld, "(N T) P C -> (N P) T C", N=N)
@@ -269,8 +278,20 @@ class HiMSNet(nn.Module):
         super().load_state_dict(state_dict["model_params"])
 
 class ValueEmbedding(nn.Module):
+    """ This layer applies an embedding to spatio-temporal traffic time series data with 
+    considerations on two tpes of missing values: a) empty and b) unmonitored. A value is
+    empty if we have sensor to monitor a certain location at certain time but observed no 
+    vehicles, and unmonitored if we have no sensor at all. 
     
-    def __init__(self, d_model:int, nan_place_holder=-1.0) -> None:
+    Both cases are represented with `NaN`, this is to make sure that if the invalid values
+    are not handled properly, one is likely to have a NaN in output, which is a clear error.
+    We prefer no to replace the `NaN` values with place holders like `-1`, because such values
+    may results in slient errors.
+    
+    The embedding layer will apply a simple linear transformation to the valid values and 
+    replace the NaN values with corresponding tokens. 
+    """
+    def __init__(self, d_model:int) -> None:
         super().__init__()
         self.d_model = d_model
         self.time_emb_w = nn.Parameter(torch.randn(1, d_model))
@@ -280,36 +301,37 @@ class ValueEmbedding(nn.Module):
         self.empty_token = nn.Parameter(torch.randn(d_model)) # fit the tensor shape N, C, H, W
         self.unmonitored_token = nn.Parameter(torch.randn(d_model))
         
-    def forward(self, x, empty_value = torch.nan, unmonitored: torch.Tensor = None):
-        """_summary_
-
+    def forward(self, x: torch.Tensor, invalid_value = torch.nan, unmonitored: torch.Tensor = None):
+        """
         Args:
-            x (torch.Tensor): _description_
-            empty_value (torch.Tensor): _description_. Defaults to torch.nan.
-            unmonitored (torch.Tensor): _description_. Defaults to None.
+            x (torch.Tensor): networked timeseries data with shape (N, T, P, 2)
+            invalid_value : Defaults to torch.nan.
+            unmonitored (torch.Tensor, optional): _description_. Defaults to None.
 
         Returns:
             _type_: _description_
         """
-        N, T, P, C = x.shape
+        N, T, P, _ = x.shape
         value, time = x[:, :, :, 0], x[:, :, :, 1]
         
         time_emb = time.unsqueeze(-1) * self.time_emb_w + self.time_emb_b
         
         # comparing by == doesn't work with nan
-        if empty_value in [float("nan"), np.nan, torch.nan, None]:
-            empty_mask = torch.isnan(value)
+        if invalid_value in [float("nan"), np.nan, torch.nan, None]:
+            invalid_mask = torch.isnan(value)
         else:
-            empty_mask = (value == empty_value)
+            invalid_mask = (value == invalid_value)
         
-        # replace the empty values (NaN) with the corresponding token
+        # apply linear embedding to the valid values
         value_emb = torch.empty(size=(N, T, P, self.d_model), device=self.device)
-        value_emb[~empty_mask] = value.unsqueeze(-1)[~empty_mask] * self.value_emb_w+ self.value_emb_b
-        value_emb[empty_mask] = self.empty_token
+        value_emb[~invalid_mask] = value.unsqueeze(-1)[~invalid_mask] * self.value_emb_w+ self.value_emb_b
         
-        # replace the unmonitored values using the unmonitored token
+        # replace the invalid values with corresponding tokens
         if unmonitored is not None:
             value_emb[unmonitored] = self.unmonitored_token
+            value_emb[invalid_mask & torch.logical_not(unmonitored)] = self.empty_token
+        else:
+            value_emb[invalid_mask] = self.empty_token
             
         emb = time_emb + value_emb
         
