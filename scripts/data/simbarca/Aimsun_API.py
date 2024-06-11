@@ -85,6 +85,8 @@ class DataStorage:
         self.traj_info = []
         self.entering = []
         self.exiting = []
+        self.network_entrance = [] 
+        self.network_exit = []
         self.logger = logger
         self.num_saved = 0 # number of saved files
 
@@ -101,13 +103,17 @@ class DataStorage:
                 "trajectory": self.traj_info,
                 "inout_columns": self.INOUT_COLUMNS,
                 "entering": self.entering, 
-                "exiting": self.exiting}
+                "exiting": self.exiting,
+                "network_entrance": self.network_entrance,
+                "network_exit": self.network_exit}
         with gzip.open(compressed_file_name, "wt") as f:
             json.dump(contents_to_save, f)
         self.logger.info("file saved to {}".format(compressed_file_name))
         self.traj_info.clear()
         self.entering.clear()
         self.exiting.clear()
+        self.network_entrance.clear()
+        self.network_exit.clear()
         self.num_saved += 1
 
     def clean_up(self):
@@ -299,6 +305,7 @@ def AAPIEnterVehicle(idveh, idsection):
     # with AKIVehTrackedGetInf(), compared to AKIVehGetInf()
     AKIVehSetAsTracked(idveh)
     vehicles_inside.append(idveh)
+    storage.network_entrance.append((idveh, idsection, AKIGetCurrentSimulationTime()))
     return 0
 
 
@@ -310,6 +317,7 @@ def AAPIExitVehicle(idveh, idsection):
     """
     AKIVehSetAsNoTracked(idveh)
     vehicles_inside.remove(idveh)
+    storage.network_exit.append((idveh, idsection, AKIGetCurrentSimulationTime()))
     return 0
 
 
