@@ -436,6 +436,11 @@ class SimBarcaRandomObservation(SimBarca):
         self.drone_flight_mask: torch.Tensor
         self.load_or_init_ld_mask()
         self.load_or_init_drone_mask()
+        if self.split == "train":
+            self.add_seq = ['ld_mask', 'drone_mask', 'pred_mask']
+        elif self.split == "test":
+            # output sequences are not masked in the test set, to test on the full information
+            self.add_seq = ['ld_mask', 'drone_mask']
     
     @property
     def ld_mask_file(self):
@@ -448,6 +453,7 @@ class SimBarcaRandomObservation(SimBarca):
     def load_or_init_ld_mask(self):
         if os.path.exists(self.ld_mask_file) and not self.reinit_pos:
             with open(self.ld_mask_file, "rb") as f:
+                logger.info("Loading loop detector mask from file")
                 ld_mask = pickle.load(f)
             if ld_mask.sum() != int(self.ld_per * self.adjacency.shape[0]):
                 logger.warning("The loop detector coverage in the file are not consistent with the current settings, check `ld_per` argument or set `reinit_pos=True`")
@@ -463,12 +469,14 @@ class SimBarcaRandomObservation(SimBarca):
             
             with open(self.ld_mask_file, "wb") as f:
                 pickle.dump(ld_mask, f)
-        
-        self.ld_mask = torch.as_tensor(ld_mask, dtype=torch.long)
+
+        # the dtype must be bool, otherwise torch will regard it as indexes of the items to be selected
+        self.ld_mask = torch.as_tensor(ld_mask, dtype=torch.bool)
 
     def load_or_init_drone_mask(self):
         
         if os.path.exists(self.drone_mask_file) and not self.reinit_pos:
+            logger.info("Loading drone mask from file")
             all_drone_mask = pickle.load(open(self.drone_mask_file, "rb"))
             if np.abs(all_drone_mask.mean() - self.drone_per) > 0.05:
                 logger.warning("The drone coverage in the file appears to be higher than config, check if `drone_per` argument has changed or set `reinit_pos=True`")
@@ -498,7 +506,8 @@ class SimBarcaRandomObservation(SimBarca):
             with open(self.drone_mask_file, "wb") as f:
                 pickle.dump(all_drone_mask, f)
         
-        self.drone_flight_mask = torch.as_tensor(all_drone_mask, dtype=torch.long)
+        # the dtype must be bool, otherwise torch will regard it as indexes of the items to be selected
+        self.drone_flight_mask = torch.as_tensor(all_drone_mask, dtype=torch.bool)
 
     def apply_masking(self, sample: Dict, ld_mask:torch.Tensor, drone_flight_mask: torch.Tensor) -> Dict:
         """ Apply the masking of loop detector and drone data to the input and label
@@ -512,7 +521,7 @@ class SimBarcaRandomObservation(SimBarca):
             For the test set, we keep the output values as they are, because we want to evaluate the model's performance on the full information, even when the model is trained with partial data.
         """
         sample['ld_speed'][:, ld_mask == 0, 0] = torch.nan
-        sample['ld_mask'] = ld_mask
+        sample['ld_mask'] = ld_mask.bool()
         # the input and output sequences corresponds to a continuous 1 hour time window
         # and the drone_flight_mask is for this 1 hour. We take the first half hour for input 
         drone_mask = drone_flight_mask[:int(drone_flight_mask.shape[0]/2), :]
@@ -521,7 +530,7 @@ class SimBarcaRandomObservation(SimBarca):
                             int(sample['drone_speed'].shape[0]/drone_mask.shape[0]), 
                             dim=0)
         sample['drone_speed'][..., 0][drone_mask == 0] = torch.nan
-        sample['drone_mask'] = drone_mask
+        sample['drone_mask'] = drone_mask.bool()
         
         if self.split == "train":
             pred_mask = drone_flight_mask[int(drone_flight_mask.shape[0]/2):, :]
@@ -559,8 +568,8 @@ class SimBarcaRandomObservation(SimBarca):
         return data_dict
         
     def collate_fn(self, list_of_seq: List[Dict]) -> Dict[str, torch.Tensor]:
-        batch_data = super().collate_fn(list_of_seq, add_seq=['ld_mask', 'drone_mask', 'pred_mask'])
-        # we don't do speed and flow prediction for now ... 
+        batch_data = super().collate_fn(list_of_seq, add_seq=self.add_seq)
+        # we don't do density and flow prediction for now ... 
         del batch_data['pred_vdist']
         del batch_data['pred_vtime']
         
@@ -584,23 +593,27 @@ if __name__ == "__main__":
     from netsanut.utils.event_logger import setup_logger
     logger = setup_logger(name="default", level=logging.INFO)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--force_reload", action="store_true", help="Reprocess the samples from scratch")
+    parser.add_argument("--from_scratch", action="store_true", help="Process everything from scratch")
     args = parser.parse_args()
     
-    train_set = SimBarca(split="train", force_reload=args.force_reload, filter_short=10)
-    test_set = SimBarca(split="test", force_reload=args.force_reload, filter_short=10)
+    # train_set = SimBarca(split="train", force_reload=args.from_scratch, filter_short=10)
+    # test_set = SimBarca(split="test", force_reload=args.from_scratch, filter_short=10)
     
-    train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
-    test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
+    # train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
+    # test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
 
-    for data_dict in train_loader:
-        SimBarca.visualize_batch(data_dict, save_note="train")
-        break
+    # for data_dict in train_loader:
+    #     SimBarca.visualize_batch(data_dict, save_note="train")
+    #     break
 
-    for data_dict in test_loader:
-        SimBarca.visualize_batch(data_dict, save_note="test")
-        break
+    # for data_dict in test_loader:
+    #     SimBarca.visualize_batch(data_dict, save_note="test")
+    #     break
 
-    debug_set = SimBarcaRandomObservation(split='train', reinit_pos=True, random_state=42)
+    debug_set = SimBarcaRandomObservation(split='train', reinit_pos=args.from_scratch, random_state=42)
+    sample = debug_set[0]
+    batch = debug_set.collate_fn([debug_set[0], debug_set[100]])
+    
+    debug_set = SimBarcaRandomObservation(split='test', reinit_pos=args.from_scratch, random_state=42)
     sample = debug_set[0]
     batch = debug_set.collate_fn([debug_set[0], debug_set[100]])

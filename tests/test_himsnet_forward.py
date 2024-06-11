@@ -22,7 +22,7 @@ class TestHimsNetForward(unittest.TestCase):
         unmonitored = torch.empty((2, 2, 2)).fill_(0.0).bool()
         unmonitored[0, 0, 1] = True
         
-        out = emb_layer(example_input, unmonitored=unmonitored)
+        out = emb_layer(example_input, monitor_mask=torch.logical_not(unmonitored))
         self.assertTrue(torch.all(out[0, 1, 0, :]== 8.5).item()) # 6 for empty token, 2.5 for time 
         self.assertTrue(torch.all(out[1, 0, 1, :]== 8.5).item()) 
         self.assertTrue(torch.all(out[0, 0, 1, :]== 9.5).item()) # 7 for empty token, 2.5 for time 
@@ -53,11 +53,11 @@ class TestHimsNetForward(unittest.TestCase):
             "output_seqs": ["pred_speed", "pred_speed_regional"],
         }
         empty_mask = torch.rand_like(fake_data_dict['drone_speed'][:,:,:,0]) < 0.1
-        unmonitored_mask = torch.rand_like(fake_data_dict['drone_speed'][:,:,:,0]) < 0.9
-        fake_data_dict['drone_speed'][:,:,:,0][torch.logical_or(empty_mask, unmonitored_mask)] = torch.nan
+        monitor_mask = torch.rand_like(fake_data_dict['drone_speed'][:,:,:,0]) > 0.9
+        fake_data_dict['drone_speed'][:,:,:,0][torch.logical_or(empty_mask, ~monitor_mask)] = torch.nan
         ld_mask = torch.rand(2, 1570) < 0.1
         fake_data_dict['ld_speed'][:, :, :, 0][ld_mask.unsqueeze(1).tile((1, 10, 1))] = torch.nan
-        fake_data_dict['drone_mask'] = unmonitored_mask
+        fake_data_dict['drone_mask'] = monitor_mask
         fake_data_dict['ld_mask']  = ld_mask
         
         model = HiMSNet().cuda()

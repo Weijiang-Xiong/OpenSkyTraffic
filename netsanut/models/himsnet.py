@@ -156,7 +156,7 @@ class HiMSNet(nn.Module):
         all_mode_features = [] # store the features of all modalities
         
         if self.use_drone:
-            x_drone = self.drone_embedding(x_drone, unmonitored = drone_mask)
+            x_drone = self.drone_embedding(x_drone, monitor_mask = drone_mask)
             x_drone = rearrange(x_drone, "N T P C -> (N P) C T")
             x_drone = self.drone_t_patching_1(x_drone)
             x_drone = self.drone_t_patching_2(x_drone)
@@ -171,7 +171,7 @@ class HiMSNet(nn.Module):
             all_mode_features.append(x_drone)
         
         if self.use_ld:
-            x_ld = self.ld_embedding(x_ld, unmonitored = ld_mask.unsqueeze(1).tile(1, T_ld, 1))
+            x_ld = self.ld_embedding(x_ld, monitor_mask = ld_mask.unsqueeze(1).tile(1, T_ld, 1))
             x_ld = rearrange(x_ld, "N T P C -> (N T) P C")
             x_ld = self.spatial_encoding(x_ld)
             x_ld = rearrange(x_ld, "(N T) P C -> (N P) T C", N=N)
@@ -301,15 +301,12 @@ class ValueEmbedding(nn.Module):
         self.empty_token = nn.Parameter(torch.randn(d_model)) # fit the tensor shape N, C, H, W
         self.unmonitored_token = nn.Parameter(torch.randn(d_model))
         
-    def forward(self, x: torch.Tensor, invalid_value = torch.nan, unmonitored: torch.Tensor = None):
+    def forward(self, x: torch.Tensor, invalid_value = torch.nan, monitor_mask: torch.Tensor = None):
         """
         Args:
             x (torch.Tensor): networked timeseries data with shape (N, T, P, 2)
             invalid_value : Defaults to torch.nan.
-            unmonitored (torch.Tensor, optional): _description_. Defaults to None.
-
-        Returns:
-            _type_: _description_
+            monitor_mask (torch.Tensor, optional): A boolean tensor whose `True` corresponds to the state of monitored, and `False` means unmonitored. Defaults to None.
         """
         N, T, P, _ = x.shape
         value, time = x[:, :, :, 0], x[:, :, :, 1]
@@ -327,9 +324,12 @@ class ValueEmbedding(nn.Module):
         value_emb[~invalid_mask] = value.unsqueeze(-1)[~invalid_mask] * self.value_emb_w+ self.value_emb_b
         
         # replace the invalid values with corresponding tokens
-        if unmonitored is not None:
-            value_emb[unmonitored] = self.unmonitored_token
-            value_emb[invalid_mask & torch.logical_not(unmonitored)] = self.empty_token
+        if monitor_mask is not None:
+            # if a location is unmonitored, then the value is replaced with unmonitored token
+            value_emb[~monitor_mask] = self.unmonitored_token
+            # if a location is monitored but still has no valid value, then it's because we 
+            # observe no vehicle. In this case, we replace the value with empty token
+            value_emb[invalid_mask & monitor_mask] = self.empty_token
         else:
             value_emb[invalid_mask] = self.empty_token
             
