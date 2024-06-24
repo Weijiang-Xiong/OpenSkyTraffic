@@ -49,7 +49,7 @@ def sim_one_folder(folder, executable, project, rep_id,
     # 4. delete the raw simulation files, keep processed
     ######################################################
     if cleanup: # set cleanup to False if you want to keep the raw trajectory files
-        clear_cmd = "rm {}/trajectory/*.json".format(folder)
+        clear_cmd = "rm {}/trajectory/*.*".format(folder)
         print("Executing command: \n {}".format(clear_cmd))
         subprocess.run(clear_cmd, shell=True, stdout=log_file, stderr=log_file)
     
