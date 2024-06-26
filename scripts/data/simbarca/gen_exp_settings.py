@@ -24,10 +24,10 @@ def default_argument_parser():
     
     parser.add_argument('--num_divs', default=5, type=int, help='Number of divisions for hyperparams')
     parser.add_argument('--global_scale_prob', type=float, default=0.9, help='Probability to apply global scaling')
-    parser.add_argument('--global_scale_low', type=float, default=0.6, help='Lower bound for global scale')
+    parser.add_argument('--global_scale_low', type=float, default=1.0, help='Lower bound for global scale')
     parser.add_argument('--global_scale_high', type=float, default=1.4, help='Upper bound for global scale')
-    parser.add_argument('--mask_low', type=float, default=0.1, help='Lower bound for mask probability')
-    parser.add_argument('--mask_high', type=float, default=0.3, help='Upper bound for mask probability')
+    parser.add_argument('--mask_low', type=float, default=0.0, help='Lower bound for mask probability')
+    parser.add_argument('--mask_high', type=float, default=0.1, help='Upper bound for mask probability')
     parser.add_argument('--noise_p_low', type=float, default=0.2, help='Lower bound for noise probability')
     parser.add_argument('--noise_p_high', type=float, default=0.5, help='Upper bound for noise probability')
     parser.add_argument('--noise_scale_low', type=float, default=0.1, help='Lower bound for noise scale')

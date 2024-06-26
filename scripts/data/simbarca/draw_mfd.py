@@ -1,3 +1,5 @@
+""" This script draws the MFDs for all simulations using the aggregated timeseries data.
+"""
 import os 
 import glob
 import pickle
@@ -66,7 +68,7 @@ def draw_mfd(folder):
     ax.set_xlabel('Time')
     ax.set_ylabel('Value')
     ax.legend()
-    ax.set_title('Whole Nwtwork Flow (veh/s) and Density (veh/m)')
+    ax.set_title('Whole Network Flow (veh/s) and Density (veh/m)')
     fig.tight_layout()
     fig.savefig('{}/flow_density_time.pdf'.format(fig_dir))
     plt.close(fig)
