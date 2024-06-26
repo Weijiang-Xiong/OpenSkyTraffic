@@ -13,6 +13,7 @@ import time
 import json
 import gzip
 import glob
+import pickle
 import argparse
 import numpy as np
 import pandas as pd
@@ -28,6 +29,7 @@ SIM_START_TIME, SIM_TIME_STEP = "2005-05-10T07:45", 0.5
 # the main demand matrix in Aimsun has roughly 1e5 vehicles, which can be scaled by 1.5
 # so here we choose a safe upper bound to randomly sample probe vehicles
 MAX_NUM_VEHICLE = int(2e5)
+JUNCTION_ID_OFFSET = int(1e7)
 CONNECTION_DTYPE = {'turn': int, 'org': int, 'dst': int, 'intersection': int, 'length': float}
 LINK_DTYPE = {'id': int, 'from_x': float, 'from_y': float, 'to_x': float, 'to_y': float, 'length': float, 'out_ang': float, 'num_lanes': int}
 VEHINFO_DTYPE = {'time': float, 'vehicle_id': int, 'speed': float, 'section': int, 'lane': int, 'junction': int, 'section_from': int, 'section_to': int, 'position': float, 'dist2end': float, 'total_dist': float, }
@@ -124,11 +126,29 @@ def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
         road_network (_type_): road network
         probe (bool, optional): if this dataframe is for probe vehicles. Defaults to False.
     """
+    if df['section'].iloc[0] < JUNCTION_ID_OFFSET:
+        return get_statistics_section(df, road_network, probe)
+    else:
+        return get_statistics_junction(df, road_network, probe)
+
+def get_statistics_section(df: pd.DataFrame, road_network=None, probe=False):
+    """ compute the statistics for each time step
+
+    Args:
+        df (pd.DataFrame): data frame containing the trajectory data of all vehicles
+        road_network (_type_): road network
+        probe (bool, optional): if this dataframe is for probe vehicles. Defaults to False.
+    """
     
     #########################################################
     # step 1: trajectory clip per time step, previous=>now  #
     #########################################################
     
+    # from version 2.2.0, pandas groupby apply will not include the group key column in the dataframe
+    # which means we can not use df['section'] here if we grouped by the section ID. Pandas groupby assigns
+    # a "name" attribute to each subdataframe, but pandarallel seems to ignore this attribute, so we 
+    # choose to keep the parallelization, and use the first row of the dataframe to get the section ID
+    # for this we need pandas==2.2.0
     section = road_network.get_section(df['section'].iloc[0])
     # compose trajectory segment (start_time, end_time, start_position, end_position)
     vehicle_groups = df.groupby(['vehicle_id'])
@@ -167,7 +187,7 @@ def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
 
     df['dx'] = df['total_dist'] - df['p_total_dist']
     df['dt'] = df['time'] - df['p_time']
-    # when a link is very short, it is possible that a vehicle can pass the link between two consecutive simulation time steps, and in these cases, dx will be `nan``, as we have no speed to extrapolate the distance. So we simply fill these nan values with the length of the section.
+    # when a link is very short, it is possible that a vehicle can pass the link between two consecutive simulation time steps, and in these cases, dx will be `nan``, as we have no speed (filled by NaN) to extrapolate the distance. So we simply fill these nan values with the length of the section.
     df.loc[df['dx'].isna(), 'dx'] = section.length
     # up to now, dx can still be negative, because Aimsun has a very unrealistic lane change behavior.
     # a vehicle can magically float to another lane when it is already stopped and inside a queue.
@@ -211,6 +231,61 @@ def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
                 "pv_dist": total_dist.tolist() if total_dist.size > 0 else [], 
                 "pv_time": total_time.tolist() if total_time.size > 0 else []}
     
+def get_statistics_junction(df: pd.DataFrame, road_network=None, probe=False):
+    """ this is basically the same as `get_statistics_section`, and it is intended to 
+        process the junctions as if they are sections. 
+        
+        However, the modifications are:
+            1. everything related to loop detector is removed, as junctions do not have loop detectors
+            2. in-out flags are moved as aimsun does not provide such info (it is doable but too complicated)
+    """
+    
+    #########################################################
+    # step 1: trajectory clip per time step, previous=>now  #
+    #########################################################
+    
+    # compose trajectory segment (start_time, end_time, start_position, end_position)
+    vehicle_groups = df.groupby(['vehicle_id'])
+    df['p_time'] = vehicle_groups['time'].shift(1)
+    df['p_position'] = vehicle_groups['position'].shift(1)
+    df['p_speed'] = vehicle_groups['speed'].shift(1)
+    df['p_total_dist'] = vehicle_groups['total_dist'].shift(1)
+    # drop the first time step of each vehicle, whose 'p_time' is nan
+    df.drop(df[df['p_time'].isna()].index, inplace=True)
+    
+    # we will calculate traffic variables for each time step
+    df['time_step'] = np.ceil(df['time'] / SIM_TIME_STEP).astype(int)
+    time_groups = df.groupby('time_step')
+
+    #########################################################
+    # step 2: stats per time step, speed, flow, count  
+    #########################################################
+
+    df['dx'] = df['total_dist'] - df['p_total_dist']
+    df['dt'] = df['time'] - df['p_time']
+    assert (df['dx'].ge(0).all() and df['dt'].ge(0).all()) # dx and dt should always be positive
+    
+    num_vehicle = time_groups['vehicle_id'].nunique()
+    total_dist = time_groups['dx'].sum()
+    total_time = time_groups['dt'].sum()
+    
+    #########################################################
+    # step 3: organize results 
+    #########################################################
+    
+    time_steps = list(time_groups.groups.keys())
+    # the grouby.apply above returns empty dataframe (not series) if `df` is empty, and 
+    # .tolist() will give an error. So we need to check if the dataframe/series is empty.
+    # this can happen after the time with demand when there is no vehicle in some sections
+    if not probe:
+        return {"time_steps": time_steps,
+                "num_vehicle": num_vehicle.to_list() if num_vehicle.size > 0 else [],
+                "total_dist": total_dist.tolist() if total_dist.size > 0 else [], 
+                "total_time": total_time.tolist() if total_time.size > 0 else []}
+    else:
+        return {"pv_time_steps": time_steps, # "pv" stands for "probe vehicle"
+                "pv_dist": total_dist.tolist() if total_dist.size > 0 else [], 
+                "pv_time": total_time.tolist() if total_time.size > 0 else []}
 
 def find_num_vehicle(session_folder):
     log_file = "{}/aimsun_log.log".format(session_folder)
@@ -282,6 +357,8 @@ if __name__ == "__main__":
     previous_time_step: pd.DataFrame = None
     # vehicle distance and time traveled by section: section -> series_name -> series_data
     per_section_stat: Dict[str, Dict[str, List]] = defaultdict(lambda: defaultdict(list)) 
+    # network level entrance and exit
+    network_in_out: Dict[str, List] = defaultdict(list)
     # process files one by one, as reading multiple files using multiple threads won't reduce
     # the data reading time (bottleneck is the disk), and the memory consumption is higher
     for file_name in data_files:
@@ -292,6 +369,10 @@ if __name__ == "__main__":
         with gzip.open(file_name, "rt") as f:
             data = json.load(f)
         print("Loading a file takes {:.2f}s".format(time.perf_counter() - start_time))
+        
+        # concatenate the network entrance and exit lists
+        network_in_out['entrance'].extend(data['network_entrance'])
+        network_in_out['exit'].extend(data['network_exit'])
         
         # concatenate the last time step with the current data frame
         start_time = time.perf_counter()
@@ -309,8 +390,11 @@ if __name__ == "__main__":
         print("Creating data frames takes {:.2f}s".format(time.perf_counter() - start_time))
 
         start_time = time.perf_counter()
-        df = df[COLUMNS_FOR_TIME_SERIES]
-        df = df[df['section'] != -1] # section==-1 means the vehicle is in a junction, so ignore it
+        df = df[COLUMNS_FOR_TIME_SERIES + ['junction']]
+        # set the section id of junctions to 1e7 + junction_id, they will be processed as if they are sections,
+        # but we can know from the id that they are junctions
+        df.loc[df['section'].eq(-1), 'section'] = df.loc[df['section'].eq(-1), 'junction'] + JUNCTION_ID_OFFSET
+        del df['junction'] # we don't need this column anymore, as it is now encoded to 'section' column
         # we replace the position of entering and exiting vehicles with 0 and -1 respectively, but 
         # both of them are not valid because Aimsun handles the entering and exiting by queues.
         # when a queue of vehicles enters a section, all vehicles are assigned to the section as the 
@@ -357,6 +441,18 @@ if __name__ == "__main__":
     with open("{}/timeseries/section_statistics.json".format(args.session_folder), "w") as f:
         json.dump({"sim_start_time": SIM_START_TIME, 
                    "sim_time_step_second": SIM_TIME_STEP,
-                   "statistics": per_section_stat}, f)
+                   "statistics": {k:v for k, v in per_section_stat.items() if k < JUNCTION_ID_OFFSET}}, f)
     print("Saving all the time series takes {:.2f}s".format(time.perf_counter() - start_time))
+
+    # save the time series data for junctions
+    start_time = time.perf_counter()
+    with open("{}/timeseries/junction_statistics.json".format(args.session_folder), "w") as f:
+        json.dump({"sim_start_time": SIM_START_TIME, 
+                   "sim_time_step_second": SIM_TIME_STEP,
+                   "statistics": {k:v for k, v in per_section_stat.items() if k > JUNCTION_ID_OFFSET}}, f)
         
+    # save the network entrance and exit
+    start_time = time.perf_counter()
+    with open("{}/timeseries/network_in_out.pkl".format(args.session_folder), "wb") as f:
+        pickle.dump(network_in_out, f)
+    print("Saving network entrance and exit takes {:.2f}s".format(time.perf_counter() - start_time))
