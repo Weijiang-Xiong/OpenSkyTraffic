@@ -16,7 +16,8 @@ setup(
     "torchvision",
     "matplotlib",
     "numpy",
-    "pandas", # dataset processing
+    "pandas==2.2.0", # dataset processing
+    "pandarallel", # parallel processing for pandas
     "seaborn", # for better color in plots
     "einops", # for rearranging tensors 
     "omegaconf", # configuration files
