@@ -264,7 +264,7 @@ def AAPIPostManage(time, timeSta, timeTrans, acycle):
     
     # report vehicle number every 1000 steps
     if int(time / acycle) % 1000 == 1:
-        logger.info("{} vehicles in network at time {}".format(len(vehicles_inside), time))
+        logger.info("{} vehicles in network at time {} min {} s".format(len(vehicles_inside), time//60, time%60))
         
     return 0
 
