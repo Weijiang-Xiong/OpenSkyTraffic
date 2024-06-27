@@ -1,4 +1,4 @@
-""" This script draws the MFDs for all simulations using the aggregated timeseries data.
+""" This script visualizes the speed, flow, density and MFD for all simulations using the aggregated timeseries data.
 """
 import os 
 import glob
