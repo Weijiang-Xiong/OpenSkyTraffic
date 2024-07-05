@@ -97,7 +97,7 @@ def dataframe_to_array(df: pd.DataFrame, add_time_in_day=True):
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Aggregate the raw statistics to different intervals.')
-    parser.add_argument('--session', type=str, default='datasets/simbarca/session_000/', help='path to session folder')
+    parser.add_argument('--session', type=str, default='datasets/simbarca/simulation_sessions/session_000', help='path to session folder')
     args = parser.parse_args()
     
     file_path = '{}/timeseries/section_statistics.json'.format(args.session)

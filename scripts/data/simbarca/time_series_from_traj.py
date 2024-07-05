@@ -187,13 +187,17 @@ def get_statistics_section(df: pd.DataFrame, road_network=None, probe=False):
 
     df['dx'] = df['total_dist'] - df['p_total_dist']
     df['dt'] = df['time'] - df['p_time']
+    # If a vehicle exits a road segment and enters again after quite some time, the previous “exit” will be regarded as the “previous step” of the next entrance, when constructing the trajectory splits. 
+    # And therefore resulting in a trajectory split with big dx and dt, we need to filter them out
+    # in fact, 'dt' can not be bigger than the simulation time step, and we allow some tolerance
+    df.drop(df[df['dt'] > 2*SIM_TIME_STEP].index, inplace=True)
     # when a link is very short, it is possible that a vehicle can pass the link between two consecutive simulation time steps, and in these cases, dx will be `nan``, as we have no speed (filled by NaN) to extrapolate the distance. So we simply fill these nan values with the length of the section.
     df.loc[df['dx'].isna(), 'dx'] = section.length
     # up to now, dx can still be negative, because Aimsun has a very unrealistic lane change behavior.
     # a vehicle can magically float to another lane when it is already stopped and inside a queue.
     # this can make the vehicle move backward and cause negative dx, but this is very very rare. 
-    # so we just set them to 0 
-    df.loc[df['dx'] < 0, 'dx'] = 0
+    # so we just drop these rows
+    df.drop(df[df['dx'] < 0].index, inplace=True)
     assert (df['dx'].ge(0).all() and df['dt'].ge(0).all()) # dx and dt should always be positive
     # a flag wheter the vehicle passes the loop detector
     df['pass_ld'] = (df['position'] >= section.detector_place) & (df['p_position'] < section.detector_place)
@@ -263,6 +267,9 @@ def get_statistics_junction(df: pd.DataFrame, road_network=None, probe=False):
 
     df['dx'] = df['total_dist'] - df['p_total_dist']
     df['dt'] = df['time'] - df['p_time']
+    df.drop(df[df['dt'] > 2*SIM_TIME_STEP].index, inplace=True)
+    df.drop(df[df['dx'].isna()].index, inplace=True) # can't do it for junctions
+    df.drop(df[df['dx'] < 0].index, inplace=True)
     assert (df['dx'].ge(0).all() and df['dt'].ge(0).all()) # dx and dt should always be positive
     
     num_vehicle = time_groups['vehicle_id'].nunique()
@@ -382,8 +389,8 @@ if __name__ == "__main__":
                            copy=False, ignore_index=True)
         else:
             df = pd.DataFrame(data=data['trajectory'], columns=data['info_columns'])
-            # check the init_time_step['time'] is the same as the number in the file name (the time step when this file is saved)
-            previous_time_step= deepcopy(df.groupby('time').get_group(df['time'].max()))
+        # keep the last time step for the start of next file
+        previous_time_step= deepcopy(df.groupby('time').get_group(df['time'].max()))
         
         entering = pd.DataFrame(data=data['entering'], columns=data['inout_columns'])
         exiting = pd.DataFrame(data=data['exiting'], columns=data['inout_columns'])
