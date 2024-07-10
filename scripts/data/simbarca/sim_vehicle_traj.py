@@ -89,3 +89,19 @@ if __name__ == '__main__':
         pool.map(arg_wrapper, all_folders)
         
     print("All simulations are done!")
+                        
+    print("Checking the log files for any errors...")
+    folders_with_errors = []
+    for folder in all_folders:
+        log_file = "{}/processing_log.log".format(folder)
+        with open(log_file, "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                if "error" in line.lower() or "interrupt" in line.lower():
+                    print("Error found in folder: {}".format(folder))
+                    folders_with_errors.append(folder)
+
+    print("Retrying the folders with errors using less processes to aviod memory overflow...")
+    with mp.Pool(processes=min(args.num_proc // 2, len(folders_with_errors))) as pool:
+        pool.map(arg_wrapper, folders_with_errors)
+    print("Retrying completed!")

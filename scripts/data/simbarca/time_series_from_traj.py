@@ -126,6 +126,8 @@ def get_statistics(df: pd.DataFrame, road_network=None, probe=False):
         road_network (_type_): road network
         probe (bool, optional): if this dataframe is for probe vehicles. Defaults to False.
     """
+    # avoid modifying the original dataframe, as this may break the groupby indexes
+    df = deepcopy(df) 
     if df['section'].iloc[0] < JUNCTION_ID_OFFSET:
         return get_statistics_section(df, road_network, probe)
     else:
@@ -141,7 +143,7 @@ def get_statistics_section(df: pd.DataFrame, road_network=None, probe=False):
     """
     
     #########################################################
-    # step 1: trajectory clip per time step, previous=>now  #
+    # step 1: prepare trajectory splits, previous=>now      #
     #########################################################
     
     # from version 2.2.0, pandas groupby apply will not include the group key column in the dataframe
@@ -156,18 +158,13 @@ def get_statistics_section(df: pd.DataFrame, road_network=None, probe=False):
     df['p_position'] = vehicle_groups['position'].shift(1)
     df['p_speed'] = vehicle_groups['speed'].shift(1)
     df['p_total_dist'] = vehicle_groups['total_dist'].shift(1)
-    # drop the first time step of each vehicle, whose 'p_time' is nan
+    # drop the first time step of each vehicle, whose 'p_time' is nan. 
+    # NOTE inplace modifications break the indexes of groupby, vehicle_groups is not valid after this line
     df.drop(df[df['p_time'].isna()].index, inplace=True)
-    
-    # we will calculate traffic variables for each time step
-    df['time_step'] = np.ceil(df['time'] / SIM_TIME_STEP).astype(int)
-    time_groups = df.groupby('time_step')
-    
-    # calculate in-out first, as it is easy to identify in-out with 0 and -1
+
+    # set in-out flags first, as it is easy to identify in-out with 0 and -1
     df['in_flag'] = df['p_position'].eq(0)
     df['out_flag'] = df['position'].eq(-1)
-    num_in = time_groups['in_flag'].sum()
-    num_out = time_groups['out_flag'].sum()
     
     # assume constant speed and extend observed points to entry and exit points
     # use the speed and time to calculate the vehicle position for entry and exit
@@ -182,7 +179,7 @@ def get_statistics_section(df: pd.DataFrame, road_network=None, probe=False):
     df.loc[df['out_flag']==True, 'total_dist'] = df['p_total_dist'] + df['p_speed'] * (df['time'] - df['p_time'])
 
     #########################################################
-    # step 2: stats per time step, speed, flow, count  
+    # step 2: distance, time and speed for trajectory splits
     #########################################################
 
     df['dx'] = df['total_dist'] - df['p_total_dist']
@@ -204,6 +201,17 @@ def get_statistics_section(df: pd.DataFrame, road_network=None, probe=False):
     # keep the speed of vehicles passing the loop detector, set the speed of other vehicles to nan
     df['ld_spd'] = ((df['dx'] / df['dt']) * df['pass_ld']).replace(0, np.nan)
     
+    #########################################################
+    # step 3: stats per time step, speed, flow, count  
+    #########################################################
+    
+    # we will calculate traffic variables for each time step
+    df['time_step'] = np.ceil(df['time'] / SIM_TIME_STEP).astype(int)
+    time_groups = df.groupby('time_step')
+    
+    num_in = time_groups['in_flag'].sum()
+    num_out = time_groups['out_flag'].sum()
+    
     num_vehicle = time_groups['vehicle_id'].nunique()
     total_dist = time_groups['dx'].sum()
     total_time = time_groups['dt'].sum()
@@ -214,7 +222,7 @@ def get_statistics_section(df: pd.DataFrame, road_network=None, probe=False):
     LD_speed = time_groups['ld_spd'].mean() 
     
     #########################################################
-    # step 3: organize results 
+    # step 4: organize results 
     #########################################################
     
     time_steps = list(time_groups.groups.keys())
@@ -245,7 +253,7 @@ def get_statistics_junction(df: pd.DataFrame, road_network=None, probe=False):
     """
     
     #########################################################
-    # step 1: trajectory clip per time step, previous=>now  #
+    # step 1: prepare trajectory splits, previous=>now      #
     #########################################################
     
     # compose trajectory segment (start_time, end_time, start_position, end_position)
@@ -257,12 +265,8 @@ def get_statistics_junction(df: pd.DataFrame, road_network=None, probe=False):
     # drop the first time step of each vehicle, whose 'p_time' is nan
     df.drop(df[df['p_time'].isna()].index, inplace=True)
     
-    # we will calculate traffic variables for each time step
-    df['time_step'] = np.ceil(df['time'] / SIM_TIME_STEP).astype(int)
-    time_groups = df.groupby('time_step')
-
     #########################################################
-    # step 2: stats per time step, speed, flow, count  
+    # step 2: distance, time and speed for trajectory splits
     #########################################################
 
     df['dx'] = df['total_dist'] - df['p_total_dist']
@@ -272,12 +276,19 @@ def get_statistics_junction(df: pd.DataFrame, road_network=None, probe=False):
     df.drop(df[df['dx'] < 0].index, inplace=True)
     assert (df['dx'].ge(0).all() and df['dt'].ge(0).all()) # dx and dt should always be positive
     
+    #########################################################
+    # step 3: stats per time step, speed, flow, count  
+    #########################################################
+    
+    # we will calculate traffic variables for each time step
+    df['time_step'] = np.ceil(df['time'] / SIM_TIME_STEP).astype(int)
+    time_groups = df.groupby('time_step')
     num_vehicle = time_groups['vehicle_id'].nunique()
     total_dist = time_groups['dx'].sum()
     total_time = time_groups['dt'].sum()
     
     #########################################################
-    # step 3: organize results 
+    # step 4: organize results 
     #########################################################
     
     time_steps = list(time_groups.groups.keys())
@@ -449,7 +460,7 @@ if __name__ == "__main__":
         json.dump({"sim_start_time": SIM_START_TIME, 
                    "sim_time_step_second": SIM_TIME_STEP,
                    "statistics": {k:v for k, v in per_section_stat.items() if k < JUNCTION_ID_OFFSET}}, f)
-    print("Saving all the time series takes {:.2f}s".format(time.perf_counter() - start_time))
+    print("Saving all the section time series takes {:.2f}s".format(time.perf_counter() - start_time))
 
     # save the time series data for junctions
     start_time = time.perf_counter()
@@ -457,7 +468,8 @@ if __name__ == "__main__":
         json.dump({"sim_start_time": SIM_START_TIME, 
                    "sim_time_step_second": SIM_TIME_STEP,
                    "statistics": {k:v for k, v in per_section_stat.items() if k > JUNCTION_ID_OFFSET}}, f)
-        
+    print("Saving all the junction time series takes {:.2f}s".format(time.perf_counter() - start_time))
+    
     # save the network entrance and exit
     start_time = time.perf_counter()
     with open("{}/timeseries/network_in_out.pkl".format(args.session_folder), "wb") as f:
