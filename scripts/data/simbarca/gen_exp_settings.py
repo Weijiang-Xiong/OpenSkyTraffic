@@ -19,13 +19,14 @@ def default_argument_parser():
     parser.add_argument('--data_root', type=str, default='/home/weijiang/Projects/Netsanut/datasets/simbarca', help='Root directory for data')
     parser.add_argument('--num_thread', type=int, default=16, help='Number of threads to use when obtaining vehicle information')
     parser.add_argument('--num_sim', type=int, default=10, help='Number of simulations to run')
+    parser.add_argument('--start_idx', type=int, default=0, help='Starting index for simulation folders')
     parser.add_argument('--seed_low', type=int, default=10000, help='Lower bound for random seed')
     parser.add_argument('--seed_high', type=int, default=99999, help='Upper bound for random seed')
     
-    parser.add_argument('--num_divs', default=5, type=int, help='Number of divisions for hyperparams')
-    parser.add_argument('--global_scale_prob', type=float, default=0.9, help='Probability to apply global scaling')
-    parser.add_argument('--global_scale_low', type=float, default=1.0, help='Lower bound for global scale')
-    parser.add_argument('--global_scale_high', type=float, default=1.4, help='Upper bound for global scale')
+    parser.add_argument('--num_divs', default=5, type=int, help='Select this many values form each param interval')
+    parser.add_argument('--global_scale_prob', type=float, default=1.1, help='Probability to apply global scaling')
+    parser.add_argument('--global_scale_low', type=float, default=1.4, help='Lower bound for global scale')
+    parser.add_argument('--global_scale_high', type=float, default=1.8, help='Upper bound for global scale')
     parser.add_argument('--mask_low', type=float, default=0.0, help='Lower bound for mask probability')
     parser.add_argument('--mask_high', type=float, default=0.1, help='Upper bound for mask probability')
     parser.add_argument('--noise_p_low', type=float, default=0.2, help='Lower bound for noise probability')
@@ -60,7 +61,7 @@ if __name__ == "__main__":
     for idx, (seed, cfg) in enumerate(zip(sim_seeds, all_cfg_combs)):
         mask_p, noise_p, noise_scale, global_scale = cfg
         
-        folder_name = "simulation_sessions/session_{:03d}".format(idx)
+        folder_name = "simulation_sessions/session_{:03d}".format(idx + args.start_idx)
         folder_path = "{}/{}".format(args.data_root, folder_name)
         if os.path.exists(folder_path):
             if not args.overwrite:
