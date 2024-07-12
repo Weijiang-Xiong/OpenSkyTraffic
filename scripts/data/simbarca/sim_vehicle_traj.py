@@ -100,8 +100,9 @@ if __name__ == '__main__':
                 if "error" in line.lower() or "interrupt" in line.lower():
                     print("Error found in folder: {}".format(folder))
                     folders_with_errors.append(folder)
-
-    print("Retrying the folders with errors using less processes to aviod memory overflow...")
-    with mp.Pool(processes=min(args.num_proc // 2, len(folders_with_errors))) as pool:
-        pool.map(arg_wrapper, folders_with_errors)
-    print("Retrying completed!")
+                    
+    if len(folders_with_errors) > 0:
+        print("Retrying the folders with errors using less processes to aviod memory overflow...")
+        with mp.Pool(processes=min(args.num_proc // 2, len(folders_with_errors))) as pool:
+            pool.map(arg_wrapper, folders_with_errors)
+        print("Retrying completed!")
