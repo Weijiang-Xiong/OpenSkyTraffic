@@ -100,16 +100,17 @@ class SimBarca(Dataset):
         return "{}/processed/{}.npz".format(self.data_root, self.split)
 
     def get_split_samples(self, sample_files: List[str]):
-        # a sample file contains all training samples from a simulation session
-        train_test_split_index = int(self.train_split_size * len(sample_files))
-
-        match self.split:
-            case "train":
-                return sample_files[:train_test_split_index]
-            case "test":
-                return sample_files[train_test_split_index:]
-            case _:
-                raise ValueError("split {} not supported".format(self.split))
+        
+        def get_session_number(path):
+            import re
+            return int(re.search(r"session_(\d+)", path).group(1))
+        
+        with open("{}/train_test_split.json".format(self.meta_data_folder), "r") as f:
+            sample_ids = json.load(f)[self.split]
+        
+        samples_in_split = [s for s in sample_files if get_session_number(str(s)) in sample_ids]
+        
+        return samples_in_split
 
     def set_metadata_dict(self):
         metadata = {
@@ -594,21 +595,21 @@ if __name__ == "__main__":
     logger = setup_logger(name="default", level=logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument("--from_scratch", action="store_true", help="Process everything from scratch")
-    args = parser.parse_args()
+    args = parser.parse_args("--from_scratch".split())
     
-    # train_set = SimBarca(split="train", force_reload=args.from_scratch, filter_short=10)
-    # test_set = SimBarca(split="test", force_reload=args.from_scratch, filter_short=10)
+    train_set = SimBarca(split="train", force_reload=args.from_scratch, filter_short=10)
+    test_set = SimBarca(split="test", force_reload=args.from_scratch, filter_short=10)
     
-    # train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
-    # test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
+    train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
+    test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
 
-    # for data_dict in train_loader:
-    #     SimBarca.visualize_batch(data_dict, save_note="train")
-    #     break
+    for data_dict in train_loader:
+        SimBarca.visualize_batch(data_dict, save_note="train")
+        break
 
-    # for data_dict in test_loader:
-    #     SimBarca.visualize_batch(data_dict, save_note="test")
-    #     break
+    for data_dict in test_loader:
+        SimBarca.visualize_batch(data_dict, save_note="test")
+        break
 
     debug_set = SimBarcaRandomObservation(split='train', reinit_pos=args.from_scratch, random_state=42)
     sample = debug_set[0]

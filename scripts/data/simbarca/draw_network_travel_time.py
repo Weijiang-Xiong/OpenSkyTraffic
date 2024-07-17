@@ -26,7 +26,7 @@ def _network_travel_time_histogram(folder: str):
     # plot the histogram of travel time
     tt = traverse_df['travel_time']
     fig, ax = plt.subplots(figsize=(5, 4))
-    ax.hist(tt, bins=25)
+    ax.hist(tt, bins=np.arange(0, 40, 2))
     ax.set_xlabel('Travel Time (min) ')
     ax.set_ylabel('Num of Vehicles')
     ax.set_title('Network Travel Time (max {:.1f} mean {:.1f})'.format(tt.max(), tt.mean()))
