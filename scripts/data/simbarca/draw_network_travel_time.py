@@ -15,7 +15,7 @@ from tqdm import tqdm
 from typing import Dict
 from multiprocessing import Pool
 
-def network_travel_time_histogram(folder: str):
+def _network_travel_time_histogram(folder: str):
     IO_time_data = pickle.load(open("{}/timeseries/network_in_out.pkl".format(folder), "rb"))
     entrance_time = pd.DataFrame(IO_time_data['entrance'], columns=["vehicle_id", "in_section_id", "in_time"])
     exit_time = pd.DataFrame(IO_time_data['exit'], columns=["vehicle_id", "out_section_id", "out_time"])
@@ -32,6 +32,16 @@ def network_travel_time_histogram(folder: str):
     ax.set_title('Network Travel Time (max {:.1f} mean {:.1f})'.format(tt.max(), tt.mean()))
     fig.tight_layout()
     fig.savefig("{}/figures/travel_time_histogram.pdf".format(folder))
+    
+def network_travel_time_histogram(folder):
+    """go to the next one if there is an error."""
+    try:
+        data = _network_travel_time_histogram(folder)
+        return data
+    except Exception as e:
+        print("Error in folder: {}".format(folder))
+        print(e)
+        return None
 
 if __name__ == "__main__":
     all_folders = sorted(glob.glob("datasets/simbarca/simulation_sessions/session_*"))

@@ -253,7 +253,7 @@ if __name__ == "__main__":
     
     session_folders = sorted(glob.glob("{}/simulation_sessions/session_*".format(data_root)))
     
-    def draw_one_folder(folder):
+    def _draw_one_folder(folder):
         # print("Processing folder: {}".format(folder))
         
         if not os.path.exists("{}/figures".format(folder)):
@@ -281,8 +281,16 @@ if __name__ == "__main__":
             compare_stats_with_agg(stats, agg_ts_data, section_num, start_min=0, end_min=150, save_folder=folder, figsize=(25, 4))
             compare_agg_with_sample(agg_ts_data, sample_data, section_num, section_id_to_index, start_min=0, end_min=150, save_folder=folder, figsize=(25, 4))
     
-    draw_one_folder(session_folders[0])
-    
+    def draw_one_folder(folder):
+        """go to the next one if there is an error."""
+        try:
+            data = _draw_one_folder(folder)
+            return data
+        except Exception as e:
+            print("Error in folder: {}".format(folder))
+            print(e)
+            return None
+        
     with Pool(processes=8) as pool:
         all_data = list(tqdm(pool.imap(draw_one_folder, session_folders), total=len(session_folders)))
         

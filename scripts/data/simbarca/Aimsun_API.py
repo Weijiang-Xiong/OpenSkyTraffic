@@ -20,8 +20,8 @@ OD_MTX_ID = 73600
 
 def setup_logger(name, log_file, level=logging.INFO):
 
-    # file handler
-    fh = logging.FileHandler(log_file)
+    # file handler, we will overwrite the file every time a new simulation starts
+    fh = logging.FileHandler(log_file, mode="w") 
     fh.setLevel(level)
     plainer_formatter = logging.Formatter(
         "[%(asctime)s %(name)s]: %(message)s", datefmt="%m/%d %H:%M:%S"
@@ -274,7 +274,7 @@ def AAPIFinish():
     """
     # AKIPrintString("AAPIFinish")
     storage.clean_up()
-    logger.info("Simulation Finished")
+    logger.info("Simulation Finished, {} vehicles remains in network".format(len(vehicles_inside)))
     return 0
 
 

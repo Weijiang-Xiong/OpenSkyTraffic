@@ -20,7 +20,7 @@ ALL_LENGTHS = pd.read_csv("datasets/simbarca/metadata/link_bboxes_clustered.csv"
 TOTAL_LENGTH = ALL_LENGTHS['length'].sum()
 IDS_OF_INTEREST = [int(x) for x in open("datasets/simbarca/metadata/sections_of_interest.txt", "r").read().split(",")]
 
-def draw_mfd(folder):
+def _draw_mfd(folder):
     
     file_path = "{}/timeseries/agg_timeseries.pkl".format(folder)
     fig_dir = "{}/figures".format(folder)
@@ -144,24 +144,35 @@ def draw_mfd(folder):
     
     return data
 
+def draw_mfd(folder):
+    """Draw MFD for a given folder, but go to the next one if there is an error."""
+    try:
+        data = _draw_mfd(folder)
+        return data
+    except Exception as e:
+        print("Error in folder: {}".format(folder))
+        print(e)
+        return None
+
 if __name__ == "__main__":
     
     all_folders = sorted(glob.glob("datasets/simbarca/simulation_sessions/session_*"))
     # add TQDM for progress bar
     with Pool(processes=8) as pool:
         all_data = list(tqdm(pool.imap(draw_mfd, all_folders), total=len(all_folders)))
-    
-    # now we take all the MFDs and plot them together
-    print("Plotting all MFDs together in one figure")
-    fig, ax = plt.subplots(figsize=(5, 4))
-    for data in all_data:
-        vdist_3min, vtime_3min = data['pred_vdist'], data['pred_vtime']
-        d2 = vdist_3min.sum(axis=1).values / (180 * TOTAL_LENGTH)
-        t2 = vtime_3min.sum(axis=1).values / (180 * TOTAL_LENGTH)
-        ax.scatter(t2, d2, s=2)
         
-    ax.set_xlabel('Vehicle Density')
-    ax.set_ylabel('Vehicle Flow')
-    ax.set_title('MFD')
-    fig.tight_layout()
-    fig.savefig('{}/all_MFD_combined.pdf'.format("datasets/simbarca/figures"))
+    if all_data is not None:
+        # now we take all the MFDs and plot them together
+        print("Plotting all MFDs together in one figure")
+        fig, ax = plt.subplots(figsize=(5, 4))
+        for data in all_data:
+            vdist_3min, vtime_3min = data['pred_vdist'], data['pred_vtime']
+            d2 = vdist_3min.sum(axis=1).values / (180 * TOTAL_LENGTH)
+            t2 = vtime_3min.sum(axis=1).values / (180 * TOTAL_LENGTH)
+            ax.scatter(t2, d2, s=2)
+            
+        ax.set_xlabel('Vehicle Density')
+        ax.set_ylabel('Vehicle Flow')
+        ax.set_title('MFD')
+        fig.tight_layout()
+        fig.savefig('{}/all_MFD_combined.pdf'.format("datasets/simbarca/figures"))
