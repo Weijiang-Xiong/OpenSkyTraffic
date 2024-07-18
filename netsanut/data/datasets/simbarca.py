@@ -595,10 +595,11 @@ if __name__ == "__main__":
     logger = setup_logger(name="default", level=logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument("--from_scratch", action="store_true", help="Process everything from scratch")
-    args = parser.parse_args("--from_scratch".split())
+    parser.add_argument("--filter_short", type=float, default=None, help="Filter out the short road segments")
+    args = parser.parse_args()
     
-    train_set = SimBarca(split="train", force_reload=args.from_scratch, filter_short=10)
-    test_set = SimBarca(split="test", force_reload=args.from_scratch, filter_short=10)
+    train_set = SimBarca(split="train", force_reload=args.from_scratch, filter_short=args.filter_short)
+    test_set = SimBarca(split="test", force_reload=args.from_scratch, filter_short=args.filter_short)
     
     train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
     test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
