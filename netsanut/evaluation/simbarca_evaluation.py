@@ -1,6 +1,6 @@
 import json
 import logging
-import random
+import numpy as np 
 
 import torch
 import torch.nn as nn 
@@ -211,7 +211,8 @@ class HistoricalAverageModel(nn.Module):
         self.set_historial_avg_from_dataloader(data_loader)
     
     def set_historial_avg_from_dataloader(self, data_loader):
-        """ go through the data_loader and calculate the historical average speed
+        """ go through the data_loader and calculate the average speed of the test set per segment
+            Basically this is the best possible constant prediction
         """
         
         all_pred_speed, all_pred_speed_regional = [], []
@@ -238,7 +239,7 @@ class HistoricalAverageModel(nn.Module):
         }
 
 
-def evaluate_trivial_models(data_loader):
+def evaluate_trivial_models(data_loader, ignore_value=np.nan):
 
     save_dir = "{}/{}".format("./scratch", "simbarca_trivial_baselines")
 
@@ -247,12 +248,12 @@ def evaluate_trivial_models(data_loader):
     for model_class in [InputAverageModel, LastObservedModel]:
         for mode in ["ld_speed", "drone_speed"]:
             print("Evaluating trivial models {} {}".format(model_class.__name__, mode))
-            evaluator = SimBarcaEvaluator(save_dir=save_dir, save_res=True, visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
+            evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir, save_res=True, visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
             res = evaluator.evaluate(model_class(mode), data_loader, verbose=True)
 
     # historical average
     print("Evaluating trivial models historical_avg")
-    evaluator = SimBarcaEvaluator(save_dir=save_dir, save_res=True, visualize=True, save_note="HistoricalAverageModel")
+    evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir, save_res=True, visualize=True, save_note="HistoricalAverageModel")
     res = evaluator.evaluate(HistoricalAverageModel(data_loader=data_loader), data_loader, verbose=True)
     
 
@@ -264,6 +265,6 @@ if __name__ == "__main__":
     dataset = SimBarca(split="test", force_reload=False)
     data_loader = DataLoader(dataset, batch_size=8, shuffle=False, collate_fn=dataset.collate_fn)
 
-    evaluate_trivial_models(data_loader)
+    evaluate_trivial_models(data_loader, ignore_value=np.nan)
 
     
