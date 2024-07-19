@@ -260,7 +260,7 @@ def evaluate_trivial_models(data_loader, ignore_value=np.nan):
 if __name__ == "__main__":
     from netsanut.data.datasets import SimBarca
     from netsanut.utils.event_logger import setup_logger
-    logger = setup_logger(name="default", level=logging.INFO)
+    logger = setup_logger(name="default", level=logging.INFO, log_file="scratch/simbarca_trivial_baselines/eval_log.log")
 
     dataset = SimBarca(split="test", force_reload=False)
     data_loader = DataLoader(dataset, batch_size=8, shuffle=False, collate_fn=dataset.collate_fn)
