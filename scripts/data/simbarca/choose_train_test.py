@@ -55,12 +55,12 @@ if __name__ == "__main__":
     valid_sessions = np.setdiff1d(all_folders, folders_with_errors)
     # randomly select train and test sessions
     rng = np.random.RandomState(42)
-    is_train = rng.rand(len(valid_sessions)) < train_ratio
-    is_test = ~is_train
-
-    train_session_numbers = [get_session_number(p) for p in np.array(valid_sessions)[is_train]]
-    test_sessions = [get_session_number(p) for p in np.array(valid_sessions)[is_test]]
+    train_idx = np.argsort(rng.rand(len(valid_sessions)))[:int(train_ratio * len(valid_sessions))]
+    test_idx = np.setdiff1d(np.arange(len(valid_sessions)), train_idx)
+    
+    train_session_numbers = [get_session_number(p) for p in np.array(valid_sessions)[train_idx]]
+    test_sessions = [get_session_number(p) for p in np.array(valid_sessions)[test_idx]]
 
     # write the train-test split into a json file 
     with open("datasets/simbarca/metadata/train_test_split.json", "w") as f:
-        json.dump({"train": train_session_numbers, "test": test_sessions}, f)
+        json.dump({"train": sorted(train_session_numbers), "test": sorted(test_sessions)}, f)
