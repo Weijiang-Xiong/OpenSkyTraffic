@@ -171,7 +171,8 @@ class HiMSNet(nn.Module):
             all_mode_features.append(x_drone)
         
         if self.use_ld:
-            x_ld = self.ld_embedding(x_ld, monitor_mask = ld_mask.unsqueeze(1).tile(1, T_ld, 1))
+            ld_mask = ld_mask.unsqueeze(1).tile(1, T_ld, 1) if ld_mask is not None else ld_mask
+            x_ld = self.ld_embedding(x_ld, monitor_mask = ld_mask)
             x_ld = rearrange(x_ld, "N T P C -> (N T) P C")
             x_ld = self.spatial_encoding(x_ld)
             x_ld = rearrange(x_ld, "(N T) P C -> (N P) T C", N=N)
