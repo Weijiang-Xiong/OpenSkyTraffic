@@ -19,7 +19,7 @@ from netsanut.data import SimBarca
 
 class SimBarcaEvaluator:
 
-    def __init__(self, ignore_value=-1.0, mape_threshold=5, save_dir: str=None, save_res: bool=True, save_note="example", visualize=False) -> None:
+    def __init__(self, ignore_value=-1.0, mape_threshold=1.0, save_dir: str=None, save_res: bool=True, save_note="example", visualize=False) -> None:
         self.ignore_value = ignore_value
         self.mape_threshold = mape_threshold
         self.save_dir = save_dir
