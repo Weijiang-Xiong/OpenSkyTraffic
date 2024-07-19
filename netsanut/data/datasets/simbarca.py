@@ -105,6 +105,9 @@ class SimBarca(Dataset):
             import re
             return int(re.search(r"session_(\d+)", path).group(1))
         
+        if not os.path.exists("{}/train_test_split.json".format(self.meta_data_folder)):
+            print("No train_test_split.json file found, please use `scripts/data/simbarca/choose_train_test.py`")
+        
         with open("{}/train_test_split.json".format(self.meta_data_folder), "r") as f:
             sample_ids = json.load(f)[self.split]
         
