@@ -241,18 +241,18 @@ class HistoricalAverageModel(nn.Module):
 
 def evaluate_trivial_models(data_loader, ignore_value=np.nan):
 
+    logger = logging.getLogger("default")
     save_dir = "{}/{}".format("./scratch", "simbarca_trivial_baselines")
-
     make_dir_if_not_exist(save_dir)
     
     for model_class in [InputAverageModel, LastObservedModel]:
         for mode in ["ld_speed", "drone_speed"]:
-            print("Evaluating trivial models {} {}".format(model_class.__name__, mode))
+            logger.info("Evaluating trivial models {} {}".format(model_class.__name__, mode))
             evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir, save_res=True, visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
             res = evaluator.evaluate(model_class(mode), data_loader, verbose=True)
 
     # historical average
-    print("Evaluating trivial models historical_avg")
+    logger.info("Evaluating trivial models historical_avg")
     evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir, save_res=True, visualize=True, save_note="HistoricalAverageModel")
     res = evaluator.evaluate(HistoricalAverageModel(data_loader=data_loader), data_loader, verbose=True)
     
