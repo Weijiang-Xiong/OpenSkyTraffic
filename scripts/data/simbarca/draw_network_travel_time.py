@@ -29,7 +29,8 @@ def _network_travel_time_histogram(folder: str):
     ax.hist(tt, bins=np.arange(0, 40, 2))
     ax.set_xlabel('Travel Time (min) ')
     ax.set_ylabel('Num of Vehicles')
-    ax.set_title('Network Travel Time (max {:.1f} mean {:.1f})'.format(tt.max(), tt.mean()))
+    # ax.set_title('Network Travel Time (max {:.1f} mean {:.1f})'.format(tt.max(), tt.mean()))
+    ax.set_title('Network Travel Time (Avg. {:.1f})'.format(tt.mean()))
     fig.tight_layout()
     fig.savefig("{}/figures/travel_time_histogram.pdf".format(folder))
     
