@@ -27,7 +27,7 @@ from netsanut.data import DATASET_CATALOG
 
 _package_init_file = netsanut.__file__
 _root: Path = (Path(_package_init_file).parent.parent).resolve()
-assert _root.exists(), "please check detectron2 installation"
+assert _root.exists(), "please check package installation"
 
 logger = logging.getLogger("default")
 
@@ -41,7 +41,6 @@ class SimBarca(Dataset):
     eval_metrics_folder = "datasets/simbarca/eval_metrics"
     input_seqs = ["drone_speed", "ld_speed"]
     output_seqs = ["pred_speed", "pred_speed_regional"]
-    train_split_size = 0.75
 
     def __init__(self, split="train", force_reload=False, use_clean_data=True, filter_short: float = None):
         self.split = split
@@ -357,6 +356,7 @@ class SimBarca(Dataset):
         ax.legend()
         fig.tight_layout()
         fig.savefig("{}/pred_sample_b{}s{}_{}.pdf".format(save_dir, b, s, save_note))
+        logger.info("Saved the plot to {}/pred_sample_b{}s{}_{}.pdf".format(save_dir, b, s, save_note))
 
     @staticmethod
     def plot_pred_for_section(all_preds, all_labels, save_dir="./", section_num=100, save_note="example"):
@@ -379,6 +379,7 @@ class SimBarca(Dataset):
         
         fig.tight_layout()
         fig.savefig("{}/30min_ahead_pred_{}_{}.pdf".format(save_dir, p, save_note))
+        logger.info("Saved the plot to {}/30min_ahead_pred_{}_{}.pdf".format(save_dir, p, save_note))
 
     @staticmethod
     def plot_MAE_by_location(node_coordinates, all_preds, all_labels, save_dir=".F/", save_note="example"):
@@ -391,6 +392,7 @@ class SimBarca(Dataset):
         ax.set_ylabel("Y Coordinates")
         fig.tight_layout()
         fig.savefig("{}/average_mae_{}.pdf".format(save_dir, save_note))
+        logger.info("Saved the plot to {}/average_mae_{}.pdf".format(save_dir, save_note))
         
 def delete_nodes(adj_mtx, delete_mask):
     if isinstance(adj_mtx, torch.Tensor):
@@ -597,8 +599,8 @@ if __name__ == "__main__":
     from netsanut.utils.event_logger import setup_logger
     logger = setup_logger(name="default", level=logging.INFO)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--from_scratch", action="store_true", help="Process everything from scratch")
-    parser.add_argument("--filter_short", type=float, default=None, help="Filter out the short road segments")
+    parser.add_argument("--from-scratch", action="store_true", help="Process everything from scratch")
+    parser.add_argument("--filter-short", type=float, default=None, help="Filter out the short road segments")
     args = parser.parse_args()
     
     train_set = SimBarca(split="train", force_reload=args.from_scratch, filter_short=args.filter_short)

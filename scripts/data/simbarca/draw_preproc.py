@@ -12,7 +12,8 @@ sns.set_theme(style="darkgrid")
 from multiprocessing import Pool
 from tqdm import tqdm
 
-IDS_OF_INTEREST = [int(x) for x in open("datasets/simbarca/metadata/sections_of_interest.txt", "r").read().split(",")]
+with open("datasets/simbarca/metadata/sections_of_interest.txt", "r") as f:
+    IDS_OF_INTEREST = [int(x) for x in f.read().split(",")]
 
 def draw_od_demand(centroid_pos, od_pairs, drop_lower=None, save_folder="./"):
     

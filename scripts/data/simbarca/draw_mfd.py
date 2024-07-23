@@ -18,7 +18,8 @@ from multiprocessing import Pool
 # length of all road segments
 ALL_LENGTHS = pd.read_csv("datasets/simbarca/metadata/link_bboxes_clustered.csv")[['id', 'length']].set_index('id')
 TOTAL_LENGTH = ALL_LENGTHS['length'].sum()
-IDS_OF_INTEREST = [int(x) for x in open("datasets/simbarca/metadata/sections_of_interest.txt", "r").read().split(",")]
+with open("datasets/simbarca/metadata/sections_of_interest.txt", "r") as f:
+    IDS_OF_INTEREST = [int(x) for x in f.read().split(",")]
 
 def _draw_mfd(folder):
     

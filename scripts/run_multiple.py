@@ -1,9 +1,10 @@
+import copy
 import subprocess
 from itertools import product
 
-# RUN, VISUALIZE = 0, 1
+RUN, VISUALIZE = 0, 1
 
-# mode = VISUALIZE
+mode = VISUALIZE
 
 # if mode == RUN:
 #     common = "python tools/train.py --config-file config/NeTSFormer_uncertainty.py"
@@ -74,6 +75,22 @@ f"{train_script} {cfg_rndobsv} model.use_drone=False train.output_dir=scratch/hi
 command_list.append(
 f"{train_script} {cfg_rndobsv} model.use_ld=False train.output_dir=scratch/himsnet_rnd_no_ld"
 )
+
+# evaluation commands
+def find_output_dir(cmd_str):
+    return cmd_str.split("output_dir=")[1].split(" ")[0]
+
+eval_list = []
+for cmd_str in command_list:
+    eval_cmd = copy.deepcopy(cmd_str)
+    output_dir = find_output_dir(eval_cmd)
+    eval_cmd = eval_cmd.replace("train.py", "train.py --eval-only")
+    eval_cmd = eval_cmd + " " + "train.checkpoint={}/model_final.pth".format(output_dir)
+    eval_cmd = eval_cmd + " " + "evaluation.visualize=True"
+    eval_list.append(eval_cmd)
+
+if mode == VISUALIZE:
+    command_list = eval_list
 
 for cmd_str in command_list:
     print("Running command \n {}".format(cmd_str))
