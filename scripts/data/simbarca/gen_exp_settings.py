@@ -1,7 +1,7 @@
 """ Generate simulation settings file and folders
 
     Example usage:
-    python scripts/data/simbarca/gen_exp_settings.py --data_root datasets/simbarca --num_sim 100
+    python scripts/data/simbarca/gen_exp_settings.py --data-root datasets/simbarca --num-sim 100
 """
 import os
 import json
@@ -15,24 +15,24 @@ def default_argument_parser():
     
     parser = argparse.ArgumentParser(description='Run simulations')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
-    parser.add_argument('--init_seed', type=int, default=42, help='Initial seed for random number generator')
-    parser.add_argument('--data_root', type=str, default='/home/weijiang/Projects/Netsanut/datasets/simbarca', help='Root directory for data')
-    parser.add_argument('--num_thread', type=int, default=16, help='Number of threads to use when obtaining vehicle information')
-    parser.add_argument('--num_sim', type=int, default=100, help='Number of simulations to run')
-    parser.add_argument('--start_idx', type=int, default=0, help='Starting index for simulation folders')
-    parser.add_argument('--seed_low', type=int, default=10000, help='Lower bound for random seed')
-    parser.add_argument('--seed_high', type=int, default=99999, help='Upper bound for random seed')
+    parser.add_argument('--init-seed', type=int, default=42, help='Initial seed for random number generator')
+    parser.add_argument('--data-root', type=str, default='/home/weijiang/Projects/Netsanut/datasets/simbarca', help='Root directory for data')
+    parser.add_argument('--num-thread', type=int, default=16, help='Number of threads to use when obtaining vehicle information')
+    parser.add_argument('--num-sim', type=int, default=100, help='Number of simulations to run')
+    parser.add_argument('--start-idx', type=int, default=0, help='Starting index for simulation folders')
+    parser.add_argument('--seed-low', type=int, default=10000, help='Lower bound for random seed')
+    parser.add_argument('--seed-high', type=int, default=99999, help='Upper bound for random seed')
     
-    parser.add_argument('--num_divs', default=5, type=int, help='Select this many values form each param interval')
-    parser.add_argument('--global_scale_prob', type=float, default=1.0, help='Probability to apply global scaling')
-    parser.add_argument('--global_scale_low', type=float, default=1.2, help='Lower bound for global scale')
-    parser.add_argument('--global_scale_high', type=float, default=1.8, help='Upper bound for global scale')
-    parser.add_argument('--mask_low', type=float, default=0.0, help='Lower bound for mask probability')
-    parser.add_argument('--mask_high', type=float, default=0.1, help='Upper bound for mask probability')
-    parser.add_argument('--noise_p_low', type=float, default=0.2, help='Lower bound for noise probability')
-    parser.add_argument('--noise_p_high', type=float, default=0.5, help='Upper bound for noise probability')
-    parser.add_argument('--noise_scale_low', type=float, default=0.1, help='Lower bound for noise scale')
-    parser.add_argument('--noise_scale_high', type=float, default=0.3, help='Upper bound for noise scale')
+    parser.add_argument('--num-divs', default=5, type=int, help='Select this many values form each param interval')
+    parser.add_argument('--global-scale-prob', type=float, default=1.0, help='Probability to apply global scaling')
+    parser.add_argument('--global-scale-low', type=float, default=1.2, help='Lower bound for global scale')
+    parser.add_argument('--global-scale-high', type=float, default=1.8, help='Upper bound for global scale')
+    parser.add_argument('--mask-low', type=float, default=0.0, help='Lower bound for mask probability')
+    parser.add_argument('--mask-high', type=float, default=0.1, help='Upper bound for mask probability')
+    parser.add_argument('--noise-p-low', type=float, default=0.2, help='Lower bound for noise probability')
+    parser.add_argument('--noise-p-high', type=float, default=0.5, help='Upper bound for noise probability')
+    parser.add_argument('--noise-scale-low', type=float, default=0.1, help='Lower bound for noise scale')
+    parser.add_argument('--noise-scale-high', type=float, default=0.3, help='Upper bound for noise scale')
 
     return parser
     

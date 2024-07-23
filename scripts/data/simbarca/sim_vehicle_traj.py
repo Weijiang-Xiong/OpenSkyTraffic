@@ -38,7 +38,7 @@ def _process_folder(folder, executable, project, rep_id,
     # 2. Extract traffic statistics per time step 
     ######################################################
     if extract_stats:
-        stats_cmd = "python scripts/data/simbarca/time_series_from_traj.py --metadata_folder datasets/simbarca/metadata --session_folder {}".format(folder)
+        stats_cmd = "python scripts/data/simbarca/time_series_from_traj.py --metadata-folder datasets/simbarca/metadata --session-folder {}".format(folder)
         print("Executing command: \n {}".format(stats_cmd))
         subprocess.run(stats_cmd, shell=True, stdout=log_file, stderr=log_file)
     
@@ -73,13 +73,13 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument("--executable", type=str, default="/opt/Aimsun_Next_22/aconsole", help="Path to the aimsun console executable")
     parser.add_argument("--project", type=str, default="/home/weijiang/Downloads/Eixample_BASE_v7.ang", help="The Aimsun network model")
-    parser.add_argument("--rep_id", type=str, default="10607425", help="The replication id to execute")
-    parser.add_argument("--sessions_folder", type=str, default="datasets/simbarca/simulation_sessions", help="The folders where all simulation folders are stored")
+    parser.add_argument("--rep-id", type=str, default="10607425", help="The replication id to execute")
+    parser.add_argument("--sessions-folder", type=str, default="datasets/simbarca/simulation_sessions", help="The folders where all simulation folders are stored")
     parser.add_argument("--cleanup", action='store_true', help="Delete the raw trajectory files after processing")
-    parser.add_argument("--run_sim", action='store_true', help="Run the simulation in Aimsun")
-    parser.add_argument("--extract_stats", action='store_true', help="Extract traffic statistics from the raw trajectory files")
-    parser.add_argument("--agg_stats", action='store_true', help="Aggregate the raw statistics into different intervals")
-    parser.add_argument("--num_proc", type=int, default=8, help="Number of processes to run in parallel")
+    parser.add_argument("--run-sim", action='store_true', help="Run the simulation in Aimsun")
+    parser.add_argument("--extract-stats", action='store_true', help="Extract traffic statistics from the raw trajectory files")
+    parser.add_argument("--agg-stats", action='store_true', help="Aggregate the raw statistics into different intervals")
+    parser.add_argument("--num-proc", type=int, default=8, help="Number of processes to run in parallel")
     parser.add_argument("--fix-errors", action='store_true', help="Only rerun the folders with errors")
     args = parser.parse_args()
 
