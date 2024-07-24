@@ -270,8 +270,11 @@ if __name__ == "__main__":
             draw_segment_speed_color_by_num_veh(stats[str(section_num)], start_min=0, end_min=150, save_note="sec_{}".format(section_num), save_folder=folder, figsize=(25, 4))
 
         
-        draw_segment_speed_vs_point_speed(stats['9971'], save_note="short_queue", save_folder=folder)
-        draw_segment_speed_vs_point_speed(stats['9453'], save_note="long_queue", save_folder=folder)
+        draw_segment_speed_vs_point_speed(stats['9971'], save_note="short_queue_20min", save_folder=folder)
+        draw_segment_speed_vs_point_speed(stats['9453'], save_note="long_queue_20min", save_folder=folder)
+        
+        draw_segment_speed_vs_point_speed(stats['9971'], start_min=15, save_note="short_queue_5min", save_folder=folder)
+        draw_segment_speed_vs_point_speed(stats['9453'], start_min=15, save_note="long_queue_5min", save_folder=folder)
         
         # visualize aggregated time series and generated training samples, compare with section_stats
         agg_ts_data = pickle.load(open("{}/timeseries/agg_timeseries.pkl".format(folder), "rb"))
