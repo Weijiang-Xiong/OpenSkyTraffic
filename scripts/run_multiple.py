@@ -76,6 +76,16 @@ command_list.append(
 f"{train_script} {cfg_rndobsv} model.use_ld=False train.output_dir=scratch/himsnet_rnd_no_ld"
 )
 
+command_list.append(
+f"{train_script} {cfg_rndobsv} train.output_dir=scratch/himsnet_rnd_noise dataset.train.use_clean_data=False"
+)
+command_list.append(
+f"{train_script} {cfg_rndobsv} model.use_drone=False train.output_dir=scratch/himsnet_rnd_no_drone_noise dataset.train.use_clean_data=False"
+)
+command_list.append(
+f"{train_script} {cfg_rndobsv} model.use_ld=False train.output_dir=scratch/himsnet_rnd_no_ld_noise dataset.train.use_clean_data=False"
+)
+
 # evaluation commands
 def find_output_dir(cmd_str):
     return cmd_str.split("output_dir=")[1].split(" ")[0]

@@ -71,12 +71,14 @@ class SimBarca(Dataset):
             logger.info("Using corrupted data for train set, but clean label for test set")
             # NOTE quick and dirty data augmentation ... not configuratle, not scalable ... 
             if self.split == "train":
+                logger.info("Adding Gaussian noise to the training input and label")
                 # we train on corrupted data to make the model more robust
                 self.drone_speed = add_gaussian_noise(self.drone_speed, std=0.05)
                 self.ld_speed = add_gaussian_noise(self.ld_speed, std=0.15)
                 self.pred_speed = add_gaussian_noise(self.pred_speed, std=0.05)
             elif self.split == "test":
                 # for test data, the input is corrupted but the label is not for evaulating the model
+                logger.info("Adding Gaussian noise to the testing input (BUT NOT lable)")
                 self.drone_speed = add_gaussian_noise(self.drone_speed, std=0.05)
                 self.ld_speed = add_gaussian_noise(self.ld_speed, std=0.15)
         
@@ -374,7 +376,7 @@ class SimBarca(Dataset):
         for i in range(0, len(xx), 20):
             ax.axvline(i, color='gray', linestyle='--', linewidth=0.5, alpha=0.5)
         ax.legend()
-        ax.set_xlabel("Time step (not exactly ...)")
+        ax.set_xlabel("Time step (concatenated along simulation sessions)")
         ax.set_ylabel("Speed (m/s)")
         
         fig.tight_layout()
