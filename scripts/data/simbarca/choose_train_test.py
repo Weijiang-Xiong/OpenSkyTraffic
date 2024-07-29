@@ -25,7 +25,15 @@ def check_errors(folder):
             # started a new simulation without cleaning up the previous one
             if len(re.findall("Simulation Ready", api_log_content)) > 1:
                 errors.append("POSSIBLE_DUPLICATE_SIMULATION")
-                
+            api_log_by_line = api_log_content.split("\n")
+            pattern = r": (\d+) vehicles in network at time (\d+\.?\d*) min (\d+\.?\d*) s"
+            matches = re.findall(pattern, api_log_content)
+            if len(matches) == 0:
+                errors.append("NO_VEHICLE_COUNT")
+            else:
+                if int(matches[-1][0]) > 1:
+                    errors.append("UNRESOLVED_CONGESTION")
+                    
     # check processing log file
     processing_log_file = "{}/processing_log.log".format(folder)
     if not os.path.exists(processing_log_file):
@@ -50,7 +58,8 @@ if __name__ == "__main__":
         if len(errors) > 0:
             print("Folder {} has errors: {}".format(folder, errors))
             folders_with_errors.append(folder)
-
+    folders_with_errors = sorted(folders_with_errors)
+    
     # we will not use the sessions with errors
     valid_sessions = np.setdiff1d(all_folders, folders_with_errors)
     # randomly select train and test sessions
