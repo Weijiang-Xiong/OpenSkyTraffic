@@ -43,7 +43,7 @@ def MAPE(pred, label, ignore_value=np.nan, threshold=None) -> float:
     if threshold is not None:
         mask = mask & (label > threshold)
     
-    error = torch.abs(pred-label)/label
+    error = torch.abs(pred-label/label)
     error = error[mask]
     return torch.mean(error).item()
 
@@ -185,7 +185,7 @@ def masked_mape(preds, labels, null_val=np.nan):
     mask = mask.float()
     mask /=  torch.mean((mask))
     mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
-    loss = torch.abs(preds-labels)/labels
+    loss = torch.abs(preds-labels/labels)
     loss = loss * mask
     loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
     return torch.mean(loss)
