@@ -45,6 +45,12 @@ command_list.append(
 f"{train_script} {cfg_default} model.use_global=False train.output_dir=scratch/himsnet_no_gnn"
 )
 command_list.append(
+f"{train_script} {cfg_default} model.use_global=False train.output_dir=scratch/himsnet_no_gnn"
+)
+command_list.append(
+f"{train_script} {cfg_default} model.use_global=False train.output_dir=scratch/himsnet_no_gnn"
+)
+command_list.append(
 f"{train_script} {cfg_default} model.use_drone=False train.output_dir=scratch/himsnet_no_drone"
 )
 command_list.append(
@@ -84,6 +90,16 @@ f"{train_script} {cfg_rndobsv} model.use_drone=False train.output_dir=scratch/hi
 )
 command_list.append(
 f"{train_script} {cfg_rndobsv} model.use_ld=False train.output_dir=scratch/himsnet_rnd_no_ld_noise dataset.train.use_clean_data=False"
+)
+
+command_list.append(
+f"{train_script} {cfg_default} train.output_dir=scratch/himsnet_no_emb_3hop model.adjacency_hop=3 model.simple_fillna=True"
+)
+command_list.append(
+f"{train_script} {cfg_default} model.use_drone=False model.adjacency_hop=3 train.output_dir=scratch/himsnet_no_drone_3hop"
+)
+command_list.append(
+f"{train_script} {cfg_default} model.use_ld=False model.adjacency_hop=3 train.output_dir=scratch/himsnet_no_ld_3hop"
 )
 
 # evaluation commands

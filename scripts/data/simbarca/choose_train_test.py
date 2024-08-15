@@ -5,6 +5,7 @@ import re
 import json
 import numpy as np
 from glob import glob
+from argparse import ArgumentParser
 
 def get_session_number(path):
     return int(re.search(r"session_(\d+)", path).group(1))
@@ -19,19 +20,23 @@ def check_errors(folder):
         errors.append("SIMULATION_NOT_STARTED")
     else:
         with open(api_log_file, "r") as f:
+            
             api_log_content = f.read()
+            
             if not "Simulation Finished" in api_log_content:
                 errors.append("SIMULATION_NOT_FINISHED")
+            
             # started a new simulation without cleaning up the previous one
             if len(re.findall("Simulation Ready", api_log_content)) > 1:
                 errors.append("POSSIBLE_DUPLICATE_SIMULATION")
-            api_log_by_line = api_log_content.split("\n")
+            
             pattern = r": (\d+) vehicles in network at time (\d+\.?\d*) min (\d+\.?\d*) s"
             matches = re.findall(pattern, api_log_content)
             if len(matches) == 0:
-                errors.append("NO_VEHICLE_COUNT")
+                errors.append("NO_VEHICLE_COUNT") # this usually don't happen
             else:
                 if int(matches[-1][0]) > 1:
+                    # there are vehicles stuck in the netwrok at the end of the simulation
                     errors.append("UNRESOLVED_CONGESTION")
                     
     # check processing log file
@@ -47,9 +52,13 @@ def check_errors(folder):
     return errors
 
 if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument("--train-ratio", type=float, default=0.75)
+    parser.add_argument("--session-folder", type=str, default="datasets/simbarca/simulation_sessions")    
+    parser.add_argument("--output-folder", type=str, default="datasets/simbarca/metadata")
     
-    train_ratio = 0.75
-    all_folders = glob("datasets/simbarca/simulation_sessions/session_*")
+    train_ratio = args.train_ratio
+    all_folders = glob("{}/session_*".format(args.sessio_folder))
 
     print("Checking the log files for any errors...")
     folders_with_errors = []
@@ -71,5 +80,5 @@ if __name__ == "__main__":
     test_sessions = [get_session_number(p) for p in np.array(valid_sessions)[test_idx]]
 
     # write the train-test split into a json file 
-    with open("datasets/simbarca/metadata/train_test_split.json", "w") as f:
+    with open("{}/train_test_split.json", "w").format(args.output_folder) as f:
         json.dump({"train": sorted(train_session_numbers), "test": sorted(test_sessions)}, f)
