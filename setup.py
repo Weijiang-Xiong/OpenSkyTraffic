@@ -5,7 +5,7 @@ sys.path.append(os.path.dirname(__file__))
 
 setup(
     name='netsanut',
-    version=0.2,
+    version=0.3,
     packages=[
         'netsanut',
     ],
@@ -24,5 +24,7 @@ setup(
     "termcolor", # for colored print in terminal
     "geopandas", # for geospatial data
     "contextily", # for basemap
+    "tqdm", # for progress bar
+    "scipy", # for scientific computing
     ],
 )
