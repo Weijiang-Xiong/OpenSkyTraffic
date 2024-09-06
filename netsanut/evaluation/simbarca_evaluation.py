@@ -68,7 +68,6 @@ class SimBarcaEvaluator:
 
         all_preds, all_labels = self.collect_predictions(model, data_loader, ["pred_speed", "pred_speed_regional"])
 
-        avg_eval_res = dict() # average over all time steps
         eval_res_over_time = defaultdict(lambda: defaultdict(list))
         for seq_name in ["pred_speed", "pred_speed_regional"]:
             if verbose:
@@ -106,8 +105,10 @@ class SimBarcaEvaluator:
             #     offset_coeffs = {c:model.offset_coeff(confidence=c) for c in EVAL_CONFS}
             #     res_u = uncertainty_metrics(all_preds, all_labels, all_scales, offset_coeffs, verbose=verbose)
             #     res.update(res_u)
-            avg_eval_res[seq_name] = seq_res
-            
+        
+        logger.info("Results to copy in manuscripts: \n {} \n".format(self.format_results_latex(eval_res_over_time)))
+        logger.info("Results to copy in excel: \n {} \n".format(self.format_results_excel(eval_res_over_time)))
+        
         if self.visualize:
             # disable gradient computation, so we don't need .detach() for the model outputs
             with torch.no_grad():
@@ -123,16 +124,29 @@ class SimBarcaEvaluator:
                     dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=self.save_note+aimsun_sec_id)
                     dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
                     dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=self.save_note+aimsun_sec_id)
-            
-        avg_eval_res = flatten_results_dict(avg_eval_res)
+    
+    def format_results_excel(self, eval_res):
+        excel_string = "{}".format(self.save_note)
+        for task in eval_res.keys():
+            for time_step in [4, 9]:
+                excel_string += " {:.2f} {:.1f}% {:.2f};".format(
+                    eval_res[task]["mae"][time_step],
+                    eval_res[task]["mape"][time_step]*100,
+                    eval_res[task]["rmse"][time_step]
+                )
+        return excel_string
         
-        # during training, the evaluation metrics will be saved to event storage, 
-        # there is no need to save the average results again, but we can do it if really needed
-        if self.save_res:
-            save_res_to_dir(self.save_dir, avg_eval_res, self.save_note)
-        
-        return avg_eval_res 
-
+    def format_results_latex(self, eval_res):
+        latex_string = "{}".format(self.save_note)
+        for task in eval_res.keys():
+            for time_step in [4, 9]:
+                latex_string += " & {:.2f} & {:.1f}\\% & {:.2f}".format(
+                    eval_res[task]["mae"][time_step],
+                    eval_res[task]["mape"][time_step]*100,
+                    eval_res[task]["rmse"][time_step]
+                )
+        latex_string += " \\\\"
+        return latex_string
 
 def save_res_to_dir(save_dir, res, save_note="default"):
     res = dict(res)

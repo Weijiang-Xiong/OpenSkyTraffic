@@ -57,9 +57,6 @@ command_list.append(
 f"{train_script} {cfg_default} model.use_ld=False train.output_dir=scratch/himsnet_no_ld"
 )
 command_list.append(
-f"{train_script} {cfg_default} model.adjacency_hop=3 train.output_dir=scratch/himsnet_3hop"
-)
-command_list.append(
 f"{train_script} {cfg_default} model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop"
 )
 command_list.append(
@@ -101,6 +98,32 @@ f"{train_script} {cfg_default} model.use_drone=False model.adjacency_hop=3 train
 command_list.append(
 f"{train_script} {cfg_default} model.use_ld=False model.adjacency_hop=3 train.output_dir=scratch/himsnet_no_ld_3hop"
 )
+
+command_list.append(
+f"{train_script} {cfg_default} model.simple_fillna=True model.adjacency_hop=3 train.output_dir=scratch/himsnet_no_emb_3hop"
+)
+command_list.append(
+f"{train_script} {cfg_default} model.adjacency_hop=3 train.output_dir=scratch/himsnet_3hop"
+)
+command_list.append(
+f"{train_script} {cfg_default} model.adjacency_hop=3 train.max_epoch=80 train.output_dir=scratch/himsnet_ep80_3hop"
+)
+command_list.append(
+f"{train_script} {cfg_default} model.adjacency_hop=3 model.d_model=128 train.output_dir=scratch/himsnet_d128_3hop"
+)
+command_list.append(
+f"{train_script} {cfg_default} model.adjacency_hop=3 model.d_model=256 train.output_dir=scratch/himsnet_d256_3hop"
+)
+command_list.append(
+f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 train.output_dir=scratch/himsnet_rnd_noise_3hop dataset.train.use_clean_data=False"
+)
+command_list.append(
+f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 model.use_drone=False train.output_dir=scratch/himsnet_rnd_no_drone_noise_3hop dataset.train.use_clean_data=False"
+)
+command_list.append(
+f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 model.use_ld=False train.output_dir=scratch/himsnet_rnd_no_ld_noise_3hop dataset.train.use_clean_data=False"
+)
+
 
 # evaluation commands
 def find_output_dir(cmd_str):

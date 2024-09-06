@@ -56,9 +56,10 @@ if __name__ == "__main__":
     parser.add_argument("--train-ratio", type=float, default=0.75)
     parser.add_argument("--session-folder", type=str, default="datasets/simbarca/simulation_sessions")    
     parser.add_argument("--output-folder", type=str, default="datasets/simbarca/metadata")
+    args = parser.parse_args()
     
     train_ratio = args.train_ratio
-    all_folders = glob("{}/session_*".format(args.sessio_folder))
+    all_folders = glob("{}/session_*".format(args.session_folder))
 
     print("Checking the log files for any errors...")
     folders_with_errors = []
