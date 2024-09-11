@@ -12,8 +12,8 @@ class TensorDataScaler:
 
     def __init__(self, mean: float, std: float, data_dim: int = 0, device: str = "cuda"):
         self.data_dim = data_dim
-        self.mean = torch.tensor(mean)
-        self.std = torch.tensor(std)
+        self.mean = torch.tensor(mean, requires_grad=False)
+        self.std = torch.tensor(std, requires_grad=False)
         self.inv_std = 1.0 / self.std
         self.to(device)
 
