@@ -15,7 +15,7 @@ from collections import defaultdict
 
 from netsanut.utils.io import flatten_results_dict, make_dir_if_not_exist
 from netsanut.evaluation.metrics import prediction_metrics
-from netsanut.data import SimBarca
+from netsanut.data.datasets import SimBarca
 
 class SimBarcaEvaluator:
 
