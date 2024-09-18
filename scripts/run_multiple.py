@@ -142,5 +142,10 @@ if mode == VISUALIZE:
     command_list = eval_list
 
 for cmd_str in command_list:
-    print("Running command \n {}".format(cmd_str))
-    completed_process = subprocess.run(cmd_str, shell=True)
+    try:
+        print("Running command \n {}".format(cmd_str))
+        completed_process = subprocess.run(cmd_str, shell=True)
+    except Exception as e:
+        print(e)
+        continue
+    

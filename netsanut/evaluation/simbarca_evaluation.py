@@ -27,20 +27,14 @@ class SimBarcaEvaluator:
         self.save_note = save_note
         self.visualize = visualize
         make_dir_if_not_exist(self.save_dir)
-        if self.visualize:
-            with open("{}/sections_of_interest.txt".format(SimBarca.meta_data_folder), "r") as f:
-                self.sections_of_interest = [int(x) for x in f.read().split(",")]
     
     def __call__(self, model: nn.Module, data_loader: DataLoader, **kwargs) -> Dict[str, float]:
         return self.evaluate(model, data_loader, **kwargs)
 
     def collect_predictions(self, 
-        model: nn.Module, data_loader: DataLoader, seq_names=[]
+        model: nn.Module, data_loader: DataLoader, output_seqs=[]
     ) -> Dict[str, torch.Tensor]:
-        """run inference of the model on the data_loader
-        concatenate all predictions and corresponding labels.
-
-        Returns: predictions, labels
+        """run inference of the model on the data_loader concatenate all predictions and corresponding labels for the sequences specified in `output_seqs`.
         """
         model.eval()
 
@@ -51,7 +45,7 @@ class SimBarcaEvaluator:
             with torch.no_grad():
                 pred_dict = model(data_dict)
 
-            for name in seq_names: # collect predicted sequences and corresponding labels
+            for name in output_seqs: # collect predicted sequences and corresponding labels
                 all_preds[name].append(pred_dict[name])
                 all_labels[name].append(data_dict[name])
 
@@ -62,14 +56,76 @@ class SimBarcaEvaluator:
         
         return all_preds, all_labels
 
+    def mae_by_demand_scale(self, all_preds, all_labels, demand_scales):
+        """ compute the mean absolute error for each sample and group by demand scales, then create a boxplot for each demand scale
 
-    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
+        Args:
+            all_preds: Dict[str, torch.Tensor] with keys as sequence names and values as predicted sequences, each sequence should have shape (N, T, P) with T and P being the time step and the spatial locations.
+            all_labels: Dict[str, torch.Tensor] with keys as sequence names and values as labels, same shape as `all_preds`.
+            demand_scales: torch tensor with shape (N,) indicating the demand scale of each sample
+        """
         logger = logging.getLogger("default")
+        
+        for seq_name in all_labels.keys():
+            seq_preds, seq_labels = all_preds[seq_name], all_labels[seq_name]
+            abs_error = torch.nanmean(torch.abs(seq_preds - seq_labels), dim=(1, 2))
+            error_by_scale = dict()
+            for scale in demand_scales.unique():
+                scale_idx = demand_scales == scale
+                error_by_scale[scale.item()] = abs_error[scale_idx].numpy()
+        
+            # plot the boxplot
+            fig, ax = plt.subplots()
+            ax.boxplot(error_by_scale.values(), labels=error_by_scale.keys())
+            ax.set_xlabel("Demand Scale")
+            ax.set_ylabel("MAE")
+            ax.set_title("MAE by Demand Scale for {}".format(seq_name))
+            fig_path = "{}/MAE_by_demand_scale_{}_{}.pdf".format(self.save_dir, self.save_note, seq_name)
+            plt.savefig(fig_path)
+            logger.info("Save MAE by demand scale plot to {}".format(fig_path))
+            plt.close()
+            
+    def segment_mae_by_avg_speed(self, all_preds, all_labels):
+        """ plot the MAE of each segment by the average speed of the segment
+        """
+        
+        preds, labels = all_preds["pred_speed"], all_labels["pred_speed"]
+        avg_spd_per_segment = torch.nanmean(labels, dim=(0, 1))
+        # discard nan values (i.e., segments with no vehicle ever passed)
+        avg_spd_per_segment = avg_spd_per_segment[~torch.isnan(avg_spd_per_segment)]
+        abs_error_per_segment = torch.nanmean(torch.abs(preds - labels), dim=(0, 1))
+        # discard nan values (i.e., segments with no vehicle ever passed)
+        abs_error_per_segment = abs_error_per_segment[~torch.isnan(abs_error_per_segment)]
+        # evenly divide the average speed into 10 bins
+        avg_spd_bins = np.linspace(avg_spd_per_segment.min(), avg_spd_per_segment.max(), 10)
+        # round up avg_spd_bins to nearest 0.5
+        avg_spd_bins = np.ceil(avg_spd_bins * 2) / 2
+        
+        # which bin each segment belongs to
+        avg_spd_bin_idx = np.digitize(avg_spd_per_segment, avg_spd_bins) 
+        # calculate the average MAE for each bin
+        mae_by_avg_spd = dict()
+        for i in range(1, len(avg_spd_bins)):
+            idx = avg_spd_bin_idx == i
+            mae_by_avg_spd[avg_spd_bins[i]] = abs_error_per_segment[idx].numpy()
 
-        all_preds, all_labels = self.collect_predictions(model, data_loader, ["pred_speed", "pred_speed_regional"])
-
+        # plot the boxplot
+        fig, ax = plt.subplots()
+        ax.boxplot(mae_by_avg_spd.values(), labels=mae_by_avg_spd.keys())
+        ax.set_xlabel("Upper bound of average segment speed")
+        ax.set_ylabel("MAE")
+        ax.set_title("MAE by Average Speed")
+        fig_path = "{}/MAE_by_avg_speed_{}.pdf".format(self.save_dir, self.save_note)
+        plt.savefig(fig_path)
+        plt.close()
+        
+        
+        
+    def eval_by_time_step(self, all_preds, all_labels, verbose=False):
+        logger = logging.getLogger("default")
+        
         eval_res_over_time = defaultdict(lambda: defaultdict(list))
-        for seq_name in ["pred_speed", "pred_speed_regional"]:
+        for seq_name in all_labels.keys():
             if verbose:
                 logger.info("Evaluate model on {}".format(seq_name))
 
@@ -108,6 +164,21 @@ class SimBarcaEvaluator:
         
         logger.info("Results to copy in manuscripts: \n {} \n".format(self.format_results_latex(eval_res_over_time)))
         logger.info("Results to copy in excel: \n {} \n".format(self.format_results_excel(eval_res_over_time)))
+
+    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]: 
+        output_seqs = data_loader.dataset.output_seqs
+        sections_of_interest = data_loader.dataset.sections_of_interest
+        
+        all_preds, all_labels = self.collect_predictions(model, data_loader, output_seqs)
+
+        self.eval_by_time_step(all_preds, all_labels, verbose=verbose)
+        
+        # do evaluation for different demand scales
+        demand_scales = data_loader.dataset.demand_scales
+        res_by_demand_scale = self.mae_by_demand_scale(all_preds, all_labels, demand_scales)
+        
+        # evaluation by segment average speed
+        self.segment_mae_by_avg_speed(all_preds, all_labels)
         
         if self.visualize:
             # disable gradient computation, so we don't need .detach() for the model outputs
@@ -118,7 +189,7 @@ class SimBarcaEvaluator:
                 
                 # debug purpose 
                 section_id_to_index = {v:k for k, v in dataset.index_to_section_id.items()}
-                for section_id in self.sections_of_interest:
+                for section_id in sections_of_interest:
                     section_num = section_id_to_index[section_id]
                     aimsun_sec_id = "_{}".format(dataset.index_to_section_id[section_num])
                     dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=self.save_note+aimsun_sec_id)
@@ -129,7 +200,7 @@ class SimBarcaEvaluator:
         excel_string = "{}".format(self.save_note)
         for task in eval_res.keys():
             for time_step in [4, 9]:
-                excel_string += " {:.2f} {:.1f}% {:.2f};".format(
+                excel_string += " {:.2f} {:.1f}% {:.2f}".format(
                     eval_res[task]["mae"][time_step],
                     eval_res[task]["mape"][time_step]*100,
                     eval_res[task]["rmse"][time_step]
@@ -255,10 +326,8 @@ class HistoricalAverageModel(nn.Module):
         }
 
 
-def evaluate_trivial_models(data_loader, ignore_value=np.nan):
-
+def evaluate_trivial_models(data_loader, ignore_value=np.nan, save_dir="/scratch"):
     logger = logging.getLogger("default")
-    save_dir = "{}/{}".format("./scratch", "simbarca_trivial_baselines")
     make_dir_if_not_exist(save_dir)
     
     for model_class in [InputAverageModel, LastObservedModel]:
@@ -280,7 +349,11 @@ if __name__ == "__main__":
 
     dataset = SimBarca(split="test", force_reload=False)
     data_loader = DataLoader(dataset, batch_size=8, shuffle=False, collate_fn=dataset.collate_fn)
-
-    evaluate_trivial_models(data_loader, ignore_value=np.nan)
+    evaluate_trivial_models(data_loader, ignore_value=np.nan, save_dir="scratch/simbarca_trivial_baselines")
+    
+    from netsanut.data.datasets import SimBarcaRandomObservation
+    dataset = SimBarcaRandomObservation(split="test", force_reload=False)
+    data_loader = DataLoader(dataset, batch_size=8, shuffle=False, collate_fn=dataset.collate_fn)
+    evaluate_trivial_models(data_loader, ignore_value=np.nan, save_dir="scratch/simbarcarnd_trivial_baselines")
 
     
