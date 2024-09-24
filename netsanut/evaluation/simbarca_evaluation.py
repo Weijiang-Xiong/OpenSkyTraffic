@@ -85,7 +85,7 @@ class SimBarcaEvaluator:
             logger.info("Save MAE by demand scale plot to {}".format(fig_path))
             plt.close()
             
-    def segment_mae_by_avg_speed(self, all_preds, all_labels):
+    def segment_mae_by_avg_speed(self, all_preds, all_labels, step_size=1):
         """ plot the MAE of each segment by the average speed of the segment
         """
         
@@ -96,10 +96,16 @@ class SimBarcaEvaluator:
         abs_error_per_segment = torch.nanmean(torch.abs(preds - labels), dim=(0, 1))
         # discard nan values (i.e., segments with no vehicle ever passed)
         abs_error_per_segment = abs_error_per_segment[~torch.isnan(abs_error_per_segment)]
-        # evenly divide the average speed into 10 bins
-        avg_spd_bins = np.linspace(avg_spd_per_segment.min(), avg_spd_per_segment.max(), 10)
-        # round up avg_spd_bins to nearest 0.5
-        avg_spd_bins = np.ceil(avg_spd_bins * 2) / 2
+        
+        # we define the bin edges based on the average speed of the segments
+        # round to the nearest multiple of step_size
+        bin_min = np.round(avg_spd_per_segment.min() / step_size) * step_size
+        if bin_min == 0:
+            bin_min = step_size
+        bin_max = np.round(avg_spd_per_segment.max() / step_size) * step_size
+        # bin_max is included, and only once.
+        avg_spd_bins = np.arange(bin_min, bin_max, step_size)
+        avg_spd_bins = np.append(avg_spd_bins, bin_max)
         
         # which bin each segment belongs to
         avg_spd_bin_idx = np.digitize(avg_spd_per_segment, avg_spd_bins) 
