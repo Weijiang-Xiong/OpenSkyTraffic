@@ -19,6 +19,10 @@ def _process_folder(folder, executable, project, rep_id,
                    run_sim=True, extract_stats=True, agg_stats=True, cleanup=True):
     
     log_file = open("{}/processing_log.log".format(folder), "w")
+    log_file.write("Processing folder: {}\n".format(folder))
+    log_file.write("Processing steps: run_sim {}, extract_stats {}, agg_stats {}, cleanup {}\n".format(
+        run_sim, extract_stats, agg_stats, cleanup))
+    log_file.flush()
     ######################################################
     # 1. Run simulation in Aimsun
     ######################################################
