@@ -33,6 +33,7 @@ def _network_travel_time_histogram(folder: str):
     ax.set_title('Network Travel Time (Avg. {:.1f})'.format(tt.mean()))
     fig.tight_layout()
     fig.savefig("{}/figures/travel_time_histogram.pdf".format(folder))
+    plt.close(fig)
     
 def network_travel_time_histogram(folder):
     """go to the next one if there is an error."""
