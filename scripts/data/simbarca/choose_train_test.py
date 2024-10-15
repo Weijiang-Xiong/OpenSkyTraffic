@@ -81,5 +81,5 @@ if __name__ == "__main__":
     test_sessions = [get_session_number(p) for p in np.array(valid_sessions)[test_idx]]
 
     # write the train-test split into a json file 
-    with open("{}/train_test_split.json", "w").format(args.output_folder) as f:
+    with open("{}/train_test_split.json".format(args.output_folder), "w") as f:
         json.dump({"train": sorted(train_session_numbers), "test": sorted(test_sessions)}, f)
