@@ -53,7 +53,8 @@ class EvalHook(HookBase):
         validation_metrics = self.eval_function(trainer.model)
         te = time.perf_counter()
         trainer.storage.put_scalar(name="epoch_inference_time", value=te-ts)
-        trainer.storage.put_scalars(**validation_metrics, suffix=self.suffix)
+        if isinstance(validation_metrics, dict):
+            trainer.storage.put_scalars(**validation_metrics, suffix=self.suffix)
         
     def after_train(self, trainer: TrainerBase):
         if not self.eval_after_train:
@@ -63,7 +64,8 @@ class EvalHook(HookBase):
         test_metrics = self.eval_function(trainer.model)
         te = time.perf_counter()
         trainer.storage.put_scalar(name="final_test_time", value=te-ts)
-        trainer.storage.put_scalars(**test_metrics, suffix=self.suffix)
+        if isinstance(test_metrics, dict):
+            trainer.storage.put_scalars(**test_metrics, suffix=self.suffix)
         
 
 class StepBasedLRScheduler(HookBase):

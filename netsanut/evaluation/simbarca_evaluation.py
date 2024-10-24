@@ -167,9 +167,14 @@ class SimBarcaEvaluator:
             #     offset_coeffs = {c:model.offset_coeff(confidence=c) for c in EVAL_CONFS}
             #     res_u = uncertainty_metrics(all_preds, all_labels, all_scales, offset_coeffs, verbose=verbose)
             #     res.update(res_u)
+        if verbose:
+            logger.info("Results to copy in manuscripts: \n {} \n".format(self.format_results_latex(eval_res_over_time)))
+            logger.info("Results to copy in excel: \n {} \n".format(self.format_results_excel(eval_res_over_time)))
         
-        logger.info("Results to copy in manuscripts: \n {} \n".format(self.format_results_latex(eval_res_over_time)))
-        logger.info("Results to copy in excel: \n {} \n".format(self.format_results_excel(eval_res_over_time)))
+        # this returned dictionary is needed for EvalHook to log some avg results
+        avg_eval_res = flatten_results_dict(eval_res_over_time)
+        
+        return avg_eval_res
 
     def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]: 
         output_seqs = data_loader.dataset.output_seqs
@@ -177,16 +182,17 @@ class SimBarcaEvaluator:
         
         all_preds, all_labels = self.collect_predictions(model, data_loader, output_seqs)
 
-        self.eval_by_time_step(all_preds, all_labels, verbose=verbose)
+        avg_eval_res = self.eval_by_time_step(all_preds, all_labels, verbose=verbose)
         
-        # do evaluation for different demand scales
-        demand_scales = data_loader.dataset.demand_scales
-        res_by_demand_scale = self.mae_by_demand_scale(all_preds, all_labels, demand_scales)
-        
-        # evaluation by segment average speed
-        self.segment_mae_by_avg_speed(all_preds, all_labels)
-        
+        # this is for evaluation after the training process is done
         if self.visualize:
+            # do evaluation for different demand scales
+            demand_scales = data_loader.dataset.demand_scales
+            res_by_demand_scale = self.mae_by_demand_scale(all_preds, all_labels, demand_scales)
+            
+            # evaluation by segment average speed
+            self.segment_mae_by_avg_speed(all_preds, all_labels)
+            
             # disable gradient computation, so we don't need .detach() for the model outputs
             with torch.no_grad():
                 data_dict = next(iter(data_loader))
@@ -201,6 +207,9 @@ class SimBarcaEvaluator:
                     dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=self.save_note+aimsun_sec_id)
                     dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
                     dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=self.save_note+aimsun_sec_id)
+        
+        # return this for EvalHook to do logging in training
+        return avg_eval_res
     
     def format_results_excel(self, eval_res):
         excel_string = "{}".format(self.save_note)
