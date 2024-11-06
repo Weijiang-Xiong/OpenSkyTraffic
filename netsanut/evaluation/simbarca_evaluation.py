@@ -172,7 +172,7 @@ class SimBarcaEvaluator:
             logger.info("Results to copy in excel: \n {} \n".format(self.format_results_excel(eval_res_over_time)))
         
         # this returned dictionary is needed for EvalHook to log some avg results
-        avg_eval_res = flatten_results_dict(eval_res_over_time)
+        avg_eval_res = {k:sum(v)/len(v) for k, v in flatten_results_dict(eval_res_over_time).items()}
         
         return avg_eval_res
 

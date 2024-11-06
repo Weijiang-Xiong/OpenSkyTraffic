@@ -31,9 +31,10 @@ assert _root.exists(), "please check package installation"
 
 logger = logging.getLogger("default")
 
-def add_gaussian_noise(data, std=0.1):
-    noise = torch.normal(0, std, size=data.size())
-    return data + noise * data
+def add_gaussian_noise(generator:torch.Generator, data:torch.Tensor, std=0.1):
+    noise = torch.normal(0, std, size=data.size()[:-1], generator=generator)
+    data[:, :, :, 0] = data[:, :, :, 0] + noise * data[:, :, :, 0]
+    return data
 
 def session_number_from_path(path):
     import re
@@ -52,7 +53,7 @@ class SimBarca(Dataset):
     add_seqs = [] # additional sequences that are required in the input batch, not time series of traffic variables (like the monitoring mask in SimbarcaRandomObservation)
     aux_seqs = [] # sequences that are required during data processing, they are traffic variables but are not input or output, needed in collate but deleted afterwards (vkt and vht for recomputing regional label)
     
-    def __init__(self, split="train", force_reload=False, use_clean_data=True, filter_short: float = None):
+    def __init__(self, split="train", force_reload=False, use_clean_data=True, filter_short: float = None, noise_seed=114514):
         self.sample_per_session = 20 # hard coded for now ... better saved in sample files
         self.split = split
         self.force_reload = force_reload
@@ -71,6 +72,7 @@ class SimBarca(Dataset):
         self.index_to_section_id: Dict[int, int]
         self.session_ids: torch.Tensor # shape (N, ) where N is the number of samples
         self.demand_scales: torch.Tensor # shape (N, ) where N is the number of samples
+        self.noise_seed = noise_seed
         
         samples = self.load_or_process_samples()
         for attribute in self.io_seqs + self.aux_seqs:
@@ -83,20 +85,25 @@ class SimBarca(Dataset):
         self.data_augmentations = []
         
         if not use_clean_data:
+            
+            logger.info("Using random seed {} for adding noise to the data".format(self.noise_seed))
+            self.rnd_generator = torch.Generator()
+            self.rnd_generator.manual_seed(self.noise_seed)
+            
             logger.info("Using corrupted data for train set, but clean label for test set")
             # NOTE quick and dirty data augmentation ... not configuratle, not scalable ... 
             if self.split == "train":
                 logger.info("Adding Gaussian noise to the training input and label")
                 # we train on corrupted data to make the model more robust
-                self.drone_speed = add_gaussian_noise(self.drone_speed, std=0.05)
-                self.ld_speed = add_gaussian_noise(self.ld_speed, std=0.15)
-                self.pred_speed = add_gaussian_noise(self.pred_speed, std=0.05)
-                self.pred_speed_regional = add_gaussian_noise(self.pred_speed_regional, std=0.05)
+                self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=0.05)
+                self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=0.15)
+                self.pred_speed = add_gaussian_noise(self.rnd_generator, self.pred_speed, std=0.05)
+                self.pred_speed_regional = add_gaussian_noise(self.rnd_generator, self.pred_speed_regional, std=0.05)
             elif self.split == "test":
                 # for test data, the input is corrupted but the label is not for evaulating the model
                 logger.info("Adding Gaussian noise to the testing input (BUT NOT lable)")
-                self.drone_speed = add_gaussian_noise(self.drone_speed, std=0.05)
-                self.ld_speed = add_gaussian_noise(self.ld_speed, std=0.15)
+                self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=0.05)
+                self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=0.15)
         
         # self.edit_graph_structure(filter_short=filter_short)
         
@@ -483,8 +490,8 @@ class SimBarcaRandomObservation(SimBarca):
         super().__init__(**kwargs)
         self.pred_vdist: torch.Tensor
         self.pred_vtime: torch.Tensor
-        self.ld_per = ld_per
-        self.drone_per = drone_per
+        self.ld_cvg = ld_per
+        self.drone_cvg = drone_per
         self.random_state = random_state
         self.reinit_pos = reinit_pos
         self.ld_mask: torch.Tensor
@@ -499,26 +506,28 @@ class SimBarcaRandomObservation(SimBarca):
     
     @property
     def ld_mask_file(self):
-        return "{}/processed/ld_mask.pkl".format(self.data_root)
+        return "{}/processed/ld_mask_{}.pkl".format(self.data_root, int(self.ld_cvg * 100))
 
     @property
     def drone_mask_file(self):
-        return "{}/processed/drone_mask_{}.pkl".format(self.data_root, self.split)
+        return "{}/processed/drone_mask_{}_{}.pkl".format(self.data_root, int(self.drone_cvg*100), self.split)
     
     def load_or_init_ld_mask(self):
         if os.path.exists(self.ld_mask_file) and not self.reinit_pos:
             with open(self.ld_mask_file, "rb") as f:
                 logger.info("Loading loop detector mask from file")
                 ld_mask = pickle.load(f)
-            if ld_mask.sum() != int(self.ld_per * self.adjacency.shape[0]):
+            if ld_mask.sum() != int(self.ld_cvg * self.adjacency.shape[0]):
                 logger.warning("The loop detector coverage in the file are not consistent with the current settings, check `ld_per` argument or set `reinit_pos=True`")
         else:
+            logger.info("Initializing loop detector mask using random seed {} and coverage {}".format(self.random_state, self.ld_cvg))
             rng = np.random.default_rng(self.random_state)
             # exclude the locations with too many nan, (which means these roads have insufficient vehicles)
             # and then randomly select a few indexes of the road segments to have loop detectors
             nan_by_location = np.mean(torch.isnan(self.ld_speed[..., 0]).numpy().astype(float), axis=(0, 1))
-            valid_pos = np.nonzero(nan_by_location)[0]
-            ld_pos = rng.choice(valid_pos, size=int(self.ld_per * self.adjacency.shape[0]), replace=False)
+            # maybe it's OK to have 10% nan values 
+            valid_pos = np.nonzero(nan_by_location < 0.1)[0] 
+            ld_pos = rng.choice(valid_pos, size=int(self.ld_cvg * self.adjacency.shape[0]), replace=False)
             ld_mask = np.zeros(shape=self.adjacency.shape[0], dtype=bool)
             ld_mask[ld_pos] = True
             
@@ -533,9 +542,10 @@ class SimBarcaRandomObservation(SimBarca):
         if os.path.exists(self.drone_mask_file) and not self.reinit_pos:
             logger.info("Loading drone mask from file")
             all_drone_mask = pickle.load(open(self.drone_mask_file, "rb"))
-            if np.abs(all_drone_mask.mean() - self.drone_per) > 0.05:
+            if np.abs(all_drone_mask.mean() - self.drone_cvg) > 0.05:
                 logger.warning("The drone coverage in the file appears to be higher than config, check if `drone_per` argument has changed or set `reinit_pos=True`")
         else:
+            logger.info("Initializing drone mask using random seed {} and coverage {}".format(self.random_state, self.drone_cvg))
             grid_cells = np.sort(np.unique(self.grid_id))
             rng = np.random.default_rng(self.random_state + 777) # avoid using the same random seed as ld_pos
             
@@ -545,7 +555,7 @@ class SimBarcaRandomObservation(SimBarca):
                 # 30min input, 30min output, change every 3 mins, so that's 20 x num_grid 
                 drone_mask = np.stack(
                     [np.isin(self.grid_id, 
-                             rng.choice(grid_cells, size=int(self.drone_per * len(grid_cells)), replace=False)
+                             rng.choice(grid_cells, size=int(self.drone_cvg * len(grid_cells)), replace=False)
                     ) for _ in range(20)]
                 )
                 all_drone_mask.append(drone_mask)
@@ -553,7 +563,7 @@ class SimBarcaRandomObservation(SimBarca):
                 for _ in range(1, self.sample_per_session):
                     next_step_drone_mask = np.isin(
                         self.grid_id, 
-                        rng.choice(grid_cells, size=(int(self.drone_per * len(grid_cells))), replace=False)
+                        rng.choice(grid_cells, size=(int(self.drone_cvg * len(grid_cells))), replace=False)
                     )
                     drone_mask = np.concatenate((drone_mask[1:, :], next_step_drone_mask.reshape(1, -1)), axis=0)
                     all_drone_mask.append(drone_mask)
@@ -648,8 +658,14 @@ if __name__ == "__main__":
     parser.add_argument("--filter-short", type=float, default=None, help="Filter out the short road segments")
     args = parser.parse_args()
     
-    train_set = SimBarca(split="train", force_reload=args.from_scratch, filter_short=args.filter_short)
-    test_set = SimBarca(split="test", force_reload=args.from_scratch, filter_short=args.filter_short)
+    train_set = SimBarca(split="train", 
+                         force_reload=args.from_scratch, 
+                         filter_short=args.filter_short, 
+                         use_clean_data=False)
+    test_set = SimBarca(split="test", 
+                        force_reload=args.from_scratch, 
+                        filter_short=args.filter_short, 
+                        use_clean_data=False)
     
     train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
     test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
