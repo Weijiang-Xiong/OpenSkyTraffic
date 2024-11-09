@@ -14,7 +14,7 @@ from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 
 class HiMSNet(nn.Module):
-    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=1, **kwargs):
+    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=3, reg_loss_weight:float=1.0, **kwargs):
         super().__init__()
         
         self.simple_fillna = simple_fillna
@@ -73,6 +73,8 @@ class HiMSNet(nn.Module):
         self.prediction_regional = MLP_LazyInput(hid_dim=128, out_dim=10, dropout=0.1)
 
         self.loss = GeneralizedProbRegLoss(aleatoric=False, exponent=1, ignore_value=self.ignore_value)
+        # weight for the regional task
+        self.reg_loss_weight = reg_loss_weight
 
     @property
     def device(self):
@@ -216,7 +218,7 @@ class HiMSNet(nn.Module):
         loss = self.loss(pred_res["pred_speed"], target["pred_speed"])
         loss_regional = self.loss(pred_res["pred_speed_regional"], target["pred_speed_regional"])
 
-        return {"loss": loss, "loss_regional": loss_regional}
+        return {"loss": loss, "loss_regional": self.reg_loss_weight * loss_regional}
 
     def inference(self, source: dict[str, torch.Tensor]) -> torch.Tensor:
         return self.post_process(self.make_prediction(source))
