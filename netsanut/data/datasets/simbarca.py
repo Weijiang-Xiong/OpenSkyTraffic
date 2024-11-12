@@ -486,12 +486,12 @@ class SimBarcaRandomObservation(SimBarca):
     # we need them to recompute the regional speed values with the monitoring mask
     aux_seqs = ["pred_vdist", "pred_vtime"]
     
-    def __init__(self, ld_per=0.1, drone_per=0.1, reinit_pos = False, random_state = 42, **kwargs):
+    def __init__(self, ld_cvg=0.1, drone_cvg=0.1, reinit_pos = False, random_state = 42, **kwargs):
         super().__init__(**kwargs)
         self.pred_vdist: torch.Tensor
         self.pred_vtime: torch.Tensor
-        self.ld_cvg = ld_per
-        self.drone_cvg = drone_per
+        self.ld_cvg = ld_cvg
+        self.drone_cvg = drone_cvg
         self.random_state = random_state
         self.reinit_pos = reinit_pos
         self.ld_mask: torch.Tensor
@@ -518,7 +518,7 @@ class SimBarcaRandomObservation(SimBarca):
                 logger.info("Loading loop detector mask from file")
                 ld_mask = pickle.load(f)
             if ld_mask.sum() != int(self.ld_cvg * self.adjacency.shape[0]):
-                logger.warning("The loop detector coverage in the file are not consistent with the current settings, check `ld_per` argument or set `reinit_pos=True`")
+                logger.warning("The loop detector coverage in the file are not consistent with the current settings, check `ld_cvg` argument or set `reinit_pos=True`")
         else:
             logger.info("Initializing loop detector mask using random seed {} and coverage {}".format(self.random_state, self.ld_cvg))
             rng = np.random.default_rng(self.random_state)
@@ -527,9 +527,12 @@ class SimBarcaRandomObservation(SimBarca):
             nan_by_location = np.mean(torch.isnan(self.ld_speed[..., 0]).numpy().astype(float), axis=(0, 1))
             # maybe it's OK to have 10% nan values 
             valid_pos = np.nonzero(nan_by_location < 0.1)[0] 
-            ld_pos = rng.choice(valid_pos, size=int(self.ld_cvg * self.adjacency.shape[0]), replace=False)
-            ld_mask = np.zeros(shape=self.adjacency.shape[0], dtype=bool)
-            ld_mask[ld_pos] = True
+            if self.ld_cvg >= 1.0:
+                ld_mask = np.ones(shape=self.adjacency.shape[0], dtype=bool)
+            else:
+                ld_pos = rng.choice(valid_pos, size=int(self.ld_cvg * self.adjacency.shape[0]), replace=False)
+                ld_mask = np.zeros(shape=self.adjacency.shape[0], dtype=bool)
+                ld_mask[ld_pos] = True
             
             with open(self.ld_mask_file, "wb") as f:
                 pickle.dump(ld_mask, f)
@@ -543,7 +546,7 @@ class SimBarcaRandomObservation(SimBarca):
             logger.info("Loading drone mask from file")
             all_drone_mask = pickle.load(open(self.drone_mask_file, "rb"))
             if np.abs(all_drone_mask.mean() - self.drone_cvg) > 0.05:
-                logger.warning("The drone coverage in the file appears to be higher than config, check if `drone_per` argument has changed or set `reinit_pos=True`")
+                logger.warning("The drone coverage in the file appears to be higher than config, check if `drone_cvg` argument has changed or set `reinit_pos=True`")
         else:
             logger.info("Initializing drone mask using random seed {} and coverage {}".format(self.random_state, self.drone_cvg))
             grid_cells = np.sort(np.unique(self.grid_id))
