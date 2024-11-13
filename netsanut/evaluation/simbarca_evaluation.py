@@ -19,7 +19,7 @@ from netsanut.data.datasets import SimBarca
 
 class SimBarcaEvaluator:
 
-    def __init__(self, ignore_value=-1.0, mape_threshold=1.0, save_dir: str=None, save_res: bool=True, save_note="example", visualize=False) -> None:
+    def __init__(self, ignore_value=-1.0, mape_threshold=1.0, save_dir: str=None, save_res: bool=True, save_note="", visualize=False) -> None:
         self.ignore_value = ignore_value
         self.mape_threshold = mape_threshold
         self.save_dir = save_dir
@@ -186,27 +186,33 @@ class SimBarcaEvaluator:
         
         # this is for evaluation after the training process is done
         if self.visualize:
+            # visualize average MAE per location as a map
+            dataset: SimBarca = data_loader.dataset
+            dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
+            
             # do evaluation for different demand scales
             demand_scales = data_loader.dataset.demand_scales
             res_by_demand_scale = self.mae_by_demand_scale(all_preds, all_labels, demand_scales)
-            
             # evaluation by segment average speed
             self.segment_mae_by_avg_speed(all_preds, all_labels)
             
             # disable gradient computation, so we don't need .detach() for the model outputs
             with torch.no_grad():
-                data_dict = next(iter(data_loader))
-                dataset: SimBarca = data_loader.dataset
-                model.eval()
+                # we do it for one random batch 
+                for bidx in range(np.random.randint(1, len(data_loader))):
+                    data_dict = next(iter(data_loader))
                 
+                model.eval()
                 # debug purpose 
                 section_id_to_index = {v:k for k, v in dataset.index_to_section_id.items()}
-                for section_id in sections_of_interest:
+                additional_sections = np.random.choice(list(section_id_to_index.keys()), 10).tolist()
+                for section_id in sections_of_interest + additional_sections:
                     section_num = section_id_to_index[section_id]
-                    aimsun_sec_id = "_{}".format(dataset.index_to_section_id[section_num])
-                    dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, save_note=self.save_note+aimsun_sec_id)
-                    dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
-                    dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, save_note=self.save_note+aimsun_sec_id)
+                    aimsun_sec_id = dataset.index_to_section_id[section_num]
+                    dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, 
+                        save_note="{}_sample{}_aimsunid_{}".format(self.save_note, bidx, aimsun_sec_id))
+                    dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, 
+                        save_note="{}_aimsunid_{}".format(self.save_note, aimsun_sec_id))
         
         # return this for EvalHook to do logging in training
         return avg_eval_res

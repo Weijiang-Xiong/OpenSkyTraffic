@@ -418,22 +418,28 @@ class SimBarca(Dataset):
     def plot_pred_for_section(all_preds, all_labels, save_dir="./", section_num=100, save_note="example"):
 
         p = section_num
+        sample_per_session = 20
+        nrows, ncols = 4, 6
+        total_num_session = int(all_preds['pred_speed'].shape[0] / sample_per_session)
         
-        y1 = all_preds['pred_speed'][:, -1, p]
-        y2 = all_labels['pred_speed'][:, -1, p]
-        xx = np.arange(len(y1))
+        pred_by_session = np.split(all_preds['pred_speed'][:, -1, p], total_num_session)
+        gt_by_session = np.split(all_labels['pred_speed'][:, -1, p], total_num_session)
+        xx = np.arange(sample_per_session)
+        
+        sessions_to_include = list(range(int(total_num_session)))[-nrows * ncols:]
 
-        fig, ax = plt.subplots(figsize=(13, 5))
-        ax.plot(xx, y1, label='30min_pred')
-        ax.plot(xx, y2, label='GT', alpha=0.5)
-        # add vertical line every 20 time steps
-        for i in range(0, len(xx), 20):
-            ax.axvline(i, color='gray', linestyle='--', linewidth=0.5, alpha=0.5)
-        ax.legend()
-        ax.set_xlabel("Time step (concatenated along simulation sessions)")
-        ax.set_ylabel("Speed (m/s)")
+        fig, ax = plt.subplots(nrows, ncols, figsize=(13, 5))
+        for i in range(nrows):
+            for j in range(ncols):
+                idx = i * ncols + j
+                ax[i, j].plot(xx, pred_by_session[idx], label='30min_pred')
+                ax[i, j].plot(xx, gt_by_session[idx], label='GT')
+                ax[i, j].set_title("Sim. Session {}".format(idx), fontsize=0.8*plt.rcParams['font.size'])
         
-        fig.tight_layout()
+        # add a common legend for all the subplots
+        handles, labels = ax[0,0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='upper center', ncols=2)
+        plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for the legend at the top
         fig.savefig("{}/30min_ahead_pred_{}_{}.pdf".format(save_dir, p, save_note))
         logger.info("Saved the plot to {}/30min_ahead_pred_{}_{}.pdf".format(save_dir, p, save_note))
 

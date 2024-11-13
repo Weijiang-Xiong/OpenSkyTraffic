@@ -76,5 +76,7 @@ if __name__ == "__main__":
     # the argument parser requires a `--config-file` which specifies how to configure
     # models and training pipeline, and other overrides to the config file can be passed
     # as `something.to.modify=new_value`
+    # for example to run evaluation on the trained HiMSNet model, put the following to parse_args(...):
+    # "--eval-only --config-file config/HiMSNet.py model.adjacency_hop=3 train.output_dir=scratch/himsnet_3hop train.checkpoint=scratch/himsnet_3hop/model_final.pth evaluation.visualize=True".split()
     args = default_argument_parser().parse_args()
     main(args)

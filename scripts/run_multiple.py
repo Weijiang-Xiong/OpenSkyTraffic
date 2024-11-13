@@ -49,15 +49,22 @@ def experiment_data_modality(command_list):
     Ablation on different data modalities when we have clean and noisy data.
     We use 3-hop adjacency matrix as default as it is the best performing one
     """ 
+    
+    # # clean data
     command_list.append(
     f"{train_script} {cfg_default} train.output_dir=scratch/himsnet_no_emb_3hop model.adjacency_hop=3 model.simple_fillna=True"
+    )
+    command_list.append(
+    f"{train_script} {cfg_default} model.use_ld=False model.adjacency_hop=3 train.output_dir=scratch/himsnet_no_ld_3hop"
     )
     command_list.append(
     f"{train_script} {cfg_default} model.use_drone=False model.adjacency_hop=3 train.output_dir=scratch/himsnet_no_drone_3hop"
     )
     command_list.append(
-    f"{train_script} {cfg_default} model.use_ld=False model.adjacency_hop=3 train.output_dir=scratch/himsnet_no_ld_3hop"
+    f"{train_script} {cfg_default} model.use_global=False model.adjacency_hop=3 train.output_dir=scratch/himsnet_no_gnn_3hop"
     )
+    
+    # # partial and noisy data
     command_list.append(
     f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 train.output_dir=scratch/himsnet_rnd_noise_fix_3hop dataset.train.use_clean_data=False"
     )
@@ -67,11 +74,9 @@ def experiment_data_modality(command_list):
     command_list.append(
     f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 model.use_ld=False train.output_dir=scratch/himsnet_rnd_no_ld_noise_fix_3hop dataset.train.use_clean_data=False"
     )
-
     command_list.append(
     f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 model.use_global=False train.output_dir=scratch/himsnet_rnd_no_gnn_noise_fix_3hop dataset.train.use_clean_data=False"
     )
-
     command_list.append(
     f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 model.simple_fillna=True train.output_dir=scratch/himsnet_rnd_no_emb_noise_fix_3hop dataset.train.use_clean_data=False"
     )
@@ -83,9 +88,9 @@ def experiment_penetration_rate(command_list):
     """
     different sensor penetration rates when we have random observations
     """
-    for percentage in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+    for percentage in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
         command_list.append(
-        f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 train.output_dir=scratch/himsnet_rnd_noise_3hop_{int(100*percentage)}cvg dataset.train.use_clean_data=False dataset.train.ld_per={percentage} dataset.train.drone_per={percentage} dataset.test.ld_per={percentage} dataset.test.drone_per={percentage}"
+        f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 train.output_dir=scratch/himsnet_rnd_noise_3hop_{int(100*percentage)}cvg dataset.train.use_clean_data=False dataset.train.ld_cvg={percentage} dataset.train.drone_cvg={percentage} dataset.test.ld_cvg={percentage} dataset.test.drone_cvg={percentage}"
         )
 
     return command_list
@@ -122,7 +127,7 @@ if __name__ == "__main__":
     # experiment_model_sizes(command_list)
     # experiment_data_modality(command_list)
     # experiment_penetration_rate(command_list)
-    experiment_weight_factor(command_list)
+    # experiment_weight_factor(command_list)
 
     eval_list = []
     for cmd_str in command_list:
