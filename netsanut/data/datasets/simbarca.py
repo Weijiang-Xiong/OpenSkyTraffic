@@ -431,7 +431,7 @@ class SimBarca(Dataset):
         fig, ax = plt.subplots(nrows, ncols, figsize=(13, 5))
         for i in range(nrows):
             for j in range(ncols):
-                idx = i * ncols + j
+                idx = sessions_to_include[i * ncols + j]
                 ax[i, j].plot(xx, pred_by_session[idx], label='30min_pred')
                 ax[i, j].plot(xx, gt_by_session[idx], label='GT')
                 ax[i, j].set_title("Sim. Session {}".format(idx), fontsize=0.8*plt.rcParams['font.size'])
