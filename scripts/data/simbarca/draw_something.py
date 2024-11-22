@@ -85,7 +85,7 @@ def draw_epochs():
 
 def draw_coverage(include_no_emb=False):
     
-    all_coverages = np.arange(0.1, 1.0, 0.1).tolist()
+    all_coverages = [0.01] + np.arange(0.1, 1.0, 0.1).tolist()
     different_coverage = ["scratch/himsnet_rnd_noise_3hop_{}cvg".format(round(c*100)) for c in all_coverages] + [default_output_dir]
     mae_segment_30min, mae_regional_30min = [], []
     for f in different_coverage:
@@ -105,7 +105,7 @@ def draw_coverage(include_no_emb=False):
 
     # draw a line plot for different coverage
     fig, ax = plt.subplots()
-    ax.plot(all_coverages, mae_segment_30min, label="Segment")
+    ax.plot(all_coverages, mae_segment_30min, label="Segment-level")
     ax.plot(all_coverages, mae_regional_30min, label="Regional")
     if include_no_emb:
         ax.plot(all_coverages, mae_segment_30min_no_emb, label="Segment (No Emb)", linestyle="-")
@@ -144,12 +144,86 @@ def draw_loss_weight():
     ax.set_ylim(0.2, 1.4)
     ax.legend(ncols=2)
     ax.set_ylabel("MAE")
-    ax.set_title("30-min MAE of different loss weights")
+    # ax.set_title("30-min MAE of different loss weights")
+    plt.tight_layout()
     plt.savefig("datasets/simbarca/figures/mae_30min_loss_weight.pdf")
     
+def draw_ablation_emb_with_10reps():
+    # so we basically confirmed that EMB has just a little effect on the performance
+    # but it looks positive.
+    default_group = sorted(glob.glob("scratch/himsnet_3hop_r*"))
+    no_emb_group = sorted(glob.glob("scratch/himsnet_no_emb_3hop_r*"))
+    pn_full_group = sorted(glob.glob("scratch/himsnet_rnd_noise_fix_3hop_r*"))
+    pn_no_emb_group = sorted(glob.glob("scratch/himsnet_rnd_no_emb_noise_fix_3hop_r*"))
+    
+    def get_10step_mae(folder):
+        
+        exp_log = "{}/experiment.log".format(folder)
+        log_contents = open(exp_log, "r").readlines()
+        
+        segment_line_idx = [idx for idx, line in enumerate(log_contents) if "Evaluate model on pred_speed\n" in line][-1]
+        regional_line_idx = [idx for idx, line in enumerate(log_contents) if "Evaluate model on pred_speed_regional\n" in line][-1]
+        
+        segment_eval_res = log_contents[segment_line_idx:regional_line_idx]
+        for idx, line in enumerate(segment_eval_res):
+            if "Evaluate model on test data at 10 time step" in line:
+                # obtain the number after "MAE" from a string like 
+                # [11/15 16:23:13 default]: MAE: 1.2141, MAPE: 0.2748, RMSE: 1.9926
+                mae_at_30min = float(segment_eval_res[idx+1].split("MAE: ")[1].split(",")[0])
+    
+        regional_eval_res = log_contents[regional_line_idx:]
+        for idx, line in enumerate(regional_eval_res):
+            if "Evaluate model on test data at 10 time step" in line:
+                regional_mae_at_30min = float(regional_eval_res[idx+1].split("MAE: ")[1].split(",")[0])
+                
+        return mae_at_30min, regional_mae_at_30min
+    
+    def get_mean_variance_of_30_min_mae(group_of_folders:list[str]):
+        segment_mae, regional_mae = [], []
+        for folder in group_of_folders:
+            mae_segment, mae_regional = get_10step_mae(folder)
+            segment_mae.append(mae_segment)
+            regional_mae.append(mae_regional)
+        return np.mean(segment_mae), np.std(segment_mae), np.mean(regional_mae), np.std(regional_mae)
+    
+    for group, name in zip([default_group, no_emb_group, pn_full_group, pn_no_emb_group], ["Default", "No Emb", "Noise", "Noise No Emb"]):
+        segment_mae, segment_std, regional_mae, regional_std = get_mean_variance_of_30_min_mae(group)
+        print("Evaluating the group of {} with 10 repetitions".format(name))
+        print("Segment Level MAE at 10 steps (30 min): {:.4f} ± {:.4f}".format(segment_mae, segment_std))
+        print("Regional Level MAE at 10 steps (30 min): {:.4f} ± {:.4f}".format(regional_mae, regional_std))
+        
+    
+def check_emb_params_update():
+    import torch 
+    
+    default_ckpts = sorted(glob.glob("scratch/himsnet_3hop/himsnet_epoch_*.pth"), key=lambda x: int(x.split("_")[-1].split(".")[0]))
+    no_emb_ckpts = sorted(glob.glob("scratch/himsnet_no_emb_3hop/himsnet_epoch_*.pth"), key=lambda x: int(x.split("_")[-1].split(".")[0]))
 
+    def see_cosine_similarity_tokens(ckpts):
+        emptys, unmonitored_tokens = [], []
+        for ckpt in ckpts:
+            print(ckpt)
+            state_dict = torch.load(ckpt)
+            empty = state_dict['model']['model_params']['drone_embedding.empty_token'].cpu().numpy()
+            unmonitored = state_dict['model']['model_params']['drone_embedding.unmonitored_token'].cpu().numpy()
+            emptys.append(empty)
+            unmonitored_tokens.append(unmonitored)
+
+        # consine similarity between the first empty token and the rest
+        inner_products = [np.dot(emptys[0], empty) / (np.linalg.norm(emptys[0]) * np.linalg.norm(empty)) for empty in emptys]
+        inner_products_unmonitored = [np.dot(unmonitored_tokens[0], unmonitored) / (np.linalg.norm(unmonitored_tokens[0]) * np.linalg.norm(unmonitored)) for unmonitored in unmonitored_tokens]
+        print(inner_products)
+        print(inner_products_unmonitored)
+        
+    print("checking default setup")
+    see_cosine_similarity_tokens(default_ckpts)
+    print("checking no emb setup")
+    see_cosine_similarity_tokens(no_emb_ckpts)
+    
 if __name__ == "__main__":
     # draw_hops()
     # draw_epochs()
-    draw_coverage()
-    # draw_loss_weight()
+    # draw_coverage(include_no_emb=False)
+    draw_loss_weight()
+    # draw_ablation_emb_with_10reps()
+    # check_emb_params_update()

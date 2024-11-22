@@ -104,9 +104,30 @@ def experiment_weight_factor(command_list):
     """
     for weight in [0.2, 0.5, 1, 2, 5]:
         command_list.append(
-        f"{train_script} {cfg_default} model.adjacency_hop=3 model.regional_loss_weight={weight} train.output_dir=scratch/himsnet_regional_loss_{str(weight).replace(".", "p")}_3hop"
+        f"{train_script} {cfg_default} model.adjacency_hop=3 model.reg_loss_weight={weight} train.output_dir=scratch/himsnet_regional_loss_{str(weight).replace(".", "p")}_3hop"
         )
 
+    return command_list
+
+def experiment_emb_ablation_repeat(command_list):
+    
+    for r in range(10):
+        command_list.append(
+        f"{train_script} {cfg_default} model.adjacency_hop=3 train.output_dir=scratch/himsnet_3hop_r{r}"
+        )
+        # no emb
+        command_list.append(
+        f"{train_script} {cfg_default} model.adjacency_hop=3 model.simple_fillna=True train.output_dir=scratch/himsnet_no_emb_3hop_r{r}"
+        )
+        # noisy and partial data 
+        command_list.append(
+        f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 train.output_dir=scratch/himsnet_rnd_noise_fix_3hop_r{r} dataset.train.use_clean_data=False"
+        )
+        # noisy and partial data no emb
+        command_list.append(
+        f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 model.simple_fillna=True train.output_dir=scratch/himsnet_rnd_no_emb_noise_fix_3hop_r{r} dataset.train.use_clean_data=False"
+        )
+    
     return command_list
 
 if __name__ == "__main__":
@@ -127,8 +148,9 @@ if __name__ == "__main__":
     # experiment_model_sizes(command_list)
     # experiment_data_modality(command_list)
     # experiment_penetration_rate(command_list)
-    # experiment_weight_factor(command_list)
-
+    experiment_weight_factor(command_list)
+    # experiment_emb_ablation_repeat(command_list)
+    
     eval_list = []
     for cmd_str in command_list:
         eval_cmd = copy.deepcopy(cmd_str)

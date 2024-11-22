@@ -39,7 +39,7 @@ class HiMSNet(nn.Module):
         self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570)
         
         if self.use_drone:
-            self.drone_embedding = ValueEmbedding(d_model=d_model)
+            self.drone_embedding = ValueEmbedding(d_model=d_model, ignore_nan=self.simple_fillna)
             self.temporal_encoding_drone = LearnedPositionalEncoding(d_model=d_model)
             # drone data has higher temporal resolution, so we use two conv layers to down sample
             self.drone_t_patching_1 = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, stride=3)
@@ -48,7 +48,7 @@ class HiMSNet(nn.Module):
             self.drone_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
             
         if self.use_ld:
-            self.ld_embedding = ValueEmbedding(d_model=d_model)
+            self.ld_embedding = ValueEmbedding(d_model=d_model, ignore_nan=self.simple_fillna)
             self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model)
             self.ld_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
             self.ld_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
@@ -294,9 +294,10 @@ class ValueEmbedding(nn.Module):
     The embedding layer will apply a simple linear transformation to the valid values and 
     replace the NaN values with corresponding tokens. 
     """
-    def __init__(self, d_model:int) -> None:
+    def __init__(self, d_model:int, ignore_nan=False) -> None:
         super().__init__()
         self.d_model = d_model
+        self.ignore_nan = ignore_nan # do not replace NaN values with learnable tokens if True
         self.time_emb_w = nn.Parameter(torch.randn(1, d_model))
         self.time_emb_b = nn.Parameter(torch.randn(1, d_model))
         self.value_emb_w = nn.Parameter(torch.randn(1, d_model))
@@ -316,6 +317,11 @@ class ValueEmbedding(nn.Module):
         
         time_emb = time.unsqueeze(-1) * self.time_emb_w + self.time_emb_b
         
+        # assume the invalid values are already handled in preprocessing, and don't do it here
+        if self.ignore_nan:
+            value_emb = value.unsqueeze(-1) * self.value_emb_w + self.value_emb_b
+            return (time_emb + value_emb).contiguous()
+        
         # comparing by == doesn't work with nan
         if invalid_value in [float("nan"), np.nan, torch.nan, None]:
             invalid_mask = torch.isnan(value)
@@ -324,7 +330,7 @@ class ValueEmbedding(nn.Module):
         
         # apply linear embedding to the valid values
         value_emb = torch.empty(size=(N, T, P, self.d_model), device=self.device)
-        value_emb[~invalid_mask] = value.unsqueeze(-1)[~invalid_mask] * self.value_emb_w+ self.value_emb_b
+        value_emb[~invalid_mask] = value.unsqueeze(-1)[~invalid_mask] * self.value_emb_w + self.value_emb_b
         
         # replace the invalid values with corresponding tokens
         if monitor_mask is not None:
