@@ -50,11 +50,42 @@ def draw_hops():
     ax.set_xticklabels(["{} hops".format(i) for i in (1, 3, 5)])
     ax.set_ylim(0.2, 1.4)
     ax.legend(ncols=2)
+    ax.set_xlabel("Number of Adjacency Hops")
     ax.set_ylabel("MAE")
-    ax.set_title("30-min MAE of different adjacency hops")
+    # ax.set_title("30-min MAE of different adjacency hops")
     plt.tight_layout()
-    plt.savefig("datasets/simbarca/figures/mae_30min.pdf")
+    plt.savefig("datasets/simbarca/figures/mae_30min_adj_hops.pdf")
 
+def draw_hidden_dimension():
+    hidden_dims = [32, 128, 256]
+    folders_for_hidden_dims = ["scratch/himsnet_d{}_3hop".format(i) for i in hidden_dims]
+    hidden_dims.insert(1, 64)
+    folders_for_hidden_dims.insert(1, default_output_dir)
+    
+    mae_segment_30min, mae_regional_30min = [], []
+    for f in folders_for_hidden_dims:
+        error_metrics = get_error_metrics_from_log(f)
+        mae_segment_30min.append(error_metrics["30min_mae_segment"])
+        mae_regional_30min.append(error_metrics["30min_mae_region"])
+    
+    # draw a bar plot, put segment-level and regional-level MAE to different bar groups
+    fig, ax = plt.subplots()
+    bar_width = 0.25
+    index = np.arange(len(folders_for_hidden_dims))
+    bar1 = ax.bar(index, mae_segment_30min, bar_width, label="Segment-level")
+    ax.bar_label(bar1, padding=3)
+    bar2 = ax.bar(index + bar_width, mae_regional_30min, bar_width, label="Regional")
+    ax.bar_label(bar2, padding=3)
+    ax.set_xticks(index + bar_width / 2)
+    ax.set_xticklabels(["{}".format(i) for i in hidden_dims])
+    ax.set_xlabel("Hidden Dimension Size")
+    ax.set_ylim(0.2, 1.4)
+    ax.legend(ncols=2)
+    ax.set_ylabel("MAE")
+    # ax.set_title("30-min MAE of different hidden dimensions")
+    plt.tight_layout()
+    plt.savefig("datasets/simbarca/figures/mae_30min_hidden_dim.pdf")
+    
 
 def draw_epochs():
     different_epochs = [default_output_dir] + ["scratch/himsnet_ep{}_3hop".format(e) for e in [60, 90, 120, 150]]
@@ -79,7 +110,7 @@ def draw_epochs():
     ax.set_ylim(0.2, 1.4)
     ax.legend(ncols=2)
     ax.set_ylabel("MAE")
-    ax.set_title("30-min MAE of different training epochs")
+    # ax.set_title("30-min MAE of different training epochs")
     plt.tight_layout()
     plt.savefig("datasets/simbarca/figures/mae_30min_epochs.pdf")
 
@@ -221,9 +252,10 @@ def check_emb_params_update():
     see_cosine_similarity_tokens(no_emb_ckpts)
     
 if __name__ == "__main__":
-    # draw_hops()
-    # draw_epochs()
-    # draw_coverage(include_no_emb=False)
+    draw_hops()
+    draw_epochs()
+    draw_coverage(include_no_emb=False)
     draw_loss_weight()
-    # draw_ablation_emb_with_10reps()
-    # check_emb_params_update()
+    draw_ablation_emb_with_10reps()
+    check_emb_params_update()
+    draw_hidden_dimension()
