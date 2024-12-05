@@ -25,7 +25,7 @@ model = {
 }
 
 dataset = {
-    "train": {"name": "simbarca_rnd_train", "force_reload": False, "use_clean_data": True, "filter_short": None},
+    "train": {"name": "simbarca_rnd_train", "force_reload": False, "use_clean_data": False, "filter_short": None},
     "test": {"name": "simbarca_rnd_test", "force_reload": False, "use_clean_data": "${..train.use_clean_data}", "filter_short":"${..train.filter_short}"},
 }
 

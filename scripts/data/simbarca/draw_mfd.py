@@ -116,11 +116,14 @@ def _draw_mfd(folder):
         fig, ax = plt.subplots(figsize=(6, 4))
         ld_speed_seg = data['ld_speed'][sec_id]
         gt_speed_seg = (vdist_3min / vtime_3min)[sec_id]
-        ld_speed_seg.plot(ax=ax, label='LD Speed')
-        gt_speed_seg.plot(ax=ax, label='GT Speed')
+        # turn the time index to minutes from start of simulation
+        ld_speed_time = (ld_speed_seg.index - ld_speed_seg.index[0]).total_seconds() / 60
+        gt_speed_time = (gt_speed_seg.index - gt_speed_seg.index[0]).total_seconds() / 60
+        ax.plot(ld_speed_time, ld_speed_seg, label='Point Speed')
+        ax.plot(gt_speed_time, gt_speed_seg, label='Segment Speed')
         ax.legend()
-        ax.set_title("LD Speed vs. GT Speed")
-        ax.set_xlabel("Time")
+        # ax.set_title("LD Speed vs. GT Speed")
+        ax.set_xlabel("Time in simulation world (min)")
         ax.set_ylabel("Speed (m/s)")
         ax.legend()
         fig.tight_layout()
