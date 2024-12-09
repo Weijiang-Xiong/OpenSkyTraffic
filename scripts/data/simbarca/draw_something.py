@@ -251,11 +251,36 @@ def check_emb_params_update():
     print("checking no emb setup")
     see_cosine_similarity_tokens(no_emb_ckpts)
     
+
+def draw_ld_only_regional_mae_example():
+    import json
+    
+    data_ld_cvg10_train = json.load(open('scratch/himsnet_rnd_no_drone_noise_fix_3hop/figures/log_pred_speed_regional_mae_train.json', 'r'))
+    data_ld_cvg10_test = json.load(open('scratch/himsnet_rnd_no_drone_noise_fix_3hop/figures/log_pred_speed_regional_mae_test.json', 'r'))
+    data_ld_full_train = json.load(open('scratch/himsnet_no_drone_3hop/figures/log_pred_speed_regional_mae_train.json', 'r'))
+    data_ld_full_test = json.load(open('scratch/himsnet_no_drone_3hop/figures/log_pred_speed_regional_mae_test.json', 'r'))
+    
+    epochs = data_ld_cvg10_train['epoch']
+    fig, ax = plt.subplots(figsize=(6,5))
+    ax.plot(epochs, data_ld_cvg10_train['value'], label="10% Coverage train")
+    ax.plot(epochs, data_ld_cvg10_test['value'], label="10% Coverage test")
+    ax.plot(epochs, data_ld_full_train['value'], label="Full Coverage train")
+    ax.plot(epochs, data_ld_full_test['value'], label="Full Coverage test")
+    ax.set_xlabel("Epoch")
+    ax.legend()
+    fig.tight_layout()
+    save_path = "datasets/simbarca/figures/ld_only_regional_mae_example.pdf"
+    fig.savefig(save_path)
+    print("figure saved to {}".format(save_path))
+    plt.close(fig)
+    
+    
 if __name__ == "__main__":
-    draw_hops()
-    draw_epochs()
-    draw_coverage(include_no_emb=False)
-    draw_loss_weight()
-    draw_ablation_emb_with_10reps()
-    check_emb_params_update()
-    draw_hidden_dimension()
+    # draw_hops()
+    # draw_epochs()
+    # draw_coverage(include_no_emb=False)
+    # draw_loss_weight()
+    # draw_ablation_emb_with_10reps()
+    # check_emb_params_update()
+    # draw_hidden_dimension()
+    draw_ld_only_regional_mae_example()
