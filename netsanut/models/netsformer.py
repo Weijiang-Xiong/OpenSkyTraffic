@@ -175,7 +175,7 @@ class NeTSFormer(BaseModel):
                  te_type: str = "fixed",
                  te_init: str = "",
                  temp_causal: bool = False, # add causal mask to temporal attention
-                 **kwargs) -> None:
+                ) -> None:
 
         super().__init__(exponent)
         

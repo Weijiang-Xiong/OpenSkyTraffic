@@ -77,7 +77,7 @@ class TTNet(BaseModel):
                  exponent=1,
                  alpha=1.0,
                  ignore_value=0.0,
-                 **kwargs):
+                ):
         
         super(TTNet, self).__init__()
         self.feature_embedding = nn.Conv2d(in_channels=in_dim,
