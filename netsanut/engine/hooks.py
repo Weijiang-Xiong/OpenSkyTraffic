@@ -109,22 +109,24 @@ class CheckpointSaver(HookBase):
         if not (trainer.epoch_num % self.period == 0 and trainer.epoch_num > 0):
             return
         
-        metric_tuple = trainer.storage.latest().get(self.metric)
-        if metric_tuple is None:
+        metric_this_epoch = trainer.storage.latest().get(self.metric) if self.metric is not None else None
+        
+        # select a best checkpoint based on the metricif it is available,
+        # otherwise just save the latest checkpoint
+        if metric_this_epoch is None:
             trainer.logger.info(
                 "Selection metric {} is not available, skip checkpoint selection. available metrics are {}".format(self.metric, trainer.storage.latest().keys())
             )
             self.test_best_ckpt = False
             self.last_ckpt_path = trainer.save_checkpoint()
-            return
-        
-        latest_loss, latest_epoch = metric_tuple
-        note = '{}_{}'.format(self.metric, round(latest_loss, 2))
-        self.last_ckpt_path = trainer.save_checkpoint(additional_note=note)
-        
-        if latest_loss < self.lowest_loss:
-            self.lowest_loss = latest_loss
-            self.best_ckpt_path = self.last_ckpt_path
+        else:
+            latest_loss, latest_epoch = metric_this_epoch
+            note = '{}_{}'.format(self.metric, round(latest_loss, 2))
+            self.last_ckpt_path = trainer.save_checkpoint(additional_note=note)
+            
+            if latest_loss < self.lowest_loss:
+                self.lowest_loss = latest_loss
+                self.best_ckpt_path = self.last_ckpt_path
         
     def after_train(self, trainer: TrainerBase):
         
