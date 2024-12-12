@@ -213,7 +213,9 @@ class SimBarcaEvaluator:
                         save_note="{}_sample{}_aimsunid_{}".format(self.save_note, bidx, aimsun_sec_id))
                     dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, 
                         save_note="{}_aimsunid_{}".format(self.save_note, aimsun_sec_id))
-        
+                # plot for regional prediction
+                for r in range(4):
+                    dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, r, regional=True, save_note="{}_region{}".format(self.save_note, r))
         # return this for EvalHook to do logging in training
         return avg_eval_res
     

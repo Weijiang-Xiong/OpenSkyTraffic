@@ -33,7 +33,7 @@ logger = logging.getLogger("default")
 
 def add_gaussian_noise(generator:torch.Generator, data:torch.Tensor, std=0.1):
     noise = torch.normal(0, std, size=data.size()[:-1], generator=generator)
-    data[:, :, :, 0] = data[:, :, :, 0] + noise * data[:, :, :, 0]
+    data[..., 0] = data[..., 0] + noise * data[..., 0]
     return data
 
 def session_number_from_path(path):
@@ -53,7 +53,7 @@ class SimBarca(Dataset):
     add_seqs = [] # additional sequences that are required in the input batch, not time series of traffic variables (like the monitoring mask in SimbarcaRandomObservation)
     aux_seqs = [] # sequences that are required during data processing, they are traffic variables but are not input or output, needed in collate but deleted afterwards (vkt and vht for recomputing regional label)
     
-    def __init__(self, split="train", force_reload=False, use_clean_data=True, filter_short: float = None, noise_seed=114514):
+    def __init__(self, split="train", force_reload=False, filter_short: float = None):
         self.sample_per_session = 20 # hard coded for now ... better saved in sample files
         self.split = split
         self.force_reload = force_reload
@@ -72,7 +72,6 @@ class SimBarca(Dataset):
         self.index_to_section_id: Dict[int, int]
         self.session_ids: torch.Tensor # shape (N, ) where N is the number of samples
         self.demand_scales: torch.Tensor # shape (N, ) where N is the number of samples
-        self.noise_seed = noise_seed
         
         samples = self.load_or_process_samples()
         for attribute in self.io_seqs + self.aux_seqs:
@@ -83,27 +82,6 @@ class SimBarca(Dataset):
         self.session_ids, self.demand_scales = self.get_session_properties(fit_dataset_len=True)
         
         self.data_augmentations = []
-        
-        if not use_clean_data:
-            
-            logger.info("Using random seed {} for adding noise to the data".format(self.noise_seed))
-            self.rnd_generator = torch.Generator()
-            self.rnd_generator.manual_seed(self.noise_seed)
-            
-            logger.info("Using corrupted data for train set, but clean label for test set")
-            # NOTE quick and dirty data augmentation ... not configuratle, not scalable ... 
-            if self.split == "train":
-                logger.info("Adding Gaussian noise to the training input and label")
-                # we train on corrupted data to make the model more robust
-                self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=0.05)
-                self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=0.15)
-                self.pred_speed = add_gaussian_noise(self.rnd_generator, self.pred_speed, std=0.05)
-                self.pred_speed_regional = add_gaussian_noise(self.rnd_generator, self.pred_speed_regional, std=0.05)
-            elif self.split == "test":
-                # for test data, the input is corrupted but the label is not for evaulating the model
-                logger.info("Adding Gaussian noise to the testing input (BUT NOT lable)")
-                self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=0.05)
-                self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=0.15)
         
         # self.edit_graph_structure(filter_short=filter_short)
         
@@ -122,7 +100,7 @@ class SimBarca(Dataset):
 
     @property
     def io_seqs(self):
-        """ all the traffic variable series that need to be returned in a batch
+        """ all the traffic variable series that are either input to model or required to predict
         """
         return self.input_seqs + self.output_seqs
     
@@ -364,8 +342,7 @@ class SimBarca(Dataset):
 
         return batch_data
     
-    @staticmethod
-    def visualize_batch(data_dict, pred_dict=None, save_dir="./", batch_num=0, section_num=573, save_note="example"):
+    def visualize_batch(self, data_dict, pred_dict=None, save_dir="./", batch_num=0, section_num=573, save_note="example"):
         
         # plot input and output 
         b, s = batch_num, section_num
@@ -395,14 +372,14 @@ class SimBarca(Dataset):
             
         fig, ax = plt.subplots(figsize=(6.5, 4))
 
-        ax.plot(tin1, in1, label="drone_input")
-        ax.plot(tin2, in2, label="ld_input")
-        ax.plot(tlabel1, label1, label="label_segment")
-        ax.plot(tlabel2, label2, label="label_regional")
+        ax.plot(tin1, in1, label="Drone Input")
+        ax.plot(tin2, in2, label="LD Input")
+        ax.plot(tlabel1, label1, label="Segment Label")
+        ax.plot(tlabel2, label2, label="Regional Label")
         
         try:
-            ax.plot(tout1, out1, label="pred_segment")
-            ax.plot(tout2, out2, label="pred_regional")
+            ax.plot(tout1, out1, label="Segment Pred")
+            ax.plot(tout2, out2, label="Regional Pred")
         except:
             pass
         
@@ -414,37 +391,39 @@ class SimBarca(Dataset):
         plt.close()
         logger.info("Saved the plot to {}/pred_sample_b{}s{}_{}.pdf".format(save_dir, b, s, save_note))
 
-    @staticmethod
-    def plot_pred_for_section(all_preds, all_labels, save_dir="./", section_num=100, save_note="example"):
+    def plot_pred_for_section(self, all_preds, all_labels, save_dir="./", section_num=100, regional=False, save_note="example"):
 
         p = section_num
         sample_per_session = 20
         nrows, ncols = 4, 6
-        total_num_session = int(all_preds['pred_speed'].shape[0] / sample_per_session)
+        sequence = 'pred_speed' if not regional else 'pred_speed_regional'
+        total_num_session = int(all_preds[sequence].shape[0] / sample_per_session)
         
-        pred_by_session = np.split(all_preds['pred_speed'][:, -1, p], total_num_session)
-        gt_by_session = np.split(all_labels['pred_speed'][:, -1, p], total_num_session)
+        pred_by_session = np.split(all_preds[sequence][:, -1, p], total_num_session)
+        gt_by_session = np.split(all_labels[sequence][:, -1, p], total_num_session)
         xx = np.arange(sample_per_session)
         
-        sessions_to_include = list(range(int(total_num_session)))[-nrows * ncols:]
-
+        sessions_to_include = list(range(int(total_num_session)))[-nrows * ncols:] # id in split
+        session_ids, demand_scales = self.get_session_properties(fit_dataset_len=False)
+        
         fig, ax = plt.subplots(nrows, ncols, figsize=(13, 5))
         for i in range(nrows):
             for j in range(ncols):
                 idx = sessions_to_include[i * ncols + j]
+                idx_dataset = session_ids[i * ncols + j]
+                ds = demand_scales[i * ncols + j]
                 ax[i, j].plot(xx, pred_by_session[idx], label='30min_pred')
                 ax[i, j].plot(xx, gt_by_session[idx], label='GT')
-                ax[i, j].set_title("Sim. Session {}".format(idx), fontsize=0.8*plt.rcParams['font.size'])
+                ax[i, j].set_title("Sim. {} D.S. {}".format(idx_dataset, round(ds.item(), 2)), fontsize=0.8*plt.rcParams['font.size'])
         
         # add a common legend for all the subplots
         handles, labels = ax[0,0].get_legend_handles_labels()
         fig.legend(handles, labels, loc='upper center', ncols=2)
         plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for the legend at the top
-        fig.savefig("{}/30min_ahead_pred_{}_{}.pdf".format(save_dir, p, save_note))
-        logger.info("Saved the plot to {}/30min_ahead_pred_{}_{}.pdf".format(save_dir, p, save_note))
+        fig.savefig("{}/30min_ahead_{}_{}_{}.pdf".format(save_dir, sequence, p, save_note))
+        logger.info("Saved the plot to {}/30min_ahead_{}_{}_{}.pdf".format(save_dir, sequence, p, save_note))
 
-    @staticmethod
-    def plot_MAE_by_location(node_coordinates, all_preds, all_labels, save_dir=".F/", save_note="example"):
+    def plot_MAE_by_location(self, node_coordinates, all_preds, all_labels, save_dir="./", save_note="example"):
         MAE = torch.abs(all_preds['pred_speed'] - all_labels['pred_speed'])
         mae_by_section = torch.nanmean(MAE, dim=(0,1))
         fig, ax = plt.subplots(figsize=(6.5, 4))
@@ -492,23 +471,50 @@ class SimBarcaRandomObservation(SimBarca):
     # we need them to recompute the regional speed values with the monitoring mask
     aux_seqs = ["pred_vdist", "pred_vtime"]
     
-    def __init__(self, ld_cvg=0.1, drone_cvg=0.1, reinit_pos = False, random_state = 42, **kwargs):
+    def __init__(self, ld_cvg=0.1, drone_cvg=0.1, reinit_pos=False, mask_seed=42, use_clean_data=True, noise_seed=114514, **kwargs):
         super().__init__(**kwargs)
         self.pred_vdist: torch.Tensor
         self.pred_vtime: torch.Tensor
         self.ld_cvg = ld_cvg
         self.drone_cvg = drone_cvg
-        self.random_state = random_state
+        self.mask_seed = mask_seed
         self.reinit_pos = reinit_pos
+        self.use_clean_data = use_clean_data
+        self.noise_seed = noise_seed
+        
         self.ld_mask: torch.Tensor
         self.drone_flight_mask: torch.Tensor
         self.load_or_init_ld_mask()
         self.load_or_init_drone_mask()
+        
         if self.split == "train":
             self.add_seqs = ['ld_mask', 'drone_mask', 'pred_mask']
         elif self.split == "test":
             # output sequences are not masked in the test set, to test on the full information
             self.add_seqs = ['ld_mask', 'drone_mask']
+        
+        # these sequences are saved ahead of time, so the noises can be added directly
+        # but the regional speed values are recomputed using the available segment-level data, so it's put to 
+        # the function `apply_masking`
+        if not use_clean_data:
+            
+            logger.info("Using random seed {} for adding noise to the data".format(self.noise_seed))
+            self.rnd_generator = torch.Generator()
+            self.rnd_generator.manual_seed(self.noise_seed)
+            
+            logger.info("Using corrupted data for train set, but clean label for test set")
+            # NOTE quick and dirty data augmentation ... not configuratle, not scalable ... 
+            if self.split == "train":
+                logger.info("Adding Gaussian noise to the training input and label")
+                # we train on corrupted data to make the model more robust
+                self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=0.05)
+                self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=0.15)
+                self.pred_speed = add_gaussian_noise(self.rnd_generator, self.pred_speed, std=0.3)
+            elif self.split == "test":
+                # for test data, the input is corrupted but the label is not for evaulating the model
+                logger.info("Adding Gaussian noise to the testing input (BUT NOT lable)")
+                self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=0.05)
+                self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=0.15)
     
     @property
     def ld_mask_file(self):
@@ -526,15 +532,18 @@ class SimBarcaRandomObservation(SimBarca):
             if ld_mask.sum() != int(self.ld_cvg * self.adjacency.shape[0]):
                 logger.warning("The loop detector coverage in the file are not consistent with the current settings, check `ld_cvg` argument or set `reinit_pos=True`")
         else:
-            logger.info("Initializing loop detector mask using random seed {} and coverage {}".format(self.random_state, self.ld_cvg))
-            rng = np.random.default_rng(self.random_state)
+            logger.info("Initializing loop detector mask using random seed {} and coverage {}".format(self.mask_seed, self.ld_cvg))
+            rng = np.random.default_rng(self.mask_seed)
             # exclude the locations with too many nan, (which means these roads have insufficient vehicles)
             # and then randomly select a few indexes of the road segments to have loop detectors
             nan_by_location = np.mean(torch.isnan(self.ld_speed[..., 0]).numpy().astype(float), axis=(0, 1))
-            # maybe it's OK to have 10% nan values 
+            # maybe it's OK to have 10% nan values, then we have ~92% valid loop detectors
             valid_pos = np.nonzero(nan_by_location < 0.1)[0] 
             if self.ld_cvg >= 1.0:
                 ld_mask = np.ones(shape=self.adjacency.shape[0], dtype=bool)
+            # still require more loop detectors than the valid positions (92%~99%, but unlikely)
+            elif self.ld_cvg >= len(valid_pos) / len(nan_by_location):
+                valid_pos = np.argsort(nan_by_location)[:int(self.ld_cvg * self.adjacency.shape[0])]
             else:
                 ld_pos = rng.choice(valid_pos, size=int(self.ld_cvg * self.adjacency.shape[0]), replace=False)
                 ld_mask = np.zeros(shape=self.adjacency.shape[0], dtype=bool)
@@ -554,9 +563,9 @@ class SimBarcaRandomObservation(SimBarca):
             if np.abs(all_drone_mask.mean() - self.drone_cvg) > 0.05:
                 logger.warning("The drone coverage in the file appears to be higher than config, check if `drone_cvg` argument has changed or set `reinit_pos=True`")
         else:
-            logger.info("Initializing drone mask using random seed {} and coverage {}".format(self.random_state, self.drone_cvg))
+            logger.info("Initializing drone mask using random seed {} and coverage {}".format(self.mask_seed, self.drone_cvg))
             grid_cells = np.sort(np.unique(self.grid_id))
-            rng = np.random.default_rng(self.random_state + 777) # avoid using the same random seed as ld_pos
+            rng = np.random.default_rng(self.mask_seed + 777) # avoid using the same random seed as ld_pos
             
             all_drone_mask = []
             for _ in range(len(self) // self.sample_per_session): # different simulation session
@@ -629,7 +638,11 @@ class SimBarcaRandomObservation(SimBarca):
             # the elements have shape (N, T, 2), where 2 corresponds to (time_in_day, value)
             # we stack them into shape (N, T, R, 2) where R is the number of regions
             sample["pred_speed_regional"] = torch.stack(regional_speed, dim=1)
-            
+
+            # only add noise to regional speed values in training mode
+            if not self.use_clean_data:
+                sample["pred_speed_regional"] = add_gaussian_noise(self.rnd_generator, sample["pred_speed_regional"], std=0.3)
+        
         return sample
         
     def __getitem__(self, index):
@@ -669,28 +682,30 @@ if __name__ == "__main__":
     
     train_set = SimBarca(split="train", 
                          force_reload=args.from_scratch, 
-                         filter_short=args.filter_short, 
-                         use_clean_data=False)
+                         filter_short=args.filter_short)
     test_set = SimBarca(split="test", 
                         force_reload=args.from_scratch, 
-                        filter_short=args.filter_short, 
-                        use_clean_data=False)
+                        filter_short=args.filter_short)
     
-    train_loader = DataLoader(train_set, batch_size=8, shuffle=True, collate_fn=train_set.collate_fn)
+    train_loader = DataLoader(train_set, batch_size=8, shuffle=False, collate_fn=train_set.collate_fn)
     test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
 
     for data_dict in train_loader:
-        SimBarca.visualize_batch(data_dict, save_note="train")
+        train_set.visualize_batch(data_dict, save_note="train")
         break
 
     for data_dict in test_loader:
-        SimBarca.visualize_batch(data_dict, save_note="test")
+        test_set.visualize_batch(data_dict, save_note="test")
         break
 
-    debug_set = SimBarcaRandomObservation(split='train', reinit_pos=args.from_scratch, random_state=42)
+    section_id_to_index = {v:k for k, v in test_set.index_to_section_id.items()}
+    batch = test_set.collate_fn([test_set[450], test_set[450]])
+    test_set.visualize_batch(batch, section_num=section_id_to_index[9971])
+    
+    debug_set = SimBarcaRandomObservation(split='train', reinit_pos=args.from_scratch, use_clean_data=False)
     sample = debug_set[0]
     batch = debug_set.collate_fn([debug_set[0], debug_set[100]])
     
-    debug_set = SimBarcaRandomObservation(split='test', reinit_pos=args.from_scratch, random_state=42)
+    debug_set = SimBarcaRandomObservation(split='test', reinit_pos=args.from_scratch, use_clean_data=False)
     sample = debug_set[0]
     batch = debug_set.collate_fn([debug_set[0], debug_set[100]])

@@ -3,8 +3,6 @@ import argparse
 import subprocess
 from itertools import product
 
-RUN, VISUALIZE = 0, 1
-
 # evaluation commands
 def find_output_dir(cmd_str):
     return cmd_str.split("output_dir=")[1].split(" ")[0]
@@ -88,7 +86,7 @@ def experiment_penetration_rate(command_list):
     """
     different sensor penetration rates when we have random observations
     """
-    for percentage in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+    for percentage in [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
         command_list.append(
         f"{train_script} {cfg_rndobsv} model.adjacency_hop=3 train.output_dir=scratch/himsnet_rnd_noise_3hop_{int(100*percentage)}cvg dataset.train.use_clean_data=False dataset.train.ld_cvg={percentage} dataset.train.drone_cvg={percentage} dataset.test.ld_cvg={percentage} dataset.test.drone_cvg={percentage}"
         )
@@ -130,10 +128,29 @@ def experiment_emb_ablation_repeat(command_list):
     
     return command_list
 
+def experiment_lower_lr_for_ld_only(command_list):
+    """
+    Lower learning rate for the LD module only case with clean data
+    
+    But this does not help with the unstable training issue over the regional task
+    """
+    command_list.append(
+    f"{train_script} {cfg_default} model.adjacency_hop=3 model.lr_ld=0.0002 model.use_drone=False train.output_dir=scratch/himsnet_lr02_ld_3hop"
+    )
+    command_list.append(
+    f"{train_script} {cfg_default} model.adjacency_hop=3 model.lr_ld=0.0005 model.use_drone=False train.output_dir=scratch/himsnet_lr05_ld_3hop"
+    )
+    command_list.append(
+    f"{train_script} {cfg_default} model.adjacency_hop=3 model.lr_ld=0.0008 model.use_drone=False train.output_dir=scratch/himsnet_lr08_ld_3hop"
+    )
+    
+    return command_list
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", type=int, default=0, choices=[0, 1], help="0 for run, 1 for visualize")
+    parser.add_argument("--mode", type=str, default=None, choices=["run", "vis"], help="training or visualization")
     args = parser.parse_args()
     
     mode = args.mode
@@ -148,8 +165,9 @@ if __name__ == "__main__":
     # experiment_model_sizes(command_list)
     # experiment_data_modality(command_list)
     # experiment_penetration_rate(command_list)
-    experiment_weight_factor(command_list)
+    # experiment_weight_factor(command_list)
     # experiment_emb_ablation_repeat(command_list)
+    experiment_lower_lr_for_ld_only(command_list)
     
     eval_list = []
     for cmd_str in command_list:
@@ -160,7 +178,7 @@ if __name__ == "__main__":
         eval_cmd = eval_cmd + " " + "evaluation.visualize=True"
         eval_list.append(eval_cmd)
 
-    if mode == VISUALIZE:
+    if mode == "vis":
         command_list = eval_list
 
     for cmd_str in command_list:
