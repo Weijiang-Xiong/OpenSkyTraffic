@@ -79,9 +79,10 @@ class SimBarcaEvaluator:
             ax.boxplot(error_by_scale.values(), labels=error_by_scale.keys())
             ax.set_xlabel("Demand Scale")
             ax.set_ylabel("MAE")
-            ax.set_title("MAE by Demand Scale for {}".format(seq_name))
+            # ax.set_title("MAE by Demand Scale for {}".format(seq_name))
             fig_path = "{}/MAE_by_demand_scale_{}_{}.pdf".format(self.save_dir, self.save_note, seq_name)
-            plt.savefig(fig_path)
+            fig.tight_layout()
+            fig.savefig(fig_path)
             logger.info("Save MAE by demand scale plot to {}".format(fig_path))
             plt.close()
             
@@ -120,9 +121,10 @@ class SimBarcaEvaluator:
         ax.boxplot(mae_by_avg_spd.values(), labels=mae_by_avg_spd.keys())
         ax.set_xlabel("Upper bound of average segment speed")
         ax.set_ylabel("MAE")
-        ax.set_title("MAE by Average Speed")
+        # ax.set_title("MAE by Average Speed")
         fig_path = "{}/MAE_by_avg_speed_{}.pdf".format(self.save_dir, self.save_note)
-        plt.savefig(fig_path)
+        fig.tight_layout()
+        fig.savefig(fig_path)
         plt.close()
         
         

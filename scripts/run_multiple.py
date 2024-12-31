@@ -133,15 +133,21 @@ def experiment_lower_lr_for_ld_only(command_list):
     Lower learning rate for the LD module only case with clean data
     
     But this does not help with the unstable training issue over the regional task
-    """
+    """    
     command_list.append(
-    f"{train_script} {cfg_default} model.adjacency_hop=3 model.lr_ld=0.0002 model.use_drone=False train.output_dir=scratch/himsnet_lr02_ld_3hop"
+    f"{train_script} {cfg_default} model.adjacency_hop=3 optimizer.lr=0.00005 model.use_drone=False train.output_dir=scratch/himsnet_lr005_ld_3hop"
     )
     command_list.append(
-    f"{train_script} {cfg_default} model.adjacency_hop=3 model.lr_ld=0.0005 model.use_drone=False train.output_dir=scratch/himsnet_lr05_ld_3hop"
+    f"{train_script} {cfg_default} model.adjacency_hop=3 optimizer.lr=0.0001 model.use_drone=False train.output_dir=scratch/himsnet_lr01_ld_3hop"
     )
     command_list.append(
-    f"{train_script} {cfg_default} model.adjacency_hop=3 model.lr_ld=0.0008 model.use_drone=False train.output_dir=scratch/himsnet_lr08_ld_3hop"
+    f"{train_script} {cfg_default} model.adjacency_hop=3 optimizer.lr=0.0002 model.use_drone=False train.output_dir=scratch/himsnet_lr02_ld_3hop"
+    )
+    command_list.append(
+    f"{train_script} {cfg_default} model.adjacency_hop=3 optimizer.lr=0.0005 model.use_drone=False train.output_dir=scratch/himsnet_lr05_ld_3hop"
+    )
+    command_list.append(
+    f"{train_script} {cfg_default} model.adjacency_hop=3 optimizer.lr=0.0008 model.use_drone=False train.output_dir=scratch/himsnet_lr08_ld_3hop"
     )
     
     return command_list
