@@ -249,12 +249,13 @@ class HiMSNet(nn.Module):
         
         # use K-hop adjacency matrix for graph convolution
         if isinstance(self.adjacency_hop, int) and self.adjacency_hop > 1:
-            binary_adjacency = self.metadata['adjacency']
+            adj_init = self.metadata['adjacency']
+            adj_iter = adj_init.detach().clone()
             # do a loop instead of calling matrix power to avoid numerical problem
-            for _ in range(self.adjacency_hop - 1): 
-                binary_adjacency = torch.mm(binary_adjacency.float(), binary_adjacency.float())
-                binary_adjacency = (binary_adjacency > 0)
-            self.metadata['edge_index'] = torch.nonzero(binary_adjacency, as_tuple=False).T
+            for _ in range(self.adjacency_hop - 1):
+                adj_iter = torch.mm(adj_iter.float(), adj_init.float())
+                adj_iter = (adj_iter > 0)
+            self.metadata['edge_index'] = torch.nonzero(adj_iter, as_tuple=False).T
             print("Number of edges in the graph:", self.metadata['edge_index'].shape)
             
     def _set_distribution(self, beta: int) -> rv_continuous:
