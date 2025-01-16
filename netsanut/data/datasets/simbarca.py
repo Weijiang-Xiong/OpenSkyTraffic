@@ -510,6 +510,9 @@ class SimBarcaRandomObservation(SimBarca):
                 self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=0.05)
                 self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=0.15)
                 self.pred_speed = add_gaussian_noise(self.rnd_generator, self.pred_speed, std=0.05)
+                # add noises to the vehicle distance and time for regional speed computation
+                self.pred_vdist = add_gaussian_noise(self.rnd_generator, self.pred_vdist, std=0.05)
+                self.pred_vtime = add_gaussian_noise(self.rnd_generator, self.pred_vtime, std=0.05)
             elif self.split == "test":
                 # for test data, the input is corrupted but the label is not for evaulating the model
                 logger.info("Adding Gaussian noise to the testing input (BUT NOT lable)")
@@ -638,10 +641,6 @@ class SimBarcaRandomObservation(SimBarca):
             # the elements have shape (N, T, 2), where 2 corresponds to (time_in_day, value)
             # we stack them into shape (N, T, R, 2) where R is the number of regions
             sample["pred_speed_regional"] = torch.stack(regional_speed, dim=1)
-
-            # only add noise to regional speed values in training mode
-            if not self.use_clean_data:
-                sample["pred_speed_regional"] = add_gaussian_noise(self.rnd_generator, sample["pred_speed_regional"], std=0.05)
         
         return sample
         
