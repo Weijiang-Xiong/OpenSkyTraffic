@@ -96,7 +96,7 @@ class CheckpointSaver(HookBase):
     
     # TODO add period that corresponds to eval period
     # TODO add option for using a metric that is the higher the better
-    def __init__(self, metric:str=None, test_best_ckpt:bool=True, period=5) -> None:
+    def __init__(self, metric:str=None, test_best_ckpt:bool=True, period=5, verbose=False) -> None:
         super().__init__()
         self.metric:str = metric
         self.lowest_loss:float = np.inf
@@ -104,6 +104,7 @@ class CheckpointSaver(HookBase):
         self.last_ckpt_path: str = ""
         self.test_best_ckpt = test_best_ckpt
         self.period = period
+        self.verbose = verbose
         
     def after_epoch(self, trainer: TrainerBase):
         if not (trainer.epoch_num % self.period == 0 and trainer.epoch_num > 0):
@@ -114,9 +115,10 @@ class CheckpointSaver(HookBase):
         # select a best checkpoint based on the metricif it is available,
         # otherwise just save the latest checkpoint
         if metric_this_epoch is None:
-            trainer.logger.info(
-                "Selection metric {} is not available, skip checkpoint selection. available metrics are {}".format(self.metric, trainer.storage.latest().keys())
-            )
+            if self.verbose:
+                trainer.logger.info(
+                    "Selection metric {} is not available, skip checkpoint selection. available metrics are {}".format(self.metric, trainer.storage.latest().keys())
+                )
             self.test_best_ckpt = False
             self.last_ckpt_path = trainer.save_checkpoint()
         else:
