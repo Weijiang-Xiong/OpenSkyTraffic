@@ -16,12 +16,12 @@ model = {
     "use_ld": True,
     "use_global": True,
     "scale_output": True,
-    "normalize_input": False,
+    "normalize_input": True, # this will make the results more stable and better
     "layernorm": True,
     "d_model": 64,
     "simple_fillna": False,
     "global_downsample_factor": 1,
-    "adjacency_hop": 1,
+    "adjacency_hop": 5,
 }
 
 dataset = {

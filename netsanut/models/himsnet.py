@@ -14,7 +14,7 @@ from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 
 class HiMSNet(nn.Module):
-    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=3, reg_loss_weight:float=1.0):
+    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=5, reg_loss_weight:float=1.0, dropout=0.1):
         super().__init__()
         
         self.simple_fillna = simple_fillna
@@ -36,11 +36,11 @@ class HiMSNet(nn.Module):
         self.metadata: Dict[str, torch.Tensor] = None
         self.data_scalers: Dict[str, TensorDataScaler] = None
 
-        self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570)
+        self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570, dropout=dropout)
         
         if self.use_drone:
             self.drone_embedding = ValueEmbedding(d_model=d_model, ignore_nan=self.simple_fillna)
-            self.temporal_encoding_drone = LearnedPositionalEncoding(d_model=d_model)
+            self.temporal_encoding_drone = LearnedPositionalEncoding(d_model=d_model, dropout=dropout)
             # drone data has higher temporal resolution, so we use two conv layers to down sample
             self.drone_t_patching_1 = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, stride=3)
             self.drone_t_patching_2 = nn.Conv1d(in_channels=d_model, out_channels=d_model, kernel_size=3, stride=3)
@@ -49,7 +49,7 @@ class HiMSNet(nn.Module):
             
         if self.use_ld:
             self.ld_embedding = ValueEmbedding(d_model=d_model, ignore_nan=self.simple_fillna)
-            self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model)
+            self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model, dropout=dropout)
             self.ld_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
             self.ld_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
 
@@ -58,7 +58,7 @@ class HiMSNet(nn.Module):
             global_dim = d_model // global_downsample_factor
             self.channel_down_sample = nn.LazyLinear(out_features=global_dim)
             # embedding, LSTM and MLP already contain dropout, so we only add dropout to the graph convolution
-            self.dropout = nn.Dropout(p=0.1) 
+            self.dropout_glb = nn.Dropout(p=dropout) 
             self.relu = nn.ReLU()
             # check the answer from @rusty1s https://github.com/pyg-team/pytorch_geometric/issues/965
             self.gcn_1 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
@@ -69,8 +69,8 @@ class HiMSNet(nn.Module):
 
             self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
             
-        self.prediction = MLP_LazyInput(hid_dim=int(d_model * 2), out_dim=10, dropout=0.1)
-        self.prediction_regional = MLP_LazyInput(hid_dim=128, out_dim=10, dropout=0.1)
+        self.prediction = MLP_LazyInput(hid_dim=int(d_model * 2), out_dim=10, dropout=dropout)
+        self.prediction_regional = MLP_LazyInput(hid_dim=128, out_dim=10, dropout=dropout)
 
         self.loss = GeneralizedProbRegLoss(aleatoric=False, exponent=1, ignore_value=self.ignore_value)
         # weight for the regional task
@@ -187,8 +187,8 @@ class HiMSNet(nn.Module):
         if self.use_global:
             x_global = self.channel_down_sample(torch.cat(all_mode_features, dim=-1))
             # graph convolution
-            x_inter = self.dropout(self.relu(self.global_norm1(self.gcn_1(x_global, self.metadata["edge_index"]))))
-            x_inter = self.dropout(self.relu(self.global_norm2(self.gcn_2(x_inter, self.metadata["edge_index"]))))
+            x_inter = self.dropout_glb(self.relu(self.global_norm1(self.gcn_1(x_global, self.metadata["edge_index"]))))
+            x_inter = self.dropout_glb(self.relu(self.global_norm2(self.gcn_2(x_inter, self.metadata["edge_index"]))))
             x_global = x_global + x_inter
             x_global = self.gcn_3(x_global, self.metadata["edge_index"])
             x_global = self.channel_up_sample(x_global)
@@ -249,8 +249,8 @@ class HiMSNet(nn.Module):
         
         # use K-hop adjacency matrix for graph convolution
         if isinstance(self.adjacency_hop, int) and self.adjacency_hop > 1:
-            adj_init = self.metadata['adjacency']
-            adj_iter = adj_init.detach().clone()
+            adj_iter = self.metadata['adjacency']
+            adj_init = adj_iter.detach().clone()
             # do a loop instead of calling matrix power to avoid numerical problem
             for _ in range(self.adjacency_hop - 1):
                 adj_iter = torch.mm(adj_iter.float(), adj_init.float())
