@@ -28,10 +28,6 @@ class HiMSNet(nn.Module):
         self.normalize_input = normalize_input
         self.scale_output = scale_output
         
-        self._calibrated_intervals: Dict[float, float] = dict()
-        # self._beta: int = beta
-        self._distribution: rv_continuous = None
-        # self._set_distribution(beta=1)
         self.ignore_value = -1.0
         self.metadata: Dict[str, torch.Tensor] = None
         self.data_scalers: Dict[str, TensorDataScaler] = None
