@@ -41,6 +41,11 @@ def session_number_from_path(path):
     return int(re.search(r"session_(\d+)", path).group(1))
 
 class SimBarca(Dataset):
+    
+    """ Invalid values in the dataset are represented as NaN, clear error occurs if NaNs are not properly handled, e.g., one will see NaN in the loss and backpropagation will fail.
+    Instead, if invalid values are replaced by indicators like -1, the computation can still go on without problem and the results will contain a silent error, which is more difficult to discover. 
+    """
+
     data_root = "datasets/simbarca"
     meta_data_folder = "{}/metadata".format(data_root)
     eval_metrics_folder = "{}/eval_metrics".format(data_root)
@@ -423,6 +428,25 @@ class SimBarca(Dataset):
         fig.savefig("{}/30min_ahead_{}_{}_{}.pdf".format(save_dir, sequence, p, save_note))
         logger.info("Saved the plot to {}/30min_ahead_{}_{}_{}.pdf".format(save_dir, sequence, p, save_note))
 
+    def plot_label_scatter(self, save_dir="./", section_num=100, regional=False, save_note="example"):
+        
+        p = section_num
+        sample_per_session = 20
+        sequence = self.pred_speed if not regional else self.pred_speed_regional
+        total_num_session = int(sequence.shape[0] / sample_per_session)
+        
+        fig, ax = plt.subplots(figsize=(6, 4))
+        pred_speed_sec = sequence[:, -1, p, 0].split(sample_per_session)
+        xx = np.arange(sample_per_session)
+        for s in pred_speed_sec:
+            ax.scatter(xx, s, alpha=0.5, s=3)
+        ax.set_xticks(np.arange(0, sample_per_session+1, 5))
+        ax.set_xlabel("Time Step (per 3 mins)")
+        ax.set_ylabel("Speed (m/s)")
+        fig.tight_layout()
+        fig.savefig("{}/section_30min_label_clusters_{}_{}.pdf".format(save_dir, p, save_note))
+        
+
     def plot_MAE_by_location(self, node_coordinates, all_preds, all_labels, save_dir="./", save_note="example"):
         MAE = torch.abs(all_preds['pred_speed'] - all_labels['pred_speed'])
         mae_by_section = torch.nanmean(MAE, dim=(0,1))
@@ -700,7 +724,10 @@ if __name__ == "__main__":
     section_id_to_index = {v:k for k, v in test_set.index_to_section_id.items()}
     batch = test_set.collate_fn([test_set[450], test_set[450]])
     test_set.visualize_batch(batch, section_num=section_id_to_index[9971])
-    
+    test_set.plot_label_scatter(section_num=section_id_to_index[9971], regional=False)
+    for i in range(4):
+        test_set.plot_label_scatter(section_num=i, regional=True, save_note="region")
+
     debug_set = SimBarcaRandomObservation(split='train', reinit_pos=args.from_scratch, use_clean_data=False)
     sample = debug_set[0]
     batch = debug_set.collate_fn([debug_set[0], debug_set[100]])

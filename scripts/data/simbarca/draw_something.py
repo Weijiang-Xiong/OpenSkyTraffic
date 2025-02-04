@@ -273,8 +273,37 @@ def draw_ld_only_regional_mae_example():
     fig.savefig(save_path)
     print("figure saved to {}".format(save_path))
     plt.close(fig)
+
+def compare_norm_input_at_different_hops():
+    hops = range(1, 27, 2)
+    repeats = range(5)
     
+    folders = ["scratch/himsnet_{}hop_r{}".format(i, r) for i in hops for r in repeats]
     
+    mae_segment_30min, mae_regional_30min = [], []
+    mae_segment_30min_no_dropout, mae_regional_30min_no_dropout = [], []
+    for f in folders:
+        error_metrics = get_error_metrics_from_log(f)
+        mae_segment_30min.append(error_metrics["30min_mae_segment"])
+        mae_regional_30min.append(error_metrics["30min_mae_region"])
+        
+    mae_segment_30min = np.array(mae_segment_30min).reshape(-1, 5).mean(axis=1)
+    mae_regional_30min = np.array(mae_regional_30min).reshape(-1, 5).mean(axis=1)
+    
+    # plot the errors for different hops using a line plot, with and without normalized input
+    fig, ax = plt.subplots()
+    ax.plot(hops, mae_segment_30min, label="Segment-level")
+    ax.plot(hops, mae_regional_30min, label="Regional")
+
+    ax.set_xlabel("Number of Adjacency Hops")
+    ax.set_ylabel("MAE")
+    ax.legend()
+    fig.tight_layout()
+    save_path = "datasets/simbarca/figures/mae_30min_norm_input.pdf"
+    fig.savefig(save_path)
+    print("figure saved to {}".format(save_path))
+    plt.close(fig)
+
 if __name__ == "__main__":
     # draw_hops()
     # draw_epochs()
@@ -283,4 +312,5 @@ if __name__ == "__main__":
     # draw_ablation_emb_with_10reps()
     # check_emb_params_update()
     # draw_hidden_dimension()
-    draw_ld_only_regional_mae_example()
+    # draw_ld_only_regional_mae_example()
+    compare_norm_input_at_different_hops()
