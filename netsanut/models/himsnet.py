@@ -84,10 +84,6 @@ class HiMSNet(nn.Module):
     def num_params(self):
         return sum([p.numel() for p in self.parameters() if p.requires_grad])
 
-    @property
-    def is_probabilistic(self):
-        return self._distribution is not None
-
     def forward(self, data: dict[str, torch.Tensor]):
         """
         time series forecasting task,
@@ -257,14 +253,6 @@ class HiMSNet(nn.Module):
                 adj_iter = (adj_iter > 0)
             self.metadata['edge_index'] = torch.nonzero(adj_iter, as_tuple=False).T
             print("Number of edges in the graph:", self.metadata['edge_index'].shape)
-            
-    def _set_distribution(self, beta: int) -> rv_continuous:
-        if beta is None:
-            self._distribution = None
-        else:
-            self._distribution = gennorm(beta=int(beta))
-
-        return self._distribution
     
     def state_dict(self):
         state = dict()
