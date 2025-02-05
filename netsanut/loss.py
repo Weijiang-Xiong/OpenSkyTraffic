@@ -41,17 +41,13 @@ class GeneralizedProbRegLoss(nn.Module):
         """
         pred: (N, T, M)
         label: (N, T, M)
-        plog_sigma: (N, T, M), p-log-sigma
-        but the shape doesn't really matter, as long as they match 
+        plog_sigma: (N, T, M), p*log(sigma) as indicated in Gaussian NLL Loss above. It means the scale of uncertainty.
         """
         
         loss = torch.pow(torch.abs(pred-label), self.exponent)
         
-        if self.aleatoric:
-            if plog_sigma is not None:
-                loss = torch.multiply(loss, torch.exp(-plog_sigma))  + self.alpha * plog_sigma
-            else:
-                logger.warning("Did not receive p-log-sigma for loss computation, skip aleatoric part")
+        if self.aleatoric and plog_sigma is not None:
+            loss = torch.multiply(loss, torch.exp(-plog_sigma)) + self.alpha * plog_sigma
         
         # the masking part is modified from DCRNN 
         # https://github.com/liyaguang/DCRNN/blob/master/lib/metrics.py#L75

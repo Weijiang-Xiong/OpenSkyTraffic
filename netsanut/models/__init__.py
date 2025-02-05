@@ -5,3 +5,4 @@ from .ttnet import TTNet
 from .netsformer import NeTSFormer
 from .himsnet import HiMSNet, ValueEmbedding
 from .lstmgnn import LSTMGNN
+from .gmmpred import GMMPred
