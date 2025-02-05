@@ -36,10 +36,6 @@ def add_gaussian_noise(generator:torch.Generator, data:torch.Tensor, std=0.1):
     data[..., 0] = data[..., 0] + noise * data[..., 0]
     return data
 
-def session_number_from_path(path):
-    import re
-    return int(re.search(r"session_(\d+)", path).group(1))
-
 class SimBarca(Dataset):
     
     """ Invalid values in the dataset are represented as NaN, clear error occurs if NaNs are not properly handled, e.g., one will see NaN in the loss and backpropagation will fail.
@@ -121,11 +117,10 @@ class SimBarca(Dataset):
             print("No train_test_split.json file found, please use `scripts/data/simbarca/choose_train_test.py`")
         with open(self.session_splits, "r") as f:
             session_ids = json.load(f)[self.split]
-            
-        session_folders = sorted(
-            list(Path("{}/{}".format(_root, self.data_root)).glob(self.session_folder_pattern))
-        )
-        sessions_in_split =[str(f) for f in session_folders if session_number_from_path(str(f)) in session_ids]
+
+        sessions_in_split = [Path(
+            "{}/{}".format(self.data_root, self.session_folder_pattern).replace("*", "{:03d}".format(x))
+            ).absolute() for x in sorted(session_ids)]
         
         return sessions_in_split
 
@@ -150,6 +145,10 @@ class SimBarca(Dataset):
         return metadata
 
     def get_session_properties(self, fit_dataset_len=True):
+        
+        def session_number_from_path(path):
+            import re
+            return int(re.search(r"session_(\d+)", path).group(1))
         
         sessions_in_split = self.get_sessions_in_split()
             
@@ -268,17 +267,24 @@ class SimBarca(Dataset):
         return regional_speed_array
     
     def load_or_process_samples(self) -> List[Dict[str, pd.DataFrame | np.ndarray]]:
+        
+        logger = setup_logger("processing", self.meta_data_folder + "/processing.log", stream=True)
+        
         if Path(self.processed_file).exists() and not self.force_reload:
-            print("Trying to load existing processed samples for {} split".format(self.split))
+            logger.info("Trying to load existing processed samples for {} split".format(self.split))
             with open(self.processed_file, "rb") as f:
                 loaded_data = np.load(f)
                 return {key: value for key, value in loaded_data.items() if key in self.io_seqs + self.aux_seqs}
 
-        print("No processed samples found or forced to reload, processing samples from scratch")
+        logger.info("No processed samples found or forced to reload, processing samples from scratch")
         all_sample_data = defaultdict(list)
         split_sample_files =["{}/timeseries/samples.npz".format(f) for f in self.get_sessions_in_split()]
 
-        print("Found {} samples for {} split, reading them one by one".format(len(split_sample_files), self.split))
+        with open(self.session_splits, "r") as f:
+            session_ids = json.load(f)[self.split]
+        logger.info("The simulation sessions in the {} split are {}".format(self.split, session_ids))
+        
+        logger.info("Found {} samples for {} split, reading them one by one".format(len(split_sample_files), self.split))
         for sample_file in tqdm.tqdm(split_sample_files):
             with open(sample_file, "rb") as f:
                 sample_data: np.lib.npyio.NpzFile = np.load(f)
@@ -289,7 +295,7 @@ class SimBarca(Dataset):
         for key, value in all_sample_data.items():
             all_sample_data[key] = np.concatenate(value, axis=0)
 
-        print("Processing per section data")
+        logger.info("Processing per section data")
         # process the input and predicted speed
         processed_samples = dict()
         
@@ -310,7 +316,7 @@ class SimBarca(Dataset):
             # speed_values = np.nan_to_num(speed_values, nan=-1)
             processed_samples["{}_speed".format(mod_type)] = np.stack([speed_values, vdist_tind], axis=-1)
         
-        print("Processing regional data")
+        logger.info("Processing regional data")
         processed_samples["pred_speed_regional"] = self.regional_speed_from_segment(
             all_sample_data["pred_vdist"], all_sample_data["pred_vtime"]
         )
@@ -322,7 +328,7 @@ class SimBarca(Dataset):
         processed_samples["pred_vtime"] = all_sample_data["pred_vtime"]
 
         # save all samples as a compressed npz file
-        print("Saving processed samples to {}".format(self.processed_file))
+        logger.info("Saving processed samples to {}".format(self.processed_file))
         with open(self.processed_file, "wb") as f:
             np.savez_compressed(f, **processed_samples)
         
