@@ -13,18 +13,23 @@ setup(
     author_email='weijiangxiong1998@gmail.com',
     install_requires=[
     "torch",
+    "torch_geometric", # for graph neural networks
     "torchvision",
     "matplotlib",
     "numpy",
-    "pandas==2.2.0", # dataset processing
-    "pandarallel", # parallel processing for pandas
     "seaborn", # for better color in plots
     "einops", # for rearranging tensors 
     "omegaconf", # configuration files
+    "tabulate", # for pretty print
     "termcolor", # for colored print in terminal
-    "geopandas", # for geospatial data
-    "contextily", # for basemap
     "tqdm", # for progress bar
     "scipy", # for scientific computing
     ],
+    # optional dependencies
+    extras_require={
+        "vis": [ # for visualization
+        "geopandas", # for geospatial data
+        "contextily", # for basemap
+        ]
+    },
 )
