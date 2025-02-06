@@ -148,7 +148,7 @@ class SimBarca(Dataset):
         
         def session_number_from_path(path):
             import re
-            return int(re.search(r"session_(\d+)", path).group(1))
+            return int(re.search(r"session_(\d+)", str(path)).group(1))
         
         sessions_in_split = self.get_sessions_in_split()
             
@@ -267,8 +267,6 @@ class SimBarca(Dataset):
         return regional_speed_array
     
     def load_or_process_samples(self) -> List[Dict[str, pd.DataFrame | np.ndarray]]:
-        
-        logger = setup_logger("processing", self.meta_data_folder + "/processing.log", stream=True)
         
         if Path(self.processed_file).exists() and not self.force_reload:
             logger.info("Trying to load existing processed samples for {} split".format(self.split))
