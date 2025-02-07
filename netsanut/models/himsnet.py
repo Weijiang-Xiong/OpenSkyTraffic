@@ -12,9 +12,10 @@ from einops import rearrange
 from netsanut.data.transform import TensorDataScaler
 from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
+from .attention import MultiHeadAttention
 
 class HiMSNet(nn.Module):
-    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=5, reg_loss_weight:float=1.0, dropout=0.1):
+    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=5, reg_loss_weight:float=1.0, dropout=0.1, attn_agg=True):
         super().__init__()
         
         self.simple_fillna = simple_fillna
@@ -27,6 +28,8 @@ class HiMSNet(nn.Module):
             print("Must use at least one data modality, use drone data by default")
         self.normalize_input = normalize_input
         self.scale_output = scale_output
+        self.attn_agg = attn_agg
+        self.global_downsample_factor = global_downsample_factor
         
         self.ignore_value = -1.0
         self.metadata: Dict[str, torch.Tensor] = None
@@ -51,7 +54,7 @@ class HiMSNet(nn.Module):
 
         if self.use_global:
             # input dimension can be 64 or 128 depending on the data modalities, so we let it be determined at first forward pass
-            global_dim = d_model // global_downsample_factor
+            global_dim = d_model // self.global_downsample_factor
             self.channel_down_sample = nn.LazyLinear(out_features=global_dim)
             # embedding, LSTM and MLP already contain dropout, so we only add dropout to the graph convolution
             self.dropout_glb = nn.Dropout(p=dropout) 
@@ -64,7 +67,13 @@ class HiMSNet(nn.Module):
             self.global_norm2 = nn.LayerNorm(global_dim) if layernorm else nn.Identity()
 
             self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
-            
+
+        # use attention to aggregate regional features
+        if attn_agg:
+            self.s_feat = self.use_drone + self.use_ld + self.use_global
+            self.query_regional = nn.Parameter(torch.randn(4, self.s_feat * d_model))
+            self.feature_aggregator = MultiHeadAttention(self.s_feat, self.s_feat * d_model, d_model, d_model, dropout)
+
         self.prediction = MLP_LazyInput(hid_dim=int(d_model * 2), out_dim=10, dropout=dropout)
         self.prediction_regional = MLP_LazyInput(hid_dim=128, out_dim=10, dropout=dropout)
 
@@ -190,13 +199,21 @@ class HiMSNet(nn.Module):
         
         pred = self.prediction(fused_features)
         
-        regional_feature = torch.cat(
-            [
-                torch.mean(fused_features[:, self.metadata["cluster_id"] == region_id, :], dim=1).unsqueeze(1)
-                for region_id in self.metadata["cluster_id"].unique()
-            ],
-            dim=1,
-        )
+
+        if self.attn_agg:
+            regional_feature, attn_map = self.feature_aggregator(self.query_regional.unsqueeze(0).tile(N, 1, 1), 
+                                fused_features, 
+                                fused_features, 
+                                mask=None
+                                )
+        else:
+            regional_feature = torch.cat(
+                [
+                    torch.mean(fused_features[:, self.metadata["cluster_id"] == region_id, :], dim=1).unsqueeze(1)
+                    for region_id in self.metadata["cluster_id"].unique()
+                ],
+                dim=1,
+            )
         pred_regional = self.prediction_regional(regional_feature)
 
         return {

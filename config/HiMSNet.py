@@ -11,7 +11,7 @@ evaluation.ignore_value = float("nan")
 
 model = {
     "name": "HiMSNet",
-    "device": "cuda",
+    "device": "${train.device}",
     "use_drone": True,
     "use_ld": True,
     "use_global": True,
@@ -22,6 +22,7 @@ model = {
     "simple_fillna": False,
     "global_downsample_factor": 1,
     "adjacency_hop": 5,
+    "attn_agg": True,
 }
 
 dataset = {
