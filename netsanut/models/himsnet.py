@@ -1,3 +1,5 @@
+import logging
+
 import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
@@ -14,6 +16,8 @@ from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 from .attention import MultiHeadAttention
 
+logger = logging.getLogger("default")
+
 class HiMSNet(nn.Module):
     def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=5, reg_loss_weight:float=1.0, dropout=0.1, attn_agg=True):
         super().__init__()
@@ -25,7 +29,7 @@ class HiMSNet(nn.Module):
         self.use_global = use_global
         if self.use_drone==False and self.use_ld==False:
             self.use_drone=True
-            print("Must use at least one data modality, use drone data by default")
+            logger.info("Must use at least one data modality, use drone data by default")
         self.normalize_input = normalize_input
         self.scale_output = scale_output
         self.attn_agg = attn_agg
@@ -265,7 +269,7 @@ class HiMSNet(nn.Module):
                 adj_iter = torch.mm(adj_iter.float(), adj_init.float())
                 adj_iter = (adj_iter > 0)
             self.metadata['edge_index'] = torch.nonzero(adj_iter, as_tuple=False).T
-            print("Number of edges in the graph:", self.metadata['edge_index'].shape)
+            logger.info("Number of edges in the graph:", self.metadata['edge_index'].shape)
     
     def state_dict(self):
         state = dict()
