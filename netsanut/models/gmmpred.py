@@ -15,6 +15,7 @@ from netsanut.data.transform import TensorDataScaler
 from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 from .himsnet import ValueEmbedding
+from .attention import MultiHeadAttention
 
 logger = logging.getLogger("default")
 
@@ -116,7 +117,7 @@ class GMMPredictionHead(nn.Module):
         
         intervals = None
 
-        return pred, intervals
+        return pred, mixing, means, log_var
 
     def init_weights(self):
         # initialize the weights so that 
@@ -199,7 +200,10 @@ class GMMPred(nn.Module):
             self.global_norm2 = nn.LayerNorm(global_dim) if layernorm else nn.Identity()
 
             self.msg_dec = nn.Linear(in_features=global_dim, out_features=d_model)
-        
+
+        self.s_feat = self.use_drone + self.use_ld + self.use_global
+        self.query_regional = nn.Parameter(torch.randn(4, self.s_feat * d_model))
+        self.feature_aggregator = MultiHeadAttention(self.s_feat, self.s_feat * d_model, d_model, d_model, dropout)
         
         # so for simbarca, the segment-level speed is limited to 50 kph, but the 
         # unit of the dataset is m/s, so that's roughly 14 m/s, we divide into 5 intervals
@@ -267,10 +271,20 @@ class GMMPred(nn.Module):
         
         else:
             # we should not use target sequences in inference
-            segment_pred, segment_interval = self.segment_head.inference(segment_head_out)
-            regional_pred, regional_interval = self.regional_head.inference(regional_head_out)
+            segment_pred = self.segment_head.inference(segment_head_out)
+            regional_pred = self.regional_head.inference(regional_head_out)
             
-            return {"pred_speed": segment_pred, "pred_speed_regional": regional_pred, "segment_interval": segment_interval, "regional_interval": regional_interval}
+            pred_speed, seg_mixing, seg_means, seg_log_var = segment_pred
+            pred_speed_regional, reg_mixing, reg_means, reg_log_var = regional_pred
+            
+            return {"pred_speed": pred_speed, 
+                    "seg_mixing": seg_mixing,
+                    "seg_means": seg_means,
+                    "seg_log_var": seg_log_var,
+                    "pred_speed_regional": pred_speed_regional,
+                    "reg_mixing": reg_mixing,
+                    "reg_means": reg_means,
+                    "reg_log_var": reg_log_var}
 
     def preprocess(self, data: dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.normalize_input:
@@ -351,13 +365,8 @@ class GMMPred(nn.Module):
 
         # segment-level and regional features 
         seg_feat = torch.cat(all_mode_features, dim=-1)
-        reg_feat = torch.cat(
-            [
-                torch.mean(seg_feat[:, self.metadata["cluster_id"] == region_id, :], dim=1).unsqueeze(1)
-                for region_id in self.metadata["cluster_id"].unique()
-            ],
-            dim=1,
-        )
+        reg_feat, attn_map = self.feature_aggregator(self.query_regional.unsqueeze(0).tile(N, 1, 1), 
+                            seg_feat, seg_feat, mask=None)
         
         return seg_feat, reg_feat
 

@@ -5,18 +5,8 @@ from netsanut.config import default_argument_parser, default_setup, ConfigLoader
 from netsanut.engine import DefaultTrainer, hooks
 from netsanut.models import build_model
 from netsanut.data import build_train_loader, build_test_loader, build_dataset
-from netsanut.evaluation import SimBarcaEvaluator, MetrEvaluator
+from netsanut.evaluation import build_evaluator
 from netsanut.solver import build_optimizer, build_scheduler
-
-def build_evaluator(evaluator_type, **kwargs):
-    
-    match evaluator_type:
-        case 'simbarca':
-            return SimBarcaEvaluator(**kwargs)
-        case 'metrla' | 'pemsbay':
-            return MetrEvaluator(**kwargs)
-        case _:
-            raise ValueError('No evaluator is specified')
 
 def main(args):
     

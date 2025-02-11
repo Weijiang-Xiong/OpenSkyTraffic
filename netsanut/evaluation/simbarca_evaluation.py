@@ -17,6 +17,8 @@ from netsanut.utils.io import flatten_results_dict, make_dir_if_not_exist
 from netsanut.evaluation.metrics import prediction_metrics
 from netsanut.data.datasets import SimBarca
 
+logger = logging.getLogger("default")
+
 class SimBarcaEvaluator:
 
     def __init__(self, ignore_value=-1.0, mape_threshold=1.0, save_dir: str=None, save_res: bool=True, save_note="", visualize=False) -> None:
@@ -32,9 +34,11 @@ class SimBarcaEvaluator:
         return self.evaluate(model, data_loader, **kwargs)
 
     def collect_predictions(self, 
-        model: nn.Module, data_loader: DataLoader, output_seqs=[]
+        model: nn.Module, data_loader: DataLoader, label_seqs=[], pred_seqs=[] 
     ) -> Dict[str, torch.Tensor]:
-        """run inference of the model on the data_loader concatenate all predictions and corresponding labels for the sequences specified in `output_seqs`.
+        """run inference of the model on the data_loader concatenate all predictions and corresponding labels.
+        
+        The sequences in `label_seqs` will be collected from the data batch. The sequences in `pred_seqs` will be collected from the model output. In simple cases, they are the same, but when the evaluation relies on additional sequences, they can be different as well (for example in uncertainty evaluation).
         """
         model.eval()
 
@@ -44,11 +48,13 @@ class SimBarcaEvaluator:
         for data_dict in data_loader:
             with torch.no_grad():
                 pred_dict = model(data_dict)
-
-            for name in output_seqs: # collect predicted sequences and corresponding labels
+            
+            # collect predicted sequences corresponding labels
+            for name in pred_seqs:
                 all_preds[name].append(pred_dict[name])
+            for name in label_seqs: 
                 all_labels[name].append(data_dict[name])
-
+                
         # this will actually modify all_preds and all_labels
         for res_collection in [all_preds, all_labels]:
             for key, value in res_collection.items():
@@ -64,7 +70,6 @@ class SimBarcaEvaluator:
             all_labels: Dict[str, torch.Tensor] with keys as sequence names and values as labels, same shape as `all_preds`.
             demand_scales: torch tensor with shape (N,) indicating the demand scale of each sample
         """
-        logger = logging.getLogger("default")
         
         for seq_name in all_labels.keys():
             seq_preds, seq_labels = all_preds[seq_name], all_labels[seq_name]
@@ -179,10 +184,10 @@ class SimBarcaEvaluator:
         return avg_eval_res
 
     def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]: 
-        output_seqs = data_loader.dataset.output_seqs
+        label_seqs = data_loader.dataset.output_seqs
         sections_of_interest = data_loader.dataset.sections_of_interest
         
-        all_preds, all_labels = self.collect_predictions(model, data_loader, output_seqs)
+        all_preds, all_labels = self.collect_predictions(model, data_loader, label_seqs, label_seqs)
 
         avg_eval_res = self.eval_by_time_step(all_preds, all_labels, verbose=verbose)
         
