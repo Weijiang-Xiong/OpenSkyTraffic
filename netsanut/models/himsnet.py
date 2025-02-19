@@ -7,19 +7,19 @@ import torch_geometric.nn as gnn
 import numpy as np
 from scipy.stats import rv_continuous, gennorm
 
-from netsanut.loss import GeneralizedProbRegLoss
 from typing import Dict, List, Tuple
 from einops import rearrange
 
-from netsanut.data.transform import TensorDataScaler
-from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
+from ..loss import GeneralizedProbRegLoss
+from ..data.transform import TensorDataScaler
+from .common import MLP_LazyInput, LearnedPositionalEncoding, ValueEmbedding
 from .catalog import MODEL_CATALOG
-from .attention import MultiHeadAttention
+from .attention import MultiHeadAttention, TransformerEncoderLayer
 
 logger = logging.getLogger("default")
 
 class HiMSNet(nn.Module):
-    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=5, reg_loss_weight:float=1.0, dropout=0.1, attn_agg=True):
+    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=5, reg_loss_weight:float=1.0, dropout=0.1, attn_agg=True, tf_glb=False):
         super().__init__()
         
         self.simple_fillna = simple_fillna
@@ -33,6 +33,7 @@ class HiMSNet(nn.Module):
         self.normalize_input = normalize_input
         self.scale_output = scale_output
         self.attn_agg = attn_agg
+        self.tf_glb = tf_glb
         self.global_downsample_factor = global_downsample_factor
         
         self.ignore_value = -1.0
@@ -57,20 +58,27 @@ class HiMSNet(nn.Module):
             self.ld_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
 
         if self.use_global:
-            # input dimension can be 64 or 128 depending on the data modalities, so we let it be determined at first forward pass
-            global_dim = d_model // self.global_downsample_factor
-            self.channel_down_sample = nn.LazyLinear(out_features=global_dim)
-            # embedding, LSTM and MLP already contain dropout, so we only add dropout to the graph convolution
-            self.dropout_glb = nn.Dropout(p=dropout) 
-            self.relu = nn.ReLU()
-            # check the answer from @rusty1s https://github.com/pyg-team/pytorch_geometric/issues/965
-            self.gcn_1 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
-            self.gcn_2 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
-            self.gcn_3 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
-            self.global_norm1 = nn.LayerNorm(global_dim) if layernorm else nn.Identity()
-            self.global_norm2 = nn.LayerNorm(global_dim) if layernorm else nn.Identity()
-
-            self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
+            if tf_glb:
+                self.dropout_glb = nn.Dropout(p=dropout) 
+                self.relu = nn.ReLU()
+                self.glb_project1 = nn.LazyLinear(out_features=128)
+                self.tf_enc_layer1 = TransformerEncoderLayer(128, 128, 2, 64, 64)
+                self.tf_enc_layer2 = TransformerEncoderLayer(128, 128, 2, 64, 64)
+                self.glb_project2 = nn.Linear(in_features=128, out_features=d_model)
+            else:
+                # input dimension can be 64 or 128 depending on the data modalities, so we let it be determined at first forward pass
+                global_dim = d_model // self.global_downsample_factor
+                self.channel_down_sample = nn.LazyLinear(out_features=global_dim)
+                # embedding, LSTM and MLP already contain dropout, so we only add dropout to the graph convolution
+                self.dropout_glb = nn.Dropout(p=dropout) 
+                self.relu = nn.ReLU()
+                # check the answer from @rusty1s https://github.com/pyg-team/pytorch_geometric/issues/965
+                self.gcn_1 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
+                self.gcn_2 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
+                self.gcn_3 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
+                self.global_norm1 = nn.LayerNorm(global_dim) if layernorm else nn.Identity()
+                self.global_norm2 = nn.LayerNorm(global_dim) if layernorm else nn.Identity()
+                self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
 
         # use attention to aggregate regional features
         if attn_agg:
@@ -190,14 +198,22 @@ class HiMSNet(nn.Module):
             all_mode_features.append(x_ld)
         
         if self.use_global:
-            x_global = self.channel_down_sample(torch.cat(all_mode_features, dim=-1))
-            # graph convolution
-            x_inter = self.dropout_glb(self.relu(self.global_norm1(self.gcn_1(x_global, self.metadata["edge_index"]))))
-            x_inter = self.dropout_glb(self.relu(self.global_norm2(self.gcn_2(x_inter, self.metadata["edge_index"]))))
-            x_global = x_global + x_inter
-            x_global = self.gcn_3(x_global, self.metadata["edge_index"])
-            x_global = self.channel_up_sample(x_global)
-            all_mode_features.append(x_global)
+            if self.tf_glb:
+                x_global = torch.cat(all_mode_features, dim=-1)
+                x_inter, _ = self.tf_enc_layer1(x_global)
+                x_inter, _ = self.tf_enc_layer2(x_inter)
+                x_global = x_global + x_inter
+                x_global = self.glb_project2(x_global)
+                all_mode_features.append(x_global)
+            else:
+                x_global = self.channel_down_sample(torch.cat(all_mode_features, dim=-1))
+                # graph convolution
+                x_inter = self.dropout_glb(self.relu(self.global_norm1(self.gcn_1(x_global, self.metadata["edge_index"]))))
+                x_inter = self.dropout_glb(self.relu(self.global_norm2(self.gcn_2(x_inter, self.metadata["edge_index"]))))
+                x_global = x_global + x_inter
+                x_global = self.gcn_3(x_global, self.metadata["edge_index"])
+                x_global = self.channel_up_sample(x_global)
+                all_mode_features.append(x_global)
 
         fused_features = torch.cat(all_mode_features, dim=-1)
         
@@ -286,78 +302,6 @@ class HiMSNet(nn.Module):
         }
         super().load_state_dict(state_dict["model_params"])
 
-class ValueEmbedding(nn.Module):
-    """ This layer applies an embedding to spatio-temporal traffic time series data with 
-    considerations on two tpes of missing values: a) empty and b) unmonitored. A value is
-    empty if we have sensor to monitor a certain location at certain time but observed no 
-    vehicles, and unmonitored if we have no sensor at all. 
-    
-    Both cases are represented with `NaN`, this is to make sure that if the invalid values
-    are not handled properly, one is likely to have a NaN in output, which is a clear error.
-    We prefer no to replace the `NaN` values with place holders like `-1`, because such values
-    may results in slient errors.
-    
-    The embedding layer will apply a simple linear transformation to the valid values and 
-    replace the NaN values with corresponding tokens. 
-    """
-    def __init__(self, d_model:int, ignore_nan=False) -> None:
-        super().__init__()
-        self.d_model = d_model
-        self.ignore_nan = ignore_nan # do not replace NaN values with learnable tokens if True
-        self.time_emb_w = nn.Parameter(torch.randn(1, d_model))
-        self.time_emb_b = nn.Parameter(torch.randn(1, d_model))
-        self.value_emb_w = nn.Parameter(torch.randn(1, d_model))
-        self.value_emb_b = nn.Parameter(torch.randn(1, d_model))
-        self.empty_token = nn.Parameter(torch.randn(d_model)) # fit the tensor shape N, C, H, W
-        self.unmonitored_token = nn.Parameter(torch.randn(d_model))
-        
-    def forward(self, x: torch.Tensor, invalid_value = torch.nan, monitor_mask: torch.Tensor = None):
-        """
-        Args:
-            x (torch.Tensor): networked timeseries data with shape (N, T, P, 2)
-            invalid_value : Defaults to torch.nan.
-            monitor_mask (torch.Tensor, optional): A boolean tensor whose `True` corresponds to the state of monitored, and `False` means unmonitored. Defaults to None.
-        """
-        N, T, P, _ = x.shape
-        value, time = x[:, :, :, 0], x[:, :, :, 1]
-        
-        time_emb = time.unsqueeze(-1) * self.time_emb_w + self.time_emb_b
-        
-        # assume the invalid values are already handled in preprocessing, and don't do it here
-        if self.ignore_nan:
-            value_emb = value.unsqueeze(-1) * self.value_emb_w + self.value_emb_b
-            return (time_emb + value_emb).contiguous()
-        
-        # comparing by == doesn't work with nan
-        if invalid_value in [float("nan"), np.nan, torch.nan, None]:
-            invalid_mask = torch.isnan(value)
-        else:
-            invalid_mask = (value == invalid_value)
-        
-        # apply linear embedding to the valid values
-        value_emb = torch.empty(size=(N, T, P, self.d_model), device=self.device)
-        value_emb[~invalid_mask] = value.unsqueeze(-1)[~invalid_mask] * self.value_emb_w + self.value_emb_b
-        
-        # replace the invalid values with corresponding tokens
-        if monitor_mask is not None:
-            # if a location is unmonitored, then the value is replaced with unmonitored token
-            value_emb[~monitor_mask] = self.unmonitored_token
-            # if a location is monitored but still has no valid value, then it's because we 
-            # observe no vehicle. In this case, we replace the value with empty token
-            value_emb[invalid_mask & monitor_mask] = self.empty_token
-        else:
-            value_emb[invalid_mask] = self.empty_token
-            
-        emb = time_emb + value_emb
-        
-        return emb.contiguous()
-
-    @property
-    def device(self):
-        return list(self.parameters())[0].device
-    
-    def extra_repr(self) -> str:
-        return "d_model={}".format(self.d_model)
 
 # one can write this as a decorator above the class definition, but that will lose the type hints 
 # because in general one can not know what the decorator will return, so the type of the defined 

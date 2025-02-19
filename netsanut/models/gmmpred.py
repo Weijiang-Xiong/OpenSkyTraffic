@@ -7,14 +7,13 @@ import torch_geometric.nn as gnn
 import numpy as np
 from scipy.stats import rv_continuous, gennorm
 
-from netsanut.loss import GeneralizedProbRegLoss
 from typing import Dict, List, Tuple
 from einops import rearrange
 
-from netsanut.data.transform import TensorDataScaler
-from netsanut.models.common import MLP_LazyInput, LearnedPositionalEncoding
+from ..loss import GeneralizedProbRegLoss
+from ..data.transform import TensorDataScaler
+from .common import MLP_LazyInput, LearnedPositionalEncoding, ValueEmbedding
 from .catalog import MODEL_CATALOG
-from .himsnet import ValueEmbedding
 from .attention import MultiHeadAttention
 
 logger = logging.getLogger("default")

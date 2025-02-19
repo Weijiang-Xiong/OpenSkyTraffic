@@ -110,7 +110,7 @@ class TransformerEncoderLayer(nn.Module):
     ''' Compose with two layers '''
 
     def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
-        super(EncoderLayer, self).__init__()
+        super(TransformerEncoderLayer, self).__init__()
         self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
         self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
 
@@ -125,7 +125,7 @@ class TransformerDecoderLayer(nn.Module):
     ''' Compose with three layers '''
 
     def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
-        super(DecoderLayer, self).__init__()
+        super(TransformerEncoderLayer, self).__init__()
         self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
         self.enc_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
         self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
@@ -147,3 +147,12 @@ if __name__ == "__main__":
     k = torch.randn(8, 100, 64)
     v = torch.randn(8, 100, 64)
     out, attn = layer(q, k, v)
+    
+    # if you concatenate the layers, make sure d_model = n_head * d_v
+    enc_layer1 = TransformerEncoderLayer(128, 128, 2, 64, 64)
+    enc_layer2 = TransformerEncoderLayer(128, 128, 2, 64, 64)
+    for _ in range(10):
+        x = torch.randn(8, 1570, 128)
+        x, _ = enc_layer1(x)
+        x, _ = enc_layer2(x)
+    print(x.shape)

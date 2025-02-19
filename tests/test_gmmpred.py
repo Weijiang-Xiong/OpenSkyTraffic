@@ -6,12 +6,6 @@ from netsanut.models import GMMPred, HiMSNet
 with open("tests/simbarca_batch.pkl", "rb") as f:
     batch = pickle.load(f)
 
-model = HiMSNet(adjacency_hop=5).cuda()
-model.train()
-model.adapt_to_metadata(batch["metadata"])
-loss_dict = model(batch)
-
-
 model = GMMPred(adjacency_hop=5, zero_init=True)
 model.train()
 model.adapt_to_metadata(batch["metadata"])
