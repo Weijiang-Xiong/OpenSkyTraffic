@@ -414,6 +414,8 @@ class SimBarca(Dataset):
         
         sessions_to_include = list(range(int(total_num_session)))[-nrows * ncols:] # id in split
         session_ids, demand_scales = self.get_session_properties(fit_dataset_len=False)
+        session_ids = session_ids[sessions_to_include]
+        demand_scales = demand_scales[sessions_to_include]
         
         fig, ax = plt.subplots(nrows, ncols, figsize=(13, 5))
         for i in range(nrows):

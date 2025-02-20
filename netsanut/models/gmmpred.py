@@ -20,12 +20,12 @@ logger = logging.getLogger("default")
 
 class GMMPredictionHead(nn.Module):
     
-    def __init__(self, in_dim, hid_dim:int, anchors:List[float], sizes:List[float], pred_steps:int=10, ignore_value:float=-1.0, dropout=0.1, zero_init=False, map_estimation=False):
+    def __init__(self, in_dim, hid_dim:int, anchors:List[float], sizes:List[float], pred_steps:int=10, ignore_value:float=-1.0, dropout=0.1, zero_init=False, mcd_estimation=False):
         super().__init__()
         self.pred_steps = pred_steps
         self.ignore_value = ignore_value
         self.zero_init = zero_init
-        self.map_estimation = map_estimation # whether to use maximum a posteriori (MAP) estimation
+        self.mcd_estimation = mcd_estimation # whether to use maximum a posteriori (MAP) estimation
         self.num_component = len(anchors)
         # the anchors are prioir knowledge for the mean 
         # put them as parameters so that they can be moved to the same device as the model
@@ -108,8 +108,14 @@ class GMMPredictionHead(nn.Module):
         """
         mixing, means, log_var = out # all of shape (N, T, P, A) as returned in forward
         
-        if self.map_estimation:
-            max_index = torch.argmax(mixing, dim=-1)
+
+        if self.mcd_estimation:
+            # for a gaussian mixture model, the maximum a posteriori estimation can not be 
+            # analytically solved, but since we formulate the prediction using anchors, the 
+            # gaussian components should be somewhat separated, so we can use the component
+            # with highest probability density at its own mean as the prediction
+            # that is Maximum Component Denstiity (MCD) estimation
+            max_index = torch.argmax(mixing*torch.exp(-log_var), dim=-1)
             pred = torch.gather(means, dim=-1, index=max_index.unsqueeze(-1)).squeeze(-1)
         else:
             pred = (mixing * means).sum(dim=-1)
@@ -214,7 +220,7 @@ class GMMPred(nn.Module):
             dropout=dropout,
             ignore_value=self.ignore_value,
             zero_init=zero_init,
-            map_estimation=map_estimation
+            mcd_estimation=map_estimation
         )
         # regional speed can not be that fast (max ~9 m/s), so we use a smaller range for anchors 
         self.regional_head = GMMPredictionHead(
@@ -225,7 +231,7 @@ class GMMPred(nn.Module):
             dropout=dropout,
             ignore_value=self.ignore_value,
             zero_init=zero_init,
-            map_estimation=map_estimation
+            mcd_estimation=map_estimation
         )
         # whether to rescale the anchors based on metadata (will be used in adapt_to_metadata)
         self.rescale_anchors = rescale_anchors
