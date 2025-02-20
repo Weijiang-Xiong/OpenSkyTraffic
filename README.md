@@ -8,7 +8,7 @@ We assume there is a conda environment called `pytorch` with [PyTorch](https://p
 
 ```bash
 git clone https://github.com/Weijiang-Xiong/netsanut.git
-python -m pip install -e .
+python -m pip install -e . --use-pep517
 ```
 
 For the preprocessing and usage of datasets, please follow the [readme file](datasets/README.md) in `datasets` folder.
