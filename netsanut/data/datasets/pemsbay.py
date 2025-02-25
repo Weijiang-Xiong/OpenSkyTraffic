@@ -14,7 +14,7 @@ class PEMSBayDataset(MetrDataset):
     geo_locations = 'graph_sensor_locations_bay.csv'
 
     def __init__(self, split, **args) -> None:
-        super().__init__(name='pemsbay', split=split, **args)
+        super().__init__(split=split, **args)
         
     def get_geo_locations(self):
         return pd.read_csv("{}/{}".format(self.data_root, self.geo_locations), header=None)[[2,1]].to_numpy()

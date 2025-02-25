@@ -2,11 +2,8 @@ import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
 
-import numpy as np
-from scipy.stats import rv_continuous, gennorm
-
 from netsanut.loss import GeneralizedProbRegLoss
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 from einops import rearrange
 
 from netsanut.data.transform import TensorDataScaler
@@ -18,22 +15,13 @@ class LSTMGNN(nn.Module):
                  d_model=64, global_downsample_factor:int=1, layernorm=True, ignore_value: float=-1.0,
                  adjacency_hop: int=1):
         super().__init__()
-        
         self.use_global = use_global
-
         self.normalize_input = normalize_input
         self.scale_output = scale_output
-        
-        self._calibrated_intervals: Dict[float, float] = dict()
-        # self._beta: int = beta
-        self._distribution: rv_continuous = None
-        # self._set_distribution(beta=1)
         self.ignore_value = ignore_value
         self.adjacency_hop = adjacency_hop
         self.metadata: Dict[str, torch.Tensor] = None
-
         self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570)
-        
         self.ld_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
         self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model)
         self.ld_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
@@ -56,7 +44,6 @@ class LSTMGNN(nn.Module):
             self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
             
         self.prediction = MLP_LazyInput(hid_dim=int(d_model * 2), out_dim=12, dropout=0.1)
-
         self.loss = GeneralizedProbRegLoss(aleatoric=False, exponent=1, ignore_value=self.ignore_value)
 
     @property
@@ -66,10 +53,6 @@ class LSTMGNN(nn.Module):
     @property
     def num_params(self):
         return sum([p.numel() for p in self.parameters() if p.requires_grad])
-
-    @property
-    def is_probabilistic(self):
-        return self._distribution is not None
 
     def forward(self, data: dict[str, torch.Tensor]):
         """
@@ -174,13 +157,6 @@ class LSTMGNN(nn.Module):
                 
         edge_index = torch.nonzero(binary_adjacency, as_tuple=False).T
         self.metadata['edge_index'] = edge_index.to(self.device)
-
-    def _set_distribution(self, beta: int) -> rv_continuous:
-        if beta is None:
-            self._distribution = None
-        else:
-            self._distribution = gennorm(beta=int(beta))
-        return self._distribution
     
     def state_dict(self):
         """ we add datascalar and metadata to the state_dict, so that they will be saved to the checkpoint, 

@@ -6,29 +6,12 @@ import pandas as pd
 import numpy as np 
 
 import torch 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
 from ..catalog import DATASET_CATALOG
 from .adjacency import calculate_scaled_laplacian, calculate_normalized_laplacian, sym_adj, asym_adj
 
 logger = logging.getLogger('default')
-
-import torch 
-from typing import List, Tuple
-
-def tensor_collate(list_of_xy:List[Tuple[torch.Tensor]]) -> Tuple[torch.Tensor]:
-    """ assume the input is a list of (x, y), pack the x's and y's into two tensors
-    """
-    xs = [torch.as_tensor(xy[0]).unsqueeze(0) for xy in list_of_xy]
-    ys = [torch.as_tensor(xy[1]).unsqueeze(0) for xy in list_of_xy]
-    
-    return torch.cat(xs, dim=0), torch.cat(ys, dim=0)
-
-def to_contiguous(data:torch.Tensor, label:torch.Tensor) -> Tuple[torch.Tensor]:
-    
-    return {"source": data.contiguous(), "target": label[..., 0].contiguous()}
-
-tensor_to_contiguous = lambda list_of_xy: to_contiguous(*tensor_collate(list_of_xy))
 
 class MetrDataset(Dataset):
     """ a dataset class for time series on a bunch of nodes (e.g., traffic 
@@ -44,9 +27,9 @@ class MetrDataset(Dataset):
     geo_locations = 'graph_sensor_locations.csv'
     data_dim = 0
     
-    def __init__(self, name:str='metrla', split='train', compute_metadata=False, adj_type='doubletransition') -> None:
+    def __init__(self, split='train', adj_type='doubletransition') -> None:
         super().__init__()
-        self.name, self.split = name, split
+        self.split = split
         data = np.load("{}/{}".format(self.data_root, self.split_files[self.split]))
         # data assumed to have (N, T, M, C) shape
         self.data_x = torch.as_tensor(data['x'], dtype=torch.float32)
@@ -87,7 +70,7 @@ class MetrDataset(Dataset):
         try:
             with open(pickle_file, 'rb') as f:
                 pickle_data = pickle.load(f)
-        except UnicodeDecodeError as e:
+        except UnicodeDecodeError:
             with open(pickle_file, 'rb') as f:
                 pickle_data = pickle.load(f, encoding='latin1')
         except Exception as e:
@@ -119,8 +102,15 @@ class MetrDataset(Dataset):
             assert error, "adj type not defined"
         return sensor_ids, sensor_id_to_ind, adj
 
-    def collate_fn(self, batch):
-        return tensor_to_contiguous(batch)
+    def collate_fn(self, batch:List[Tuple[torch.Tensor]]):
+        """ assume the input is a list of (x, y), pack the x's and y's into two tensors
+        """
+        xs = [torch.as_tensor(xy[0]).unsqueeze(0) for xy in batch]
+        ys = [torch.as_tensor(xy[1]).unsqueeze(0) for xy in batch]
+        
+        xs, ys = torch.cat(xs, dim=0), torch.cat(ys, dim=0)
+        
+        return {"source": xs.contiguous(), "target": ys[..., 0].contiguous()}
     
 if __name__.endswith('.metrla'):
     DATASET_CATALOG['metrla_train'] = lambda **arg: MetrDataset(split='train', **arg)

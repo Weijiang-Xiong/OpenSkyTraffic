@@ -5,9 +5,8 @@ import torch.nn as nn
 import torch_geometric.nn as gnn
 
 import numpy as np
-from scipy.stats import rv_continuous, gennorm
 
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 from einops import rearrange
 
 from ..loss import GeneralizedProbRegLoss
@@ -27,8 +26,8 @@ class HiMSNet(nn.Module):
         self.use_drone = use_drone
         self.use_ld = use_ld
         self.use_global = use_global
-        if self.use_drone==False and self.use_ld==False:
-            self.use_drone=True
+        if not (self.use_drone or self.use_ld):
+            self.use_drone = True
             logger.info("Must use at least one data modality, use drone data by default")
         self.normalize_input = normalize_input
         self.scale_output = scale_output
