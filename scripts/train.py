@@ -1,3 +1,23 @@
+""" 
+This script is the entry point for training and evaluation of the models.
+In the __main__ function, the argument parser requires a `--config-file` which specifies how to configure
+models and training pipeline, and other overrides to the config file can be passed as 
+
+    something.to.modify=new_value 
+
+To run a training in the terminal, use the following command:
+
+    python scripts/train.py --config-file config/HiMSNet.py model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop
+
+After the training, you can run evaluation on the trained model as follows:
+
+    python scripts/train.py --eval-only --config-file config/HiMSNet.py model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop train.checkpoint=scratch/himsnet_5hop/model_final.pth evaluation.visualize=True
+
+You can also run debugging using VS Code. For example, to debug the evaluation of a trained HiMSNet model, put the following to parse_args(...):
+
+    "--eval-only --config-file config/HiMSNet.py model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop train.checkpoint=scratch/himsnet_5hop/model_final.pth evaluation.visualize=True".split()
+"""
+
 import torch
 import numpy as np
 
@@ -63,10 +83,5 @@ def main(args):
         return trainer.train()
     
 if __name__ == "__main__":
-    # the argument parser requires a `--config-file` which specifies how to configure
-    # models and training pipeline, and other overrides to the config file can be passed
-    # as `something.to.modify=new_value`
-    # for example to run evaluation on the trained HiMSNet model, put the following to parse_args(...):
-    # "--eval-only --config-file config/HiMSNet.py model.adjacency_hop=3 train.output_dir=scratch/himsnet_3hop train.checkpoint=scratch/himsnet_3hop/model_final.pth evaluation.visualize=True".split()
     args = default_argument_parser().parse_args()
     main(args)

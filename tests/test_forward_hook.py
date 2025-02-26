@@ -40,8 +40,8 @@ class TestForwardHook(unittest.TestCase):
 
         model = NeTSFormer().to(device)
         model.adapt_to_metadata({'adjacency': [torch.randint(0, 5, size=(M, M)) for _ in range(2)],
-                                'mean': torch.tensor([0.0, 0.0]),
-                                'std': torch.tensor([1.0, 0.0])})
+                                'mean': torch.tensor([0.0]),
+                                'std': torch.tensor([1.0])})
 
 
         attention_layers = {

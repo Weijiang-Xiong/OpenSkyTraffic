@@ -11,7 +11,25 @@ class TensorDataScaler:
     """
 
     def __init__(self, mean: float, std: float, data_dim: int = 0, device: str = "cuda"):
+        """_summary_
+
+        Args:
+            mean (float): the mean of the data (should be a scalar or a tensor with 1 element)
+            std (float): the standard deviation of the data (should be a scalar or a tensor with 1 element)
+            data_dim (int, optional): the index of data sequences of concern (not auxiliary features). Defaults to 0.
+            device (str, optional): the device to . Defaults to "cuda".
+        """
         self.data_dim = data_dim
+        
+        if isinstance(mean, torch.Tensor):
+            # this will throw an error if the tensor has more than one element
+            # it is better to signal the user that the input can be problematic
+            mean = mean.item() 
+        if isinstance(std, torch.Tensor):
+            std = std.item() 
+        assert isinstance(mean, (int, float)), "mean should be a scalar"
+        assert isinstance(std, (int, float)), "std should be a scalar"
+        
         self.mean = torch.tensor(mean, requires_grad=False)
         self.std = torch.tensor(std, requires_grad=False)
         self.inv_std = 1.0 / self.std
