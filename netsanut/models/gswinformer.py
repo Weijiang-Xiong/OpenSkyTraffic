@@ -10,7 +10,7 @@ from typing import Dict, List, Tuple
 from einops import rearrange
 
 from netsanut.data.transform import TensorDataScaler
-from .common import MLP_LazyInput, LearnedPositionalEncoding
+from .common import MLP, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 
 class GSwinFormer(nn.Module):

@@ -11,7 +11,7 @@ from einops import rearrange
 
 from ..loss import GeneralizedProbRegLoss
 from ..data.transform import TensorDataScaler
-from .common import MLP_LazyInput, LearnedPositionalEncoding, ValueEmbedding
+from .common import MLP, LearnedPositionalEncoding, ValueEmbedding
 from .catalog import MODEL_CATALOG
 from .attention import MultiHeadAttention, TransformerEncoderLayer
 
@@ -85,8 +85,9 @@ class HiMSNet(nn.Module):
             self.query_regional = nn.Parameter(torch.randn(4, self.s_feat * d_model))
             self.feature_aggregator = MultiHeadAttention(self.s_feat, self.s_feat * d_model, d_model, d_model, dropout)
 
-        self.prediction = MLP_LazyInput(hid_dim=int(d_model * 2), out_dim=10, dropout=dropout)
-        self.prediction_regional = MLP_LazyInput(hid_dim=128, out_dim=10, dropout=dropout)
+        feature_dim = (self.use_drone + self.use_ld + self.use_global) * d_model
+        self.prediction = MLP(in_dim=feature_dim, hid_dim=int(d_model * 2), out_dim=10, dropout=dropout)
+        self.prediction_regional = MLP(in_dim=feature_dim, hid_dim=128, out_dim=10, dropout=dropout)
 
         self.loss = GeneralizedProbRegLoss(aleatoric=False, exponent=1, ignore_value=self.ignore_value)
         # weight for the regional task

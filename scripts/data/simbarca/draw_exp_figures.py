@@ -31,7 +31,8 @@ def get_error_metrics_from_log(log_dir):
     return {k: v for k, v in zip(error_keys, error_metrics_num)}
 
 def draw_hops():
-    different_hops = ["scratch/himsnet_{}hop".format(i) for i in (1, 3, 5)]
+    adj_hops = (1, 3, 5, 7, 9)
+    different_hops = ["scratch/himsnet_{}hop".format(i) for i in adj_hops]
     mae_segment_30min, mae_regional_30min = [], []
     for f in different_hops:
         error_metrics = get_error_metrics_from_log(f)
@@ -47,7 +48,7 @@ def draw_hops():
     bar2 = ax.bar(index + bar_width, mae_regional_30min, bar_width, label="Regional")
     ax.bar_label(bar2, padding=3)
     ax.set_xticks(index + bar_width / 2)
-    ax.set_xticklabels(["{} hops".format(i) for i in (1, 3, 5)])
+    ax.set_xticklabels(["{} hops".format(i) for i in adj_hops])
     ax.set_ylim(0.2, 1.4)
     ax.legend(ncols=2)
     ax.set_xlabel("Number of Adjacency Hops")
@@ -55,6 +56,7 @@ def draw_hops():
     # ax.set_title("30-min MAE of different adjacency hops")
     plt.tight_layout()
     plt.savefig("datasets/simbarca/figures/mae_30min_adj_hops.pdf")
+    print("figure saved to datasets/simbarca/figures/mae_30min_adj_hops.pdf")
 
 def draw_hidden_dimension():
     hidden_dims = [32, 128, 256]
@@ -305,7 +307,7 @@ def compare_norm_input_at_different_hops():
     plt.close(fig)
 
 if __name__ == "__main__":
-    # draw_hops()
+    draw_hops()
     # draw_epochs()
     # draw_coverage(include_no_emb=False)
     # draw_loss_weight()
@@ -313,4 +315,4 @@ if __name__ == "__main__":
     # check_emb_params_update()
     # draw_hidden_dimension()
     # draw_ld_only_regional_mae_example()
-    compare_norm_input_at_different_hops()
+    # compare_norm_input_at_different_hops()

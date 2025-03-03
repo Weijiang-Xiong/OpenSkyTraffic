@@ -7,7 +7,7 @@ from typing import Dict, Tuple
 from einops import rearrange
 
 from netsanut.data.transform import TensorDataScaler
-from .common import MLP_LazyInput, LearnedPositionalEncoding
+from .common import MLP, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 
 class LSTMGNN(nn.Module):
@@ -43,7 +43,7 @@ class LSTMGNN(nn.Module):
 
             self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
             
-        self.prediction = MLP_LazyInput(hid_dim=int(d_model * 2), out_dim=12, dropout=0.1)
+        self.prediction = MLP(in_dim=d_model * int(1 + self.use_global), hid_dim=int(d_model * 2), out_dim=12, dropout=0.1)
         self.loss = GeneralizedProbRegLoss(aleatoric=False, exponent=1, ignore_value=self.ignore_value)
 
     @property

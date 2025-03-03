@@ -5,14 +5,12 @@ import torch.nn as nn
 import torch_geometric.nn as gnn
 
 import numpy as np
-from scipy.stats import rv_continuous, gennorm
 
 from typing import Dict, List, Tuple
 from einops import rearrange
 
-from ..loss import GeneralizedProbRegLoss
 from ..data.transform import TensorDataScaler
-from .common import MLP_LazyInput, LearnedPositionalEncoding, ValueEmbedding
+from .common import LearnedPositionalEncoding, ValueEmbedding
 from .catalog import MODEL_CATALOG
 from .attention import MultiHeadAttention
 
@@ -120,8 +118,6 @@ class GMMPredictionHead(nn.Module):
         else:
             pred = (mixing * means).sum(dim=-1)
         
-        intervals = None
-
         return pred, mixing, means, log_var
 
     def init_weights(self):
@@ -135,7 +131,11 @@ class GMMPredictionHead(nn.Module):
         self.offset.bias.data.fill_(0.0)
         self.uncertainty.weight.data.fill_(0.0)
         self.uncertainty.bias.data.fill_(1.0)
-        
+    
+    @staticmethod
+    def confidence_intervals(conf: float=0.95):
+        pass
+    
 
 class GMMPred(nn.Module):
     """ basically copied from HiMSNet, and only change the output part.
@@ -163,7 +163,7 @@ class GMMPred(nn.Module):
         self.use_drone = use_drone
         self.use_ld = use_ld
         self.use_global = use_global
-        if self.use_drone==False and self.use_ld==False:
+        if not (self.use_drone or self.use_ld):
             self.use_drone=True
             logger.warning("Must use at least one data modality, use drone data by default")
         self.normalize_input = normalize_input
@@ -213,7 +213,7 @@ class GMMPred(nn.Module):
         # so for simbarca, the segment-level speed is limited to 50 kph, but the 
         # unit of the dataset is m/s, so that's roughly 14 m/s, we divide into 5 intervals
         self.segment_head = GMMPredictionHead(
-            in_dim=d_model * 3, # we have drone, ld and global features
+            in_dim=d_model * self.s_feat, # we have drone, ld and global features
             hid_dim=d_model * 2,
             anchors=[1.4, 4.2, 7.0, 9.8, 12.6], 
             sizes=[1.4, 1.4, 1.4, 1.4, 1.4],
@@ -224,7 +224,7 @@ class GMMPred(nn.Module):
         )
         # regional speed can not be that fast (max ~9 m/s), so we use a smaller range for anchors 
         self.regional_head = GMMPredictionHead(
-            in_dim=d_model * 3,
+            in_dim=d_model * self.s_feat,
             hid_dim=d_model * 2,
             anchors=[1.5, 4.5, 7.5],
             sizes=[1.5, 1.5, 1.5],

@@ -43,6 +43,8 @@ class TestHimsNetForward(unittest.TestCase):
 
         model.eval()
         res = model(batch)
+        self.assertTrue("pred_speed" in res.keys())
+        self.assertTrue("pred_speed_regional" in res.keys())
         
     def test_state_dict(self):
         
