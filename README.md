@@ -34,3 +34,24 @@ python tools/visualize.py --result-dir results/debug
 ```
 
 For a complete walk through of the training and visualization workflow, please look at the comments in the scripts.
+
+### File Structure
+
+```text
+project_root
+├── config : experiment configuration files
+├── datasets : the dataset files (raw and processed) and metadata
+├── netsanut : codes
+│   ├── config : configuration management
+│   ├── data : dataset loading and transform
+│   ├── engine : training loop
+│   ├── evaluation
+│   ├── models
+│   ├── solver
+│   └── utils
+├── preprocess : data preprocessing (before training)
+├── scratch : training results
+├── scripts : train scripts
+├── tests : unit tests
+└── visualize : visualization for data and models
+```

@@ -1,7 +1,7 @@
 """ Generate simulation settings file and folders
 
     Example usage:
-    python scripts/data/simbarca/gen_exp_settings.py --data-root datasets/simbarca --num-sim 100
+    python preprocess/simbarca/gen_exp_settings.py --data-root datasets/simbarca --num-sim 100
 """
 import os
 import json

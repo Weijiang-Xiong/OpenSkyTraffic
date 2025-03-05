@@ -171,3 +171,6 @@ datasets/*
 !datasets/README.md
 __NO_GIT*
 scripts/debug.py
+
+# visualization files
+visualize/*.pdf

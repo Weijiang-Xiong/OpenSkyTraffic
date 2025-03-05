@@ -4,4 +4,4 @@ from .base import BaseModel
 from .netsformer import NeTSFormer
 from .himsnet import HiMSNet
 from .lstmgnn import LSTMGNN
-from .gmmpred import GMMPred
+from .gmmpred import GMMPred, GMMPredictionHead

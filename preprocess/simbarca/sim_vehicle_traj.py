@@ -3,7 +3,7 @@
     and add the Aimsun_API.py in the API tab of Aimsun's scenario settings.
     
     This script is supposed to be executed from under the root folder of the project, i.e.,
-        python scripts/data/simbarca/sim_vehicle_traj.py
+        python preprocess/simbarca/sim_vehicle_traj.py
 """
 import os
 import glob
@@ -42,7 +42,7 @@ def _process_folder(folder, executable, project, rep_id,
     # 2. Extract traffic statistics per time step 
     ######################################################
     if extract_stats:
-        stats_cmd = "python scripts/data/simbarca/time_series_from_traj.py --metadata-folder datasets/simbarca/metadata --session-folder {}".format(folder)
+        stats_cmd = "python preprocess/simbarca/time_series_from_traj.py --metadata-folder datasets/simbarca/metadata --session-folder {}".format(folder)
         print("Executing command: \n {}".format(stats_cmd))
         subprocess.run(stats_cmd, shell=True, stdout=log_file, stderr=log_file)
     
@@ -50,7 +50,7 @@ def _process_folder(folder, executable, project, rep_id,
     # 3. Aggregate raw statistics into different intervals
     ######################################################
     if agg_stats:
-        sample_cmd = "python scripts/data/simbarca/extract_samples.py --session {}".format(folder)
+        sample_cmd = "python preprocess/simbarca/extract_samples.py --session {}".format(folder)
         print("Executing command: \n{}".format(sample_cmd))
         subprocess.run(sample_cmd, shell=True, stdout=log_file, stderr=log_file)
     

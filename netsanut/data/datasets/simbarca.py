@@ -114,7 +114,7 @@ class SimBarca(Dataset):
         """
         
         if not os.path.exists(self.session_splits):
-            print("No train_test_split.json file found, please use `scripts/data/simbarca/choose_train_test.py`")
+            print("No train_test_split.json file found, please use `preprocess/simbarca/choose_train_test.py`")
         with open(self.session_splits, "r") as f:
             session_ids = json.load(f)[self.split]
 
