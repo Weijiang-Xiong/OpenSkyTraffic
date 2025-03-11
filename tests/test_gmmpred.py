@@ -5,22 +5,35 @@ import torch
 
 from netsanut.models import GMMPred, GMMPredictionHead
 
-def gaussian_pdf(mean, var, x):
-    return torch.exp(-0.5 * ((x - mean) ** 2) / var) / torch.sqrt(2 * torch.pi * var)
-
 class TestGMM(unittest.TestCase):
 
-    def test_gmm_confidence_interval(self):
-        # unittest.main()
-        gmm_head = GMMPredictionHead(in_dim=32, hid_dim=32, anchors=[1.0, 2.0, 3.0], sizes=[1.0, 1.0, 1.0])
-        N, P, C = 4, 19, 32
-        rand_input = torch.rand(N, P, C)
-        mixing, means, log_var = gmm_head(rand_input)
-        xs = torch.linspace(0, 14, 1000).reshape(*([1] * 4), -1)
-        densities_by_component = gaussian_pdf(means.unsqueeze(-1), torch.exp(log_var).unsqueeze(-1), xs)
-        gmm_density = (mixing.unsqueeze(-1) * densities_by_component).sum(dim=-2)
+    def test_gmm_density(self):
+        N, T, P, C = 4, 10, 19, 32
+        xmin, xmax, n_points = 0, 6, 1000
+
+        mixing = torch.ones(N, T, P, 3) / 3 # equal weights everywhere
+        means = torch.ones(N, T, P, 3) * torch.tensor([1.0, 3.0, 5.0]) # evenly spaced from 0 to 6
+        log_var = -2 * torch.ones(N, T, P, 3) # variances are e^-2 everywhere
         
+        xs = torch.linspace(xmin, xmax, n_points)
+        mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
+        self.assertTrue(mixture_density.shape == (N, T, P, 1000))
+        # check the value at 0
+        var = torch.tensor(-2).exp()
+        value = sum(1/(3*torch.sqrt(torch.tensor([2*torch.pi*var]))) * torch.tensor([-1/(2*var), -9/(2*var), -25/(2*var)]).exp())
+        self.assertTrue(torch.allclose(mixture_density[..., 0], value))
+    
+    def test_gmm_confidence_interval(self):
+        N, T, P, C = 4, 10, 19, 32
+        xmin, xmax, n_points = 0, 6, 1000
+
+        mixing = torch.ones(N, T, P, 3) / 3 # equal weights everywhere
+        means = torch.ones(N, T, P, 3) * torch.tensor([1.0, 3.0, 5.0]) # evenly spaced from 0 to 6
+        log_var = -2 * torch.ones(N, T, P, 3) # variances are e^-2 everywhere
+        
+        lb, ub = GMMPredictionHead.get_confidence_interval(mixing, means, log_var, xmin, xmax, n_points, 0.70)
         pass 
+        
 
     def test_forward(self):
         

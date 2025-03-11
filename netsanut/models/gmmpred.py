@@ -16,6 +16,9 @@ from .attention import MultiHeadAttention
 
 logger = logging.getLogger("default")
 
+def gaussian_density(mean, var, x):
+    return torch.exp(-0.5 * ((x - mean) ** 2) / var) / torch.sqrt(2 * torch.pi * var)
+
 class GMMPredictionHead(nn.Module):
     
     def __init__(self, in_dim, hid_dim:int, anchors:List[float], sizes:List[float], pred_steps:int=10, ignore_value:float=-1.0, dropout=0.1, zero_init=False, mcd_estimation=False):
@@ -133,9 +136,86 @@ class GMMPredictionHead(nn.Module):
         self.uncertainty.bias.data.fill_(1.0)
     
     @staticmethod
-    def confidence_intervals(conf: float=0.95):
-        pass
+    def get_mixture_density(mixing, means, log_var, xs):
+        """ Compute the probability density of a gaussian mixture model at points `xs`
+        
+        Notation of shape: 
+            N - batch size
+            T - time steps
+            P - number of spatial locations
+            K - number of Gaussian components
+        
+        Args:
+            mixing (torch.Tensor): mixture coefficients, shape (N, T, P, K) 
+            means (torch.Tensor): predicted means, shape (N, T, P, K)
+            log_var (torch.Tensor): log variance, shape (N, T, P, K)
+            xs (torch.Tensor): the points to evaluate the probability density, shape (n_points,)
+
+        Returns:
+            mixture_density (torch.Tensor): _description_
+        """
+        
+        component_densities = gaussian_density(
+                            means[..., None], 
+                            log_var.exp()[..., None], 
+                            xs[*[None]*len(means.shape), :]) # xs.reshape(*([1] * len(means.shape)), -1)
+        weighted_densities = mixing[..., None] * component_densities
+        mixture_density = (weighted_densities).sum(axis=-2)
+        
+        return mixture_density
     
+    @staticmethod
+    def get_confidence_interval(mixing, means, log_var, xmin=0, xmax=14, n_points=1e3, conf:float=0.90):
+        """ Compute the confidence interval of a gaussian mixture model
+
+        Args:
+            mixing (torch.tensor): the mixing coefficients of the Gaussian components, shape (N, T, P, K)
+            means (torch.tensor): the means of the Gaussian components, shape (N, T, P, K)
+            log_var (torch.tensor): the log variance of the Gaussian components, shape (N, T, P, K)
+            xmin (int, optional): minimum value of the predicted variable. Defaults to 0.
+            xmax (int, optional): maximum value of the predicted variable. Defaults to 14.
+            n_points (torch.tensor, optional): number of points to validate probability density. Defaults to 1e3.
+            conf (float, optional): confidence level. Defaults to 0.90.
+
+        Returns:
+            lb (torch.tensor): lower bound of the confidence interval
+            ub (torch.tensor): upper bound of the confidence interval
+        """
+        num_comp = mixing.shape[-1]
+        xs = torch.linspace(xmin, xmax, n_points)
+        dx = abs(xmin - xmax) / n_points
+        mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
+
+        values, indexes = torch.sort(mixture_density, dim=-1, descending=True)
+        prob_mass = (values * dx).cumsum(dim=-1)
+        # normalize the probability mass so that it sums to 1
+        prob_mass = prob_mass / prob_mass[..., -1:]
+        in_interval = prob_mass <= conf
+        inv_index = torch.argsort(indexes, dim=-1)
+        x_is_in_interval = torch.gather(in_interval, dim=-1, index=inv_index)
+        # add a False at the beginning and end to cover the edge cases where the edge values are True. 
+        # (T, T, F, F, T, T) => (F, T, T, F, F, T, T, F)
+        x_is_in_interval_pad = torch.cat([torch.zeros_like(x_is_in_interval[..., :1]).bool(), 
+                                      x_is_in_interval, 
+                                      torch.zeros_like(x_is_in_interval[..., :1]).bool()], dim=-1)
+        
+        diff = torch.diff(x_is_in_interval_pad.int(), dim=-1)
+        index_range = torch.arange(diff.size(-1))
+        # x_is_in_interval: (F, T, T, F, F, T, T, F); diff: [1, 0, -1, 0, 1, 0, -1], one element less.
+        # the index of 1 in diff (0, 4) is the same as the lower bound index in x_is_in_interval (0, 4)
+        # the index of -1 in diff (2, 6) is 1 + the index of the upper bound index in x_is_in_interval (1, 5)
+        # We filled the other values with the biggest index (unpadded), so after sorting, they will be at 
+        # the end then we can know the interval is empty by checking if lb == ub
+        lb_index = torch.sort(
+            torch.where(diff == 1, index_range, torch.full_like(index_range, fill_value=xs.size(-1)-1)) 
+            )[0][..., :num_comp]
+        ub_index = torch.sort(
+            torch.where(diff == -1, index_range-1, torch.full_like(index_range, fill_value=xs.size(-1)-1))
+            )[0][..., :num_comp]
+        lb = xs[lb_index]
+        ub = xs[ub_index]
+
+        return lb, ub
 
 class GMMPred(nn.Module):
     """ basically copied from HiMSNet, and only change the output part.

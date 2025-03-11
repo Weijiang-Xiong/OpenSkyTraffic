@@ -173,4 +173,4 @@ __NO_GIT*
 scripts/debug.py
 
 # visualization files
-visualize/*.pdf
+visualize/*/*.pdf
