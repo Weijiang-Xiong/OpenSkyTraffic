@@ -9,11 +9,10 @@ def find_output_dir(cmd_str):
 
 def experiment_adjacency_hops(command_list):
     
-    for hop in [5]:
-        for r in range(3):
-            command_list.append(
-            f"{train_script} {cfg_default} model.adjacency_hop={hop} train.output_dir=scratch/himsnet_{hop}hop_r{r}_tfglb"
-            )
+    for hop in [1, 3, 5, 7, 9]:
+        command_list.append(
+        f"{train_script} {cfg_default} model.adjacency_hop={hop} train.output_dir=scratch/himsnet_{hop}hop"
+        )
     
     return command_list
 
@@ -78,6 +77,30 @@ def experiment_data_modality(command_list):
 
     return command_list
 
+def experiment_norm_and_attn_agg(command_list):
+    """
+    Ablation on different normalization and attention aggregation methods
+    """
+    command_list.append(
+    f"{train_script} {cfg_default} model.adjacency_hop=5 model.normalize_input=False model.attn_agg=False train.output_dir=scratch/himsnet_5hop_no_norm_avgagg"
+    )
+    command_list.append(
+    f"{train_script} {cfg_default} model.adjacency_hop=5 model.normalize_input=False model.attn_agg=True train.output_dir=scratch/himsnet_5hop_no_norm_attnagg"
+    )
+    command_list.append(
+    f"{train_script} {cfg_default} model.adjacency_hop=5 model.normalize_input=True model.attn_agg=False train.output_dir=scratch/himsnet_5hop_norm_avgagg"
+    )
+    
+    return command_list
+
+def experiment_tf_glb(command_list):
+    """ Use transformer encoder for global message exchange
+    """
+    command_list.append(
+    f"{train_script} {cfg_default} model.adjacency_hop=5 model.tf_glb=True train.output_dir=scratch/himsnet_5hop_norm_avgagg"
+    )
+    
+    return command_list
 
 def experiment_penetration_rate(command_list):
     """
@@ -137,7 +160,7 @@ def experiment_gmm_model(cfg_str, command_list, note="0"):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", type=str, default=None, choices=["run", "vis"], help="training or visualization")
+    parser.add_argument("--mode", type=str, default=None, choices=["run", "vis", "both"], help="training or visualization")
     args = parser.parse_args()
     
     mode = args.mode
@@ -147,15 +170,17 @@ if __name__ == "__main__":
 
     command_list = []
 
-    # experiment_adjacency_hops(command_list)
+    experiment_adjacency_hops(command_list)
     # experiment_epochs(command_list)
     # experiment_model_sizes(command_list)
     # experiment_data_modality(command_list)
-    # experiment_penetration_rate(command_list)
+    experiment_norm_and_attn_agg(command_list)
+    experiment_tf_glb(command_list)
+    experiment_penetration_rate(command_list)
     # experiment_weight_factor(command_list)
     # experiment_emb_ablation_repeat(command_list)
-    experiment_gmm_model("--config-file config/GMMPredRND.py", command_list, note="rndobs")
-    experiment_gmm_model("--config-file config/GMMPredFull.py", command_list, note="fullinfo")
+    # experiment_gmm_model("--config-file config/GMMPredRND.py", command_list, note="rndobs")
+    # experiment_gmm_model("--config-file config/GMMPredFull.py", command_list, note="fullinfo")
     
     eval_list = []
     for cmd_str in command_list:
@@ -168,6 +193,12 @@ if __name__ == "__main__":
 
     if mode == "vis":
         command_list = eval_list
+    elif mode == "both":
+        command_list = command_list + eval_list
+
+    print("Will run the following commands:")
+    for cmd_str in command_list:
+        print(cmd_str)
 
     for cmd_str in command_list:
         try:
