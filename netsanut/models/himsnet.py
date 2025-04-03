@@ -285,7 +285,7 @@ class HiMSNet(nn.Module):
                 adj_iter = torch.mm(adj_iter.float(), adj_init.float())
                 adj_iter = (adj_iter > 0)
             self.metadata['edge_index'] = torch.nonzero(adj_iter, as_tuple=False).T
-            logger.info("Number of edges in the graph:", self.metadata['edge_index'].shape)
+            logger.info("Number of edges in the graph: {}".format(self.metadata['edge_index'].shape))
     
     def state_dict(self):
         state = dict()

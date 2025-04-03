@@ -132,7 +132,7 @@ class ValueEmbedding(nn.Module):
         Args:
             x (torch.Tensor): networked timeseries data with shape (N, T, P, 2)
             invalid_value : Defaults to torch.nan.
-            monitor_mask (torch.Tensor, optional): A boolean tensor whose `True` corresponds to the state of monitored, and `False` means unmonitored. Defaults to None.
+            monitor_mask (torch.Tensor, optional): A boolean tensor with shape (N, T,P) whose `True` corresponds to the state of monitored, and `False` means unmonitored. Defaults to None.
         """
         N, T, P, _ = x.shape
         value, time = x[:, :, :, 0], x[:, :, :, 1]
