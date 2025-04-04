@@ -163,7 +163,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", type=str, choices=["run", "vis", "both"], help="training or visualization")
-    parser.add_argument("--on_cluster", action="store_true", help="whether to run on cluster")
+    parser.add_argument("--use_sbatch", action="store_true", help="whether to run as sbtach jobs")
     args = parser.parse_args()
     
     mode = args.mode
@@ -199,7 +199,7 @@ if __name__ == "__main__":
     elif mode == "both":
         command_list = command_list + eval_list
 
-    if args.on_cluster:
+    if args.use_sbatch:
         command_list = [cmd_str.replace("python", "sbatch python_wrapper.sh") for cmd_str in command_list]
 
     print("Will run the following commands:")
