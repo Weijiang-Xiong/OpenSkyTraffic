@@ -11,7 +11,7 @@ sns.set_style("darkgrid")
 
 error_keys = ["15min_mae_segment", "15min_mape_segment", "15min_rmse_segment", "30min_mae_segment", "30min_mape_segment", "30min_rmse_segment", "15min_mae_region", "15min_mape_region", "15min_rmse_region", "30min_mae_region", "30min_mape_region", "30min_rmse_region"]
 
-default_output_dir = "scratch/himsnet_3hop"
+default_output_dir = "scratch/himsnet_5hop"
 
 def get_error_metrics_from_log(log_dir):
     log_file = "{}/experiment.log".format(log_dir)
@@ -60,7 +60,7 @@ def draw_hops():
 
 def draw_hidden_dimension():
     hidden_dims = [32, 128, 256]
-    folders_for_hidden_dims = ["scratch/himsnet_d{}_3hop".format(i) for i in hidden_dims]
+    folders_for_hidden_dims = ["scratch/himsnet_d{}_5hop".format(i) for i in hidden_dims]
     hidden_dims.insert(1, 64)
     folders_for_hidden_dims.insert(1, default_output_dir)
     
@@ -90,7 +90,7 @@ def draw_hidden_dimension():
     
 
 def draw_epochs():
-    different_epochs = [default_output_dir] + ["scratch/himsnet_ep{}_3hop".format(e) for e in [60, 90, 120, 150]]
+    different_epochs = [default_output_dir] + ["scratch/himsnet_ep{}_5hop".format(e) for e in [60, 90, 120, 150]]
 
     mae_segment_30min, mae_regional_30min = [], []
     for f in different_epochs:
@@ -118,8 +118,8 @@ def draw_epochs():
 
 def draw_coverage(include_no_emb=False):
     
-    all_coverages = [0.01] + np.arange(0.1, 1.0, 0.1).tolist()
-    different_coverage = ["scratch/himsnet_rnd_noise_3hop_{}cvg".format(round(c*100)) for c in all_coverages] + [default_output_dir]
+    all_coverages = [0.01, 0.03, 0.05, 0.07] + np.arange(0.1, 1.0, 0.1).tolist()
+    different_coverage = ["scratch/himsnet_rnd_noise_5hop_{}cvg".format(round(c*100)) for c in all_coverages]
     mae_segment_30min, mae_regional_30min = [], []
     for f in different_coverage:
         error_metrics = get_error_metrics_from_log(f)
@@ -127,15 +127,13 @@ def draw_coverage(include_no_emb=False):
         mae_regional_30min.append(error_metrics["30min_mae_region"])
 
     if include_no_emb:
-        coverage_no_emb = ["scratch/himsnet_rnd_noise_3hop_no_emb_{}cvg".format(round(c*100)) for c in all_coverages] + [default_output_dir]
+        coverage_no_emb = ["scratch/himsnet_rnd_noise_3hop_no_emb_{}cvg".format(round(c*100)) for c in all_coverages]
         mae_segment_30min_no_emb, mae_regional_30min_no_emb = [], []
         for f in coverage_no_emb:
             error_metrics = get_error_metrics_from_log(f)
             mae_segment_30min_no_emb.append(error_metrics["30min_mae_segment"])
             mae_regional_30min_no_emb.append(error_metrics["30min_mae_region"])
         
-    all_coverages = all_coverages + [1.0]
-
     # draw a line plot for different coverage
     fig, ax = plt.subplots()
     ax.plot(all_coverages, mae_segment_30min, label="Segment-level")
@@ -153,7 +151,7 @@ def draw_coverage(include_no_emb=False):
 def draw_loss_weight():
     # plot for different loss weight
     all_loss_weights = [0.2, 0.5, 2, 5]
-    different_weights = ["scratch/himsnet_regional_loss_{}_3hop".format(str(weight).replace(".", "p")) for weight in all_loss_weights]
+    different_weights = ["scratch/himsnet_regional_loss_{}_5hop".format(str(weight).replace(".", "p")) for weight in all_loss_weights]
     different_weights.insert(2, default_output_dir)
     all_loss_weights.insert(2, 1.0)
 
@@ -308,11 +306,11 @@ def compare_norm_input_at_different_hops():
 
 if __name__ == "__main__":
     draw_hops()
-    # draw_epochs()
-    # draw_coverage(include_no_emb=False)
-    # draw_loss_weight()
+    draw_epochs()
+    draw_coverage(include_no_emb=False)
+    draw_loss_weight()
     # draw_ablation_emb_with_10reps()
     # check_emb_params_update()
-    # draw_hidden_dimension()
+    draw_hidden_dimension()
     # draw_ld_only_regional_mae_example()
     # compare_norm_input_at_different_hops()
