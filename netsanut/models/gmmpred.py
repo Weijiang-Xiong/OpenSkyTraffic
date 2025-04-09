@@ -158,7 +158,7 @@ class GMMPredictionHead(nn.Module):
         component_densities = gaussian_density(
                             means[..., None], 
                             log_var.exp()[..., None], 
-                            xs[*[None]*len(means.shape), :]) # xs.reshape(*([1] * len(means.shape)), -1)
+                            xs.reshape(*([1] * len(means.shape)), -1)) # xs[*[None]*len(means.shape), :]
         weighted_densities = mixing[..., None] * component_densities
         mixture_density = (weighted_densities).sum(axis=-2)
         
