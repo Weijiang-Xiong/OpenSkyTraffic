@@ -1,7 +1,20 @@
+""" 
+This script is used to run multiple experiments with different configurations.
+It generates a list of commands to run the experiments or to visualize the results. 
+The script can be run in different modes: "run", "vis", or "both". 
+The generated commands can be run as sbatch jobs or directly in the terminal. 
+The commands are grouped into different experiments based on the configuration parameters.
+
+To run the experiments locally on a computer, use the following command. The commands will be run one by one, with the training going first and testing afterwards. 
+    `python scripts/run_multiple.py --mode both`
+
+However, since a slurm cluster run the jobs in parallel, we can't use `both` mode as a testing must be run after the training. 
+    `python scripts/run_multiple.py --mode run`
+"""
+
 import copy
 import argparse
 import subprocess
-from itertools import product
 
 # evaluation commands
 def find_output_dir(cmd_str):
@@ -161,9 +174,9 @@ def experiment_gmm_model(cfg_str, command_list, note="0"):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mode", type=str, choices=["run", "vis", "both"], help="training or visualization")
-    parser.add_argument("--use_sbatch", action="store_true", help="whether to run as sbtach jobs")
+    parser.add_argument("--use_sbatch", action="store_true", help="whether to run as sbatch jobs")
     args = parser.parse_args()
     
     mode = args.mode
@@ -200,6 +213,8 @@ if __name__ == "__main__":
         command_list = command_list + eval_list
 
     if args.use_sbatch:
+        if mode == "both":
+            raise ValueError("Cannot run the training and visualization jobs in parallel, please use run mode")
         command_list = [cmd_str.replace("python", "sbatch python_wrapper.sh") for cmd_str in command_list]
 
     print("Will run the following commands:")
