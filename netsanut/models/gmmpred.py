@@ -152,7 +152,7 @@ class GMMPredictionHead(nn.Module):
             xs (torch.Tensor): the points to evaluate the probability density, shape (n_points,)
 
         Returns:
-            mixture_density (torch.Tensor): _description_
+            mixture_density (torch.Tensor): shape (N, T, P, n_points)
         """
         
         component_densities = gaussian_density(

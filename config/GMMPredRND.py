@@ -13,8 +13,8 @@ evaluation.add_output_seq = ["seg_mixing","seg_means","seg_log_var","reg_mixing"
 
 
 dataset = {
-    "train": {"name": "simbarca_rnd_train", "force_reload": False, "use_clean_data": False, "filter_short": None},
-    "test": {"name": "simbarca_rnd_test", "force_reload": False, "use_clean_data": "${..train.use_clean_data}", "filter_short":"${..train.filter_short}"},
+    "train": {"name": "simbarca_rnd_train", "force_reload": False, "use_clean_data": False},
+    "test": {"name": "simbarca_rnd_test", "force_reload": False, "use_clean_data": "${..train.use_clean_data}"},
 }
 
 dataloader = {

@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns 
 sns.set_style('darkgrid')
 
-from typing import Dict
+from typing import Dict, List, Tuple
 from collections import defaultdict
 
 from netsanut.utils.io import flatten_results_dict, make_dir_if_not_exist
@@ -21,7 +21,7 @@ logger = logging.getLogger("default")
 
 class SimBarcaEvaluator:
 
-    def __init__(self, ignore_value=-1.0, mape_threshold=1.0, save_dir: str=None, save_res: bool=True, save_note="", visualize=False) -> None:
+    def __init__(self, ignore_value=float("nan"), mape_threshold=1.0, save_dir: str=None, save_res: bool=True, save_note="", visualize=False) -> None:
         self.ignore_value = ignore_value
         self.mape_threshold = mape_threshold
         self.save_dir = save_dir
@@ -33,9 +33,13 @@ class SimBarcaEvaluator:
     def __call__(self, model: nn.Module, data_loader: DataLoader, **kwargs) -> Dict[str, float]:
         return self.evaluate(model, data_loader, **kwargs)
 
-    def collect_predictions(self, 
-        model: nn.Module, data_loader: DataLoader, label_seqs=[], pred_seqs=[] 
-    ) -> Dict[str, torch.Tensor]:
+    def collect_predictions(
+        self,
+        model: nn.Module,
+        data_loader: DataLoader,
+        pred_seqs: List = None,
+        label_seqs: List = None,
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """run inference of the model on the data_loader concatenate all predictions and corresponding labels.
         
         The sequences in `label_seqs` will be collected from the data batch. The sequences in `pred_seqs` will be collected from the model output. In simple cases, they are the same, but when the evaluation relies on additional sequences, they can be different as well (for example in uncertainty evaluation).
@@ -183,9 +187,10 @@ class SimBarcaEvaluator:
         
         return avg_eval_res
 
-    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]: 
-        label_seqs = data_loader.dataset.output_seqs
-        sections_of_interest = data_loader.dataset.sections_of_interest
+    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
+        dataset: SimBarca = data_loader.dataset
+        label_seqs = dataset.output_seqs
+        sections_of_interest = dataset.sections_of_interest
         
         all_preds, all_labels = self.collect_predictions(model, data_loader, label_seqs, label_seqs)
 
@@ -194,12 +199,11 @@ class SimBarcaEvaluator:
         # this is for evaluation after the training process is done
         if self.visualize:
             # visualize average MAE per location as a map
-            dataset: SimBarca = data_loader.dataset
+            
             dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
             
             # do evaluation for different demand scales
-            demand_scales = data_loader.dataset.demand_scales
-            res_by_demand_scale = self.mae_by_demand_scale(all_preds, all_labels, demand_scales)
+            self.mae_by_demand_scale(all_preds, all_labels, torch.repeat_interleave(dataset.demand_scales, repeats=dataset.sample_per_session))
             # evaluation by segment average speed
             self.segment_mae_by_avg_speed(all_preds, all_labels)
             

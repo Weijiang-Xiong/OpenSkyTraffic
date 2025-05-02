@@ -9,7 +9,7 @@ from netsanut.data.datasets import SimBarca
 with open("datasets/simbarca/metadata/sections_of_interest.txt", "r") as f:
     IDS_OF_INTEREST = [int(x) for x in f.read().split(",")]
 
-test_set = SimBarca(split="test", force_reload=False, filter_short=None)
+test_set = SimBarca(split="test", force_reload=False)
 session_id_to_index = {v:k for k, v in test_set.index_to_section_id.items()}
 
 with open("datasets/simbarca/metadata/train_test_split.json", "r") as f:
