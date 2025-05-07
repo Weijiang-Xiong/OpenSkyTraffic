@@ -1,0 +1,40 @@
+[build-system]
+requires = [
+  "setuptools >= 70.0",
+  "wheel"                  # to build wheels
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netsanut"
+version = "0.3.1"
+description = "Your package description here"
+readme = "README.md"
+requires-python = ">=3.7"
+authors = [
+  { name = "Weijiang Xiong", email = "weijiangxiong1998@gmail.com" },
+]
+dependencies = [
+  "torch",
+  "torch_geometric",
+  "torchvision",
+  "matplotlib",
+  "numpy",
+  "seaborn",
+  "einops",
+  "omegaconf",
+  "tabulate",
+  "termcolor",
+  "tqdm",
+  "scipy",
+]
+
+[project.optional-dependencies]
+vis = [
+  "geopandas",
+  "contextily",
+]
+
+[tool.setuptools]
+# If you have one top-level package
+packages = ["netsanut"]
