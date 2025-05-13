@@ -46,6 +46,5 @@ scheduler = {
 evaluation = {
     "evaluator_type": "",
     "save_dir": "${..train.output_dir}/evaluation",
-    "save_res": True,
     "save_note": "default"
 }

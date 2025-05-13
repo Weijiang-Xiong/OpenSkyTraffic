@@ -4,7 +4,6 @@ from .common_cfg import adam as optimizer
 train.test_best_ckpt = False
 train.output_dir = "scratch/gmmpred_fullinfo"
 evaluation.evaluator_type = "simbarcagmm"
-evaluation.save_res = False
 evaluation.save_note = "gmmpred"
 evaluation.mape_threshold = 1.0
 evaluation.ignore_value = float("nan")

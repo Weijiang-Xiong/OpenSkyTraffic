@@ -14,9 +14,8 @@ EVAL_CONFS = np.round(np.arange(0.5, 1.0, 0.05), 2).tolist()
 
 class MetrEvaluator:
     
-    def __init__(self, save_dir: str=None, save_res: bool=True, save_note:str=None) -> None:
+    def __init__(self, save_dir: str=None, save_note:str=None) -> None:
         self.save_dir = save_dir
-        self.save_res = save_res
         self.save_note = save_note if save_note is not None else "default"
     
     def __call__(self, model: nn.Module, dataloader: DataLoader, **kwargs) -> Dict[str, float]:

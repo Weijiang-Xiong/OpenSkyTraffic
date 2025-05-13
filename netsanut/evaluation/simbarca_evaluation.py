@@ -21,11 +21,10 @@ logger = logging.getLogger("default")
 
 class SimBarcaEvaluator:
 
-    def __init__(self, ignore_value=float("nan"), mape_threshold=1.0, save_dir: str=None, save_res: bool=True, save_note="", visualize=False) -> None:
+    def __init__(self, ignore_value=float("nan"), mape_threshold=1.0, save_dir: str=None, save_note="", visualize=False) -> None:
         self.ignore_value = ignore_value
         self.mape_threshold = mape_threshold
         self.save_dir = save_dir
-        self.save_res = save_res
         self.save_note = save_note
         self.visualize = visualize
         make_dir_if_not_exist(self.save_dir)

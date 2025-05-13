@@ -5,7 +5,6 @@ from .GMMPredFull import model
 train.test_best_ckpt = False
 train.output_dir = "scratch/gmmpred_rndobsv"
 evaluation.evaluator_type = "simbarcagmm"
-evaluation.save_res = False
 evaluation.save_note = "gmmpred"
 evaluation.mape_threshold = 1.0
 evaluation.ignore_value = float("nan")
