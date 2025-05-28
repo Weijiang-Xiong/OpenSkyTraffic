@@ -28,7 +28,10 @@ class SimBarcaEvaluator:
         self.save_note = save_note
         self.visualize = visualize
         make_dir_if_not_exist(self.save_dir)
-    
+        # for saving various evaluation metrics in analysis
+        score_types = ["by_time", "by_location", "scalar"]
+        self.saved_scores = {k:v for k, v in zip(score_types, [dict() for _ in range(len(score_types))])}
+        
     def __call__(self, model: nn.Module, data_loader: DataLoader, **kwargs) -> Dict[str, float]:
         return self.evaluate(model, data_loader, **kwargs)
 
@@ -37,11 +40,11 @@ class SimBarcaEvaluator:
         model: nn.Module,
         data_loader: DataLoader,
         pred_seqs: List = None,
-        label_seqs: List = None,
+        data_seqs: List = None,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """run inference of the model on the data_loader concatenate all predictions and corresponding labels.
         
-        The sequences in `label_seqs` will be collected from the data batch. The sequences in `pred_seqs` will be collected from the model output. In simple cases, they are the same, but when the evaluation relies on additional sequences, they can be different as well (for example in uncertainty evaluation).
+        The sequences in `data_seqs` will be collected from the data batch. The sequences in `pred_seqs` will be collected from the model output. In simple cases, they are the same, but when the evaluation relies on additional sequences, they can be different as well (for example in uncertainty evaluation).
         """
         model.eval()
 
@@ -55,7 +58,7 @@ class SimBarcaEvaluator:
             # collect predicted sequences corresponding labels
             for name in pred_seqs:
                 all_preds[name].append(pred_dict[name])
-            for name in label_seqs: 
+            for name in data_seqs: 
                 all_labels[name].append(data_dict[name])
                 
         # this will actually modify all_preds and all_labels
@@ -135,8 +138,6 @@ class SimBarcaEvaluator:
         fig.savefig(fig_path)
         plt.close()
         
-        
-        
     def eval_by_time_step(self, all_preds, all_labels, verbose=False):
         logger = logging.getLogger("default")
         
@@ -181,17 +182,22 @@ class SimBarcaEvaluator:
             logger.info("Results to copy in manuscripts: \n {} \n".format(self.format_results_latex(eval_res_over_time)))
             logger.info("Results to copy in excel: \n {} \n".format(self.format_results_excel(eval_res_over_time)))
         
-        # this returned dictionary is needed for EvalHook to log some avg results
+        # compute results per time step and over all time steps
+        eval_res_over_time = flatten_results_dict(eval_res_over_time)
         avg_eval_res = {k:sum(v)/len(v) for k, v in flatten_results_dict(eval_res_over_time).items()}
         
+        # save the results to self.saved_scores
+        self.saved_scores['by_time'].update(eval_res_over_time)
+        self.saved_scores['scalar'].update(avg_eval_res)
+
         return avg_eval_res
 
     def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
         dataset: SimBarca = data_loader.dataset
-        label_seqs = dataset.output_seqs
+        seqs = dataset.output_seqs
         sections_of_interest = dataset.sections_of_interest
         
-        all_preds, all_labels = self.collect_predictions(model, data_loader, label_seqs, label_seqs)
+        all_preds, all_labels = self.collect_predictions(model, data_loader, seqs, seqs)
 
         avg_eval_res = self.eval_by_time_step(all_preds, all_labels, verbose=verbose)
         
@@ -215,8 +221,7 @@ class SimBarcaEvaluator:
                 model.eval()
                 # debug purpose 
                 section_id_to_index = {v:k for k, v in dataset.index_to_section_id.items()}
-                additional_sections = np.random.choice(list(section_id_to_index.keys()), 10).tolist()
-                for section_id in sections_of_interest + additional_sections:
+                for section_id in sections_of_interest:
                     section_num = section_id_to_index[section_id]
                     aimsun_sec_id = dataset.index_to_section_id[section_num]
                     dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, 
@@ -366,12 +371,12 @@ def evaluate_trivial_models(data_loader, ignore_value=np.nan, save_dir="/scratch
     for model_class in [InputAverageModel, LastObservedModel]:
         for mode in ["ld_speed", "drone_speed"]:
             logger.info("Evaluating trivial models {} {}".format(model_class.__name__, mode))
-            evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir, save_res=True, visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
+            evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir,visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
             res = evaluator.evaluate(model_class(mode), data_loader, verbose=True)
 
     # historical average
     logger.info("Evaluating trivial models historical_avg")
-    evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir, save_res=True, visualize=True, save_note="HistoricalAverageModel")
+    evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir, visualize=True, save_note="HistoricalAverageModel")
     res = evaluator.evaluate(HistoricalAverageModel(data_loader=data_loader), data_loader, verbose=True)
     
 

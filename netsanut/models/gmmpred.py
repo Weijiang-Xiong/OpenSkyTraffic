@@ -165,7 +165,7 @@ class GMMPredictionHead(nn.Module):
         return mixture_density
     
     @staticmethod
-    def get_confidence_interval(mixing, means, log_var, xmin=0, xmax=14, n_points=1e3, conf:float=0.90):
+    def get_confidence_interval(mixing, means, log_var, xmin=0, xmax=14, n_points=1000, conf:float=0.90):
         """ Compute the confidence interval of a gaussian mixture model
 
         Args:
@@ -174,7 +174,7 @@ class GMMPredictionHead(nn.Module):
             log_var (torch.tensor): the log variance of the Gaussian components, shape (N, T, P, K)
             xmin (int, optional): minimum value of the predicted variable. Defaults to 0.
             xmax (int, optional): maximum value of the predicted variable. Defaults to 14.
-            n_points (torch.tensor, optional): number of points to validate probability density. Defaults to 1e3.
+            n_points (torch.tensor, optional): number of points to validate probability density. Defaults to 1000.
             conf (float, optional): confidence level. Defaults to 0.90.
 
         Returns:
@@ -182,7 +182,7 @@ class GMMPredictionHead(nn.Module):
             ub (torch.tensor): upper bound of the confidence interval
         """
         num_comp = mixing.shape[-1]
-        xs = torch.linspace(xmin, xmax, n_points)
+        xs = torch.linspace(xmin, xmax, n_points).to(mixing.device)
         dx = abs(xmin - xmax) / n_points
         mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
 
