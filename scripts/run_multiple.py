@@ -166,10 +166,10 @@ def experiment_emb_ablation_repeat(command_list):
 
 def experiment_gmm_model(cfg_str, command_list, note="0"):
     command_list.append(
-    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=False train.output_dir=scratch/gmmpred_bayes_avg_{note}"
+    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=False train.output_dir=scratch/gmmpred_bayes_avg_{note} train.eval_train=False"
     )
     command_list.append(
-    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=True train.output_dir=scratch/gmmpred_map_est_{note}"
+    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=True train.output_dir=scratch/gmmpred_map_est_{note} train.eval_train=False"
     )
 
 if __name__ == "__main__":
@@ -194,9 +194,9 @@ if __name__ == "__main__":
     experiment_tf_glb(command_list)
     experiment_penetration_rate(command_list)
     experiment_weight_factor(command_list)
-    # experiment_emb_ablation_repeat(command_list)
-    # experiment_gmm_model("--config-file config/GMMPredRND.py", command_list, note="rndobs")
-    # experiment_gmm_model("--config-file config/GMMPredFull.py", command_list, note="fullinfo")
+    experiment_emb_ablation_repeat(command_list)
+    experiment_gmm_model("--config-file config/GMMPredRND.py", command_list, note="rndobs")
+    experiment_gmm_model("--config-file config/GMMPredFull.py", command_list, note="fullinfo")
     
     eval_list = []
     for cmd_str in command_list:
