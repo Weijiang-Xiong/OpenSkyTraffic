@@ -34,13 +34,26 @@ class SimBarcaRandomObservation(SimBarca):
     
     # we need them to recompute the regional speed values with the monitoring mask
     aux_seqs = ["pred_vdist", "pred_vtime"]
-    
-    def __init__(self, ld_cvg=0.1, drone_cvg=0.1, reinit_pos=False, mask_seed=42, use_clean_data=True, noise_seed=114514, **kwargs):
+
+    def __init__(
+        self,
+        ld_cvg=0.1,
+        drone_cvg=0.1,
+        reinit_pos=False,
+        mask_seed=42,
+        use_clean_data=True,
+        noise_seed=114514,
+        drone_noise=0.05,
+        ld_noise=0.15,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.pred_vdist: torch.Tensor
         self.pred_vtime: torch.Tensor
         self.ld_cvg = ld_cvg
         self.drone_cvg = drone_cvg
+        self.drone_noise = drone_noise
+        self.ld_noise = ld_noise
         self.mask_seed = mask_seed
         self.reinit_pos = reinit_pos
         self.use_clean_data = use_clean_data
@@ -71,17 +84,17 @@ class SimBarcaRandomObservation(SimBarca):
             if self.split == "train":
                 logger.info("Adding Gaussian noise to the training input and label")
                 # we train on corrupted data to make the model more robust
-                self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=0.05)
-                self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=0.15)
-                self.pred_speed = add_gaussian_noise(self.rnd_generator, self.pred_speed, std=0.05)
+                self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=drone_noise)
+                self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=ld_noise)
+                self.pred_speed = add_gaussian_noise(self.rnd_generator, self.pred_speed, std=drone_noise)
                 # add noises to the vehicle distance and time for regional speed computation
-                self.pred_vdist = add_gaussian_noise(self.rnd_generator, self.pred_vdist, std=0.05)
-                self.pred_vtime = add_gaussian_noise(self.rnd_generator, self.pred_vtime, std=0.05)
+                self.pred_vdist = add_gaussian_noise(self.rnd_generator, self.pred_vdist, std=drone_noise)
+                self.pred_vtime = add_gaussian_noise(self.rnd_generator, self.pred_vtime, std=drone_noise)
             elif self.split == "test":
                 # for test data, the input is corrupted but the label is not for evaulating the model
                 logger.info("Adding Gaussian noise to the testing input (BUT NOT lable)")
-                self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=0.05)
-                self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=0.15)
+                self.drone_speed = add_gaussian_noise(self.rnd_generator, self.drone_speed, std=drone_noise)
+                self.ld_speed = add_gaussian_noise(self.rnd_generator, self.ld_speed, std=ld_noise)
     
     @property
     def ld_mask_file(self):

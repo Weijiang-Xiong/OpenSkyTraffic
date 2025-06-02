@@ -29,7 +29,7 @@ class SimBarcaEvaluator:
         self.visualize = visualize
         make_dir_if_not_exist(self.save_dir)
         # for saving various evaluation metrics in analysis
-        score_types = ["by_time", "by_location", "scalar"]
+        score_types = ["vector", "scalar"]
         self.saved_scores = {k:v for k, v in zip(score_types, [dict() for _ in range(len(score_types))])}
         
     def __call__(self, model: nn.Module, data_loader: DataLoader, **kwargs) -> Dict[str, float]:
@@ -83,7 +83,7 @@ class SimBarcaEvaluator:
             error_by_scale = dict()
             for scale in demand_scales.unique():
                 scale_idx = demand_scales == scale
-                error_by_scale[scale.item()] = abs_error[scale_idx].numpy()
+                error_by_scale[round(scale.item(), 2)] = abs_error[scale_idx].numpy()
         
             # plot the boxplot
             fig, ax = plt.subplots()
@@ -187,52 +187,120 @@ class SimBarcaEvaluator:
         avg_eval_res = {k:sum(v)/len(v) for k, v in flatten_results_dict(eval_res_over_time).items()}
         
         # save the results to self.saved_scores
-        self.saved_scores['by_time'].update(eval_res_over_time)
+        self.saved_scores['vector'].update(eval_res_over_time)
         self.saved_scores['scalar'].update(avg_eval_res)
 
-        return avg_eval_res
 
     def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
         dataset: SimBarca = data_loader.dataset
         seqs = dataset.output_seqs
         sections_of_interest = dataset.sections_of_interest
+        session_ids = dataset.session_ids  
+        demand_scales = dataset.demand_scales
         
         all_preds, all_labels = self.collect_predictions(model, data_loader, seqs, seqs)
 
-        avg_eval_res = self.eval_by_time_step(all_preds, all_labels, verbose=verbose)
+        self.eval_by_time_step(all_preds, all_labels, verbose=verbose)
         
         # this is for evaluation after the training process is done
         if self.visualize:
             # visualize average MAE per location as a map
-            
-            dataset.plot_MAE_by_location(dataset.node_coordinates, all_preds, all_labels, save_dir=self.save_dir, save_note=self.save_note)
+            self.plot_MAE_by_location(
+                dataset.node_coordinates,
+                all_preds,
+                all_labels,
+                save_note=self.save_note,
+            )
             
             # do evaluation for different demand scales
-            self.mae_by_demand_scale(all_preds, all_labels, torch.repeat_interleave(dataset.demand_scales, repeats=dataset.sample_per_session))
+            self.mae_by_demand_scale(
+                all_preds, 
+                all_labels, 
+                torch.repeat_interleave(
+                    demand_scales,
+                    repeats=dataset.sample_per_session
+                )
+            )
             # evaluation by segment average speed
             self.segment_mae_by_avg_speed(all_preds, all_labels)
             
-            # disable gradient computation, so we don't need .detach() for the model outputs
-            with torch.no_grad():
-                # we do it for one random batch 
-                for bidx in range(np.random.randint(1, len(data_loader))):
-                    data_dict = next(iter(data_loader))
-                
-                model.eval()
-                # debug purpose 
-                section_id_to_index = {v:k for k, v in dataset.index_to_section_id.items()}
-                for section_id in sections_of_interest:
-                    section_num = section_id_to_index[section_id]
-                    aimsun_sec_id = dataset.index_to_section_id[section_num]
-                    dataset.visualize_batch(data_dict, model(data_dict), self.save_dir, section_num=section_num, 
-                        save_note="{}_sample{}_aimsunid_{}".format(self.save_note, bidx, aimsun_sec_id))
-                    dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, section_num, 
-                        save_note="{}_aimsunid_{}".format(self.save_note, aimsun_sec_id))
-                # plot for regional prediction
-                for r in range(4):
-                    dataset.plot_pred_for_section(all_preds, all_labels, self.save_dir, r, regional=True, save_note="{}_region{}".format(self.save_note, r))
+            self.pred_save_dir = "{}/predictions".format(self.save_dir)
+            make_dir_if_not_exist(self.pred_save_dir)
+            
+            section_id_to_index = {v:k for k, v in dataset.index_to_section_id.items()}
+            for section_id in sections_of_interest:
+                section_index = section_id_to_index[section_id]
+                aimsun_sec_id = dataset.index_to_section_id[section_index]
+
+                self.plot_pred_for_section(
+                    all_preds,
+                    all_labels,
+                    session_ids,
+                    demand_scales,
+                    section_num=section_index,
+                    save_note="{}_aimsunid_{}".format(self.save_note, aimsun_sec_id),
+                )
+            # plot for regional prediction
+            for r in range(4):
+                self.plot_pred_for_section(
+                    all_preds,
+                    all_labels,
+                    session_ids,
+                    demand_scales,
+                    section_num=r,
+                    regional=True,
+                    save_note="{}_region{}".format(self.save_note, r),
+                )
         # return this for EvalHook to do logging in training
-        return avg_eval_res
+        return self.saved_scores['scalar']
+
+
+    def plot_pred_for_section(self, all_preds, all_labels, session_ids, demand_scales, section_num=100, regional=False, save_note="example"):
+
+        p = section_num
+        sample_per_session = 20
+        nrows, ncols = 4, 6
+        sequence = 'pred_speed' if not regional else 'pred_speed_regional'
+        total_num_session = int(all_preds[sequence].shape[0] / sample_per_session)
+        
+        pred_by_session = np.split(all_preds[sequence][:, -1, p], total_num_session)
+        gt_by_session = np.split(all_labels[sequence][:, -1, p], total_num_session)
+        xx = np.arange(sample_per_session)
+        
+        sessions_to_include = list(range(int(total_num_session)))[-nrows * ncols:] # id in split
+        session_ids = session_ids[sessions_to_include]
+        demand_scales = demand_scales[sessions_to_include]
+        
+        fig, ax = plt.subplots(nrows, ncols, figsize=(13, 5))
+        for i in range(nrows):
+            for j in range(ncols):
+                idx = sessions_to_include[i * ncols + j]
+                idx_dataset = session_ids[i * ncols + j]
+                ds = demand_scales[i * ncols + j]
+                ax[i, j].plot(xx, pred_by_session[idx], label='30min_pred')
+                ax[i, j].plot(xx, gt_by_session[idx], label='GT')
+                ax[i, j].set_title("Sim. {} D.S. {}".format(idx_dataset, round(ds.item(), 2)), fontsize=0.8*plt.rcParams['font.size'])
+        
+        # add a common legend for all the subplots
+        handles, labels = ax[0,0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='upper center', ncols=2)
+        plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for the legend at the top
+        fig.savefig("{}/30min_ahead_{}_{}_{}.pdf".format(self.pred_save_dir, sequence, p, save_note))
+        logger.info("Saved the plot to {}/30min_ahead_{}_{}_{}.pdf".format(self.pred_save_dir, sequence, p, save_note))
+        
+        
+    def plot_MAE_by_location(self, node_coordinates, all_preds, all_labels, save_note="example"):
+        MAE = torch.abs(all_preds['pred_speed'] - all_labels['pred_speed'])
+        mae_by_section = torch.nanmean(MAE, dim=(0,1))
+        fig, ax = plt.subplots(figsize=(6.5, 4))
+        im = ax.scatter(node_coordinates[:, 0], node_coordinates[:, 1], c=mae_by_section.numpy(), s=2)
+        fig.colorbar(im, ax=ax)
+        ax.set_xlabel("X Coordinates")
+        ax.set_ylabel("Y Coordinates")
+        fig.tight_layout()
+        fig.savefig("{}/average_mae_{}.pdf".format(self.save_dir, save_note))
+        logger.info("Saved the plot to {}/average_mae_{}.pdf".format(self.save_dir, save_note))
+    
     
     def format_results_excel(self, eval_res):
         excel_string = "{}".format(self.save_note)

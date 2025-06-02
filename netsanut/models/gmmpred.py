@@ -64,24 +64,24 @@ class GMMPredictionHead(nn.Module):
         x = self.dropout(x)
 
         mixing = self.mixing(x)
-        mixing = rearrange(mixing, "N P (T A) -> N P T A", T=self.pred_steps, A=self.num_component)
+        mixing = rearrange(mixing, "N P (T K) -> N P T K", T=self.pred_steps, K=self.num_component)
         mixing = torch.softmax(mixing, dim=-1)
-        mixing = rearrange(mixing, "N P T A -> N T P A")
+        mixing = rearrange(mixing, "N P T K -> N T P K")
         
         offset = self.offset(x)
-        offset = rearrange(offset, "N P (T A) -> N P T A", T=self.pred_steps, A=self.num_component)
-        offset = rearrange(offset, "N P T A -> N T P A")
+        offset = rearrange(offset, "N P (T K) -> N P T K", T=self.pred_steps, K=self.num_component)
+        offset = rearrange(offset, "N P T K -> N T P K")
         means = self.anchors + offset * self.sizes * (1 + self.size_scale)
         
         log_var = self.uncertainty(x) # uncertainty in log scale
-        log_var = rearrange(log_var, "N P (T A) -> N T P A", T=self.pred_steps, A=self.num_component)
+        log_var = rearrange(log_var, "N P (T K) -> N T P K", T=self.pred_steps, K=self.num_component)
         
         return mixing, means, log_var
     
     def losses(self, out:Tuple[torch.Tensor, torch.Tensor], target:torch.Tensor):
         """ `out` is the output of forward, and `target` is the label with shape (N, T, P)
         """
-        mixing, means, log_var = out # all of shape (N, T, P, A) as returned in forward
+        mixing, means, log_var = out # all of shape (N, T, P, K) as returned in forward
         target = target.unsqueeze(-1) # shape (N, T, P, 1)
         
         # log probability for each component, since this is a loss, it is OK to drop the constant term
@@ -107,7 +107,7 @@ class GMMPredictionHead(nn.Module):
     def inference(self, out:Tuple[torch.Tensor, torch.Tensor]):
         """ `out` is the output of forward, and `target` is the label with shape (N, T, P)
         """
-        mixing, means, log_var = out # all of shape (N, T, P, A) as returned in forward
+        mixing, means, log_var = out # all of shape (N, T, P, K) as returned in forward
         
 
         if self.mcd_estimation:
@@ -136,7 +136,7 @@ class GMMPredictionHead(nn.Module):
         self.uncertainty.bias.data.fill_(1.0)
     
     @staticmethod
-    def get_mixture_density(mixing, means, log_var, xs):
+    def get_mixture_density(mixing:torch.Tensor, means: torch.Tensor, variance: torch.Tensor, xs: torch.Tensor) -> torch.Tensor:
         """ Compute the probability density of a gaussian mixture model at points `xs`
         
         Notation of shape: 
@@ -148,7 +148,7 @@ class GMMPredictionHead(nn.Module):
         Args:
             mixing (torch.Tensor): mixture coefficients, shape (N, T, P, K) 
             means (torch.Tensor): predicted means, shape (N, T, P, K)
-            log_var (torch.Tensor): log variance, shape (N, T, P, K)
+            variance (torch.Tensor): predicted variance, shape (N, T, P, K)
             xs (torch.Tensor): the points to evaluate the probability density, shape (n_points,)
 
         Returns:
@@ -157,7 +157,7 @@ class GMMPredictionHead(nn.Module):
         
         component_densities = gaussian_density(
                             means[..., None], 
-                            log_var.exp()[..., None], 
+                            variance[..., None], 
                             xs.reshape(*([1] * len(means.shape)), -1)) # xs[*[None]*len(means.shape), :]
         weighted_densities = mixing[..., None] * component_densities
         mixture_density = (weighted_densities).sum(axis=-2)
@@ -184,7 +184,7 @@ class GMMPredictionHead(nn.Module):
         num_comp = mixing.shape[-1]
         xs = torch.linspace(xmin, xmax, n_points).to(mixing.device)
         dx = abs(xmin - xmax) / n_points
-        mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
+        mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var.exp(), xs)
 
         values, indexes = torch.sort(mixture_density, dim=-1, descending=True)
         prob_mass = (values * dx).cumsum(dim=-1)

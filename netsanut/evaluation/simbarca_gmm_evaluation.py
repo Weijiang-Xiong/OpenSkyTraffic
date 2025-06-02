@@ -1,3 +1,4 @@
+import json
 import logging
 import numpy as np 
 from typing import Dict, List
@@ -8,10 +9,10 @@ from torch.utils.data import DataLoader
 
 import matplotlib.pyplot as plt
 import seaborn as sns 
-from scipy.stats import norm
 
 from einops import rearrange
 
+from ..utils.io import make_dir_if_not_exist
 from ..models.gmmpred import GMMPredictionHead
 from ..data.datasets import SimBarca
 from .simbarca_evaluation import SimBarcaEvaluator
@@ -41,6 +42,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
     ci_pts = 500 # the number of points to evaluate the GMM density, for confidence interval
     vis_pts = 300 # the number of points to visualize the GMM density, for visualization
     density_scale = 5 # divide by this to scale the GMM density values in visualization
+    input_window = 30 # the input window size in minutes, default is 30 min
+    data_time_step = 3 # the input step size in minutes, default is 3 min
     
     def __init__(
         self,
@@ -82,7 +85,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             logger.error(f"The note can not be {note}, please use a different one.")
         
         # Save average score at each time step (averaging over samples N and spatial locations P)
-        self.saved_scores['by_time'][note] = torch.nanmean(scores, dim=(0, 2)).cpu().numpy()
+        self.saved_scores['vector'][note] = torch.nanmean(scores, dim=(0, 2)).cpu().numpy()
         # Save the mean over all the time steps, ignoring NaN values
         self.saved_scores['scalar'][f'{note}'] = torch.nanmean(scores).item()
         
@@ -92,12 +95,12 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
     
     def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
         
-        avg_eval_res = super().evaluate(model, data_loader, verbose=verbose)
+        _ = super().evaluate(model, data_loader, verbose=verbose)
         
         dataset: SimBarca = data_loader.dataset
         soi: List[int] = dataset.sections_of_interest
         s2i = dataset.section_id_to_index  # section ID to array index in space dimension
-        session_ids, demand_scales = dataset.get_session_properties()
+        session_ids = dataset.session_ids  # list of simulation session IDs
 
         all_preds, all_data = self.collect_predictions(
             model,
@@ -152,7 +155,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         self.analyze_scores(crps_gmm_gt, note="CRPS_GMM_GT")
         if verbose:
             logger.info("Evaluate CRPS score for GMM predictions using the ground truth point distribution...")
-            logger.info("The average CRPS {}".format(crps_gmm_gt.nanmean()))    
+            logger.info("The average CRPS {}".format(crps_gmm_gt.nanmean()))
 
         # for conf in self.eval_confs:
         #     self.eval_gmm_confidence_interval(
@@ -175,13 +178,20 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             s_list = list(range(len(session_ids)))
             p_list_reg = list(range(len(dataset.cluster_id.unique()))) # For regional predictions
             
+            self.plot_pred_fix_time(all_preds, all_data,
+                    p_list=p_list_seg, s_list=s_list,
+                    time_step_to_viz=10, pred_horizons=10,
+                    sample_per_session=dataset.sample_per_session, task="seg",
+                    sec_ids=soi, sim_ids=session_ids)
+            
             self.plot_30min_gmm_preds(all_preds, all_data, p_list=p_list_seg, s_list=s_list, 
-                    T=dataset.sample_per_session, task="seg", sim_ids=session_ids, sec_ids=soi, with_knn=True)
+                    sample_per_session=dataset.sample_per_session, task="seg", sim_ids=session_ids, sec_ids=soi, with_knn=True)
             self.plot_30min_gmm_preds(all_preds, all_data, p_list=p_list_reg, s_list=s_list,
-                    T=dataset.sample_per_session, task="reg", sim_ids=session_ids, sec_ids=p_list_reg)
+                    sample_per_session=dataset.sample_per_session, task="reg", sim_ids=session_ids, sec_ids=p_list_reg)
     
-        return avg_eval_res
-    
+        return self.saved_scores['scalar']
+
+
     def eval_gmm_confidence_interval(self, mixing, means, log_var, gt, xmin, xmax, n_points, conf):
         """
             Evaluate the GMM confidence interval for the predictions, with two aspects into account:
@@ -268,7 +278,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         return CRPS
 
 
-    def ignore_invalid_values(self, scores, gt):
+    def seg_invalid_to_ignore_value(self, scores, gt):
         """
         Ignore invalid values in the scores tensor based on the ground truth tensor.
         
@@ -318,7 +328,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         tensor_names = ["mixing", "means", "log_var", "inputs", "gt"]
         scores = self._compute_crps(tensors, tensor_names, gmm_cdf_func, knn_ecdf_func, xs, sp_size, gpu)
         
-        return self.ignore_invalid_values(scores, gt)
+        return self.seg_invalid_to_ignore_value(scores, gt)
     
     
     def get_crps_gmm_vs_gt(self, mixing, means, log_var, xs, gt, sp_size=20, gpu=True):
@@ -349,7 +359,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         tensor_names = ["mixing", "means", "log_var", "gt"]
         scores = self._compute_crps(tensors, tensor_names, gmm_cdf_func, gt_cdf_func, xs, sp_size, gpu)
         
-        return self.ignore_invalid_values(scores, gt)
+        return self.seg_invalid_to_ignore_value(scores, gt)
 
 
     def get_crps_pred_vs_emp_dist(self, pred, xs, inputs, gt, sp_size=20, knn_nb=20, gpu=True):
@@ -380,7 +390,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         tensor_names = ["pred", "inputs", "gt"]
         scores = self._compute_crps(tensors, tensor_names, pred_cdf_func, knn_cdf_func, xs, sp_size, gpu)
         
-        return self.ignore_invalid_values(scores, gt)
+        return self.seg_invalid_to_ignore_value(scores, gt)
 
 
     def get_point_cdf(self, tensor, xs, gpu=True):
@@ -405,7 +415,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             log_var = log_var.cuda()
             xs = xs.cuda()
         
-        gmm_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
+        gmm_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var.exp(), xs)
         dx = abs(xs[1] - xs[0]) # the step size of the x values
         gmm_cdf = torch.cumsum(gmm_density * dx, axis=-1)
         gmm_cdf = gmm_cdf / gmm_cdf[..., -1].unsqueeze(-1) # ensure the CDF ends at 1
@@ -466,7 +476,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             Plot the scores saved in self.saved_scores, which is a dictionary with keys being the score types.
             The values are numpy arrays with shape (T,) or (P,) for each time step and spatial location.
         """
-        scores_by_time = self.saved_scores["by_time"]
+        scores_by_time = self.saved_scores["vector"]
         # plot the scores by time step
         plot_legends = [
             ("CRPS_GMM_EMP", "GMM vs Empirical", "-"),
@@ -493,14 +503,26 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         plt.savefig(save_path)
         logger.info(f"Save scores by time step to {save_path}")
         plt.close(fig)  # Close figure to free memory
-    
 
-    def plot_30min_gmm_preds(self, all_preds, all_data, p_list, s_list, T=20, task=None, regional=False, sec_ids:List=None, sim_ids:List=None, with_knn=False):
+    def plot_30min_gmm_preds(
+        self,
+        all_preds,
+        all_data,
+        p_list,
+        s_list,
+        sample_per_session=20,
+        task=None,
+        sec_ids: List = None,
+        sim_ids: List = None,
+        with_knn=False,
+    ):
         """ 
             Plot the GMM prediction for positions `p_list` at simulation sessions `s_list`
+            all_preds: dictionary of all predictions, values are tensors of shape (N, T, P, K) for GMM parameters and (N, T, P) for predicted speed
+            all_data: dictionary of all data sequences (input and output alike), values are tensors of shape (N, T_i, P) where T_i may vary
             p_list: list of segment indices
             s_list: list of session indices 
-            T: sample per session, 20 for simbarca
+            sample_per_session: sample per session, 20 for simbarca
             task: 'seg' or 'reg' to specify which task to plot (overrides regional flag)
             regional: whether to plot regional (True) or segment (False) predictions
             sec_ids: list of section IDs in aimsun, will be used in file name
@@ -508,86 +530,179 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             with_knn: whether to plot KNN empirical distribution, can be used with segment level predictions
         """
         # Determine which task to use
-        if task is None:
-            task = "reg" if regional else "seg"
-            
         assert task in self.eval_tasks, f"Task should be one of {self.eval_tasks}"
         
         ymin = self.data_min[task]
         ymax = self.data_max[task]
         label_seq = self.label_seq[task]
         
-        def obtain_gmm_pdf(mixing, means, variance, y_vals):
-            # Compute the GMM PDF at each time step over y_vals
-            pdf_matrix = np.zeros((T, len(y_vals)))
-            K = mixing.shape[1]  # Get K dynamically
-            for t in range(T):
-                for k in range(K):
-                    pdf_matrix[t, :] += mixing[t, k] * norm.pdf(y_vals, 
-                                                               loc=means[t, k],
-                                                               scale=np.sqrt(variance[t, k]))
-            return pdf_matrix
-        
-        y_vals = np.linspace(ymin, ymax, self.vis_pts)
-        num_sessions = len(all_preds[label_seq]) // T
+        y_vals = torch.linspace(ymin, ymax, self.vis_pts)
+        num_sessions = len(all_preds[label_seq]) // sample_per_session
         
         # Put everything to numpy once
-        all_preds = {k: v.numpy() for k, v in all_preds.items()}
-        all_data = {k: v.numpy() for k, v in all_data.items()}
+        all_preds = {k: v for k, v in all_preds.items()}
+        all_data = {k: v for k, v in all_data.items()}
         
         # Split arrays by session for efficiency (do this once), take last time step prediction (30 min)
-        pred_by_session = np.split(all_preds[label_seq][:, -1], num_sessions)
-        gt_by_session = np.split(all_data[label_seq][:, -1], num_sessions)
-        mixing_by_session = np.split(all_preds[f"{task}_mixing"][:, -1], num_sessions)
-        means_by_session = np.split(all_preds[f"{task}_means"][:, -1], num_sessions)
-        variance_by_session = np.split(all_preds[f"{task}_log_var"][:, -1], num_sessions)
+        pred_by_session = torch.tensor_split(all_preds[label_seq][:, -1], num_sessions)
+        gt_by_session = torch.tensor_split(all_data[label_seq][:, -1], num_sessions)
+        mixing_by_session = torch.tensor_split(all_preds[f"{task}_mixing"][:, -1], num_sessions)
+        means_by_session = torch.tensor_split(all_preds[f"{task}_means"][:, -1], num_sessions)
+        logvar_by_session = torch.tensor_split(all_preds[f"{task}_log_var"][:, -1], num_sessions)
         
-        xx = np.arange(T)
-        palette = sns.color_palette("husl", T)
+        xx = np.arange(sample_per_session)
+        palette = sns.color_palette("husl", sample_per_session)
         
         # Now loop through the lists of positions and sessions
         for p, sec_id in zip(p_list, sec_ids):
             
             if with_knn: # Compute KNN neighbors for the last time step
                 knn = self.compute_knn_neighbors(
-                    x=torch.from_numpy(all_data['drone_speed'][:, -1, p].reshape(-1, 1, 1)), 
-                    y=torch.from_numpy(all_data['pred_speed'][:, -1, p].reshape(-1, 1, 1)))
+                    x=all_data['drone_speed'][:, -1, p].reshape(-1, 1, 1), 
+                    y=all_data['pred_speed'][:, -1, p].reshape(-1, 1, 1)
+                )
                 knn_by_session = [x.squeeze().numpy() for x in np.split(knn, num_sessions)]
                 
             for s, sim_id in zip(s_list, sim_ids):
                 # Extract data for this specific position and session
-                pdf_matrix = obtain_gmm_pdf(mixing_by_session[s][:, p], 
-                                            means_by_session[s][:, p], 
-                                            np.exp(variance_by_session[s][:, p]), 
-                                            y_vals)
+                pdf_matrix = GMMPredictionHead.get_mixture_density(
+                    rearrange(mixing_by_session[s][:, p], "T K -> () T () K"),
+                    rearrange(means_by_session[s][:, p], "T K -> () T () K"),
+                    rearrange(logvar_by_session[s][:, p], "T K -> () T () K").exp(),
+                    y_vals,
+                ).squeeze().numpy()
                 
                 fig, ax = plt.subplots(figsize=(6, 4))
-                for t in range(T):
+                for t in range(sample_per_session):
                     x_baseline = t  # the left side (time coordinate) for this ridge
                     ridge_x = t + self.density_scale * pdf_matrix[t, :]  # the right edge, shifted by density
-                    plt.fill_betweenx(y_vals, x_baseline, ridge_x, color=palette[t], alpha=0.6)
+                    ax.fill_betweenx(y_vals, x_baseline, ridge_x, color=palette[t], alpha=0.6)
                     
                     # create a scatter point plots for the KNN empirical distribution
                     if with_knn:
-                        plt.scatter(
+                        ax.scatter(
                             torch.ones(self.knn_nb) * x_baseline, 
                             knn_by_session[s][t], 
                             color='grey', s=5, alpha=0.5
                         )
 
-
                 # Plot predictions and ground truth
-                plt.plot(xx, pred_by_session[s][:, p], 'o-', label='30min Pred')
-                plt.plot(xx, gt_by_session[s][:, p], 'x-', label='Ground Truth')
-                
-                ax.set_xlabel("Time Step")
+                ax.plot(xx, pred_by_session[s][:, p], 'o-', label='30min Pred')
+                ax.plot(xx, gt_by_session[s][:, p], 'x-', label='Ground Truth')
+                ax.set_xticks(xx, xx * self.data_time_step + self.input_window)
+                ax.set_xlabel("Time in Simulation")
                 ax.set_ylabel("Speed (m/s)")
                 ax.legend()
                 
-                plt.tight_layout()
+                fig.tight_layout()
                 # Generate descriptive filename
                 position_label = f"region{p}" if task == "reg" else f"section{p}_aimsun{sec_id}"
-                save_path = f"{self.save_dir}/vis_gmm_pred_{position_label}_sim{sim_id}.pdf"
-                plt.savefig(save_path)
+                
+                # Create subfolder for 30min ahead predictions
+                subfolder_path = f"{self.save_dir}/gmm_predictions"
+                make_dir_if_not_exist(subfolder_path)
+                
+                save_path = f"{subfolder_path}/{position_label}_sim{sim_id}.pdf"
+                fig.savefig(save_path)
                 logger.info(f"Save GMM prediction visualization to {save_path}")
                 plt.close(fig)  # Close figure to free memory
+                
+                
+    def plot_pred_fix_time(
+        self,
+        all_preds,
+        all_data,
+        p_list,
+        s_list,
+        time_step_to_viz=15,
+        pred_horizons=10,
+        sample_per_session=20,
+        task=None,
+        sec_ids: List = None,
+        sim_ids: List = None,
+    ):
+        """ 
+            Plot the GMM prediction at a fixed time stamp for different prediction horizons (3min to 30min ahead).
+            E.g., for 8 am in simulation session 1, we plot the predicted speed when the input window is 3 min, 6 min, ..., 30 min before 8 am. When the input window is 3 min before 8 am, our input data is from 7:27 - 7:57 am, and 8 am is just the next time step.
+            
+            Args:
+                all_preds: dictionary of all predictions, values are tensors of shape (N, T, P, K) for GMM parameters and (N, T, P) for predicted speed
+                all_data: dictionary of all data sequences (input and output alike), values are tensors of shape (N, T_i, P) where T_i may vary
+                p_list: list of segment indices
+                s_list: list of session indices 
+                sample_per_session: sample per session, 20 for simbarca
+                task: 'seg' or 'reg' to specify which task to plot
+                sec_ids: list of section IDs in aimsun, will be used in file name
+                sim_ids: list of simulation session IDs, will be used in file name
+                time_step_to_viz: the time step index within each session to visualize (0 to sample_per_session-1)
+        """
+        # Determine which task to use
+        assert task in self.eval_tasks, f"Task should be one of {self.eval_tasks}"
+        assert 0 <= time_step_to_viz <= sample_per_session - pred_horizons , f"fixed_time_step must be between 0 and {sample_per_session} - {pred_horizons} = {sample_per_session - pred_horizons} for a model with {pred_horizons} prediction horizons"
+        
+        ymin = self.data_min[task]
+        ymax = self.data_max[task]
+        label_seq = self.label_seq[task]
+        
+        y_vals = torch.linspace(ymin, ymax, self.vis_pts)
+        num_sessions = len(all_preds[label_seq]) // sample_per_session
+        
+        # Split arrays by session for efficiency, keeping all time steps
+        pred_by_session = torch.tensor_split(all_preds[label_seq], num_sessions)
+        gt_by_session = torch.tensor_split(all_data[label_seq], num_sessions)
+        mixing_by_session = torch.tensor_split(all_preds[f"{task}_mixing"], num_sessions)
+        means_by_session = torch.tensor_split(all_preds[f"{task}_means"], num_sessions)
+        logvar_by_session = torch.tensor_split(all_preds[f"{task}_log_var"], num_sessions)
+        
+        # Create prediction horizon labels (3min, 6min, ..., 30min)
+        xx = np.arange(pred_horizons)
+        pred_horizon_labels = [f"{self.data_time_step*(i+1)}" for i in range(pred_horizons)][::-1]  # reverse order for visualization
+        palette = sns.color_palette("viridis", pred_horizons)  # Different colors for different horizons
+        
+        # Now loop through the lists of positions and sessions
+        for p, sec_id in zip(p_list, sec_ids):
+            for s, sim_id in zip(s_list, sim_ids):
+                
+                fig, ax = plt.subplots(figsize=(8, 6))
+                batch_indices = torch.arange(time_step_to_viz, time_step_to_viz + pred_horizons)
+                timestep_indices = - torch.arange(1, pred_horizons + 1)  # from -1 to -pred_horizons
+                gmm_density = GMMPredictionHead.get_mixture_density(
+                    rearrange(mixing_by_session[s][batch_indices, timestep_indices, p, :], "T K -> () T () K"),
+                    rearrange(means_by_session[s][batch_indices, timestep_indices, p, :], "T K -> () T () K"),
+                    rearrange(logvar_by_session[s][batch_indices, timestep_indices, p, :], "T K -> () T () K").exp(),
+                    y_vals,
+                ).squeeze().numpy()
+                
+                # create a ridge plot for the GMM density
+                for t in range(pred_horizons):
+                    x_baseline = t
+                    ridge_x = t + self.density_scale * gmm_density[t, :]
+                    
+                    ax.fill_betweenx(y_vals, x_baseline, ridge_x, color=palette[t], alpha=0.6)
+                # Plot predictions and ground truth
+                ax.plot(
+                    xx, 
+                    pred_by_session[s][batch_indices, timestep_indices, p], 
+                    'o-', label='Predictions'
+                )
+                ax.plot(
+                    xx, 
+                    gt_by_session[s][batch_indices, timestep_indices, p], 
+                    '-', label='Ground Truth'
+                )
+                # Add labels and legend
+                ax.set_xlabel("Time ahead of Prediction")
+                ax.set_ylabel("Speed (m/s)")
+                ax.legend()
+                ax.set_title(f"Predictions for Section {sec_id} in Session {sim_id} at Time {time_step_to_viz*self.data_time_step + self.input_window} min")
+                ax.set_xticks(xx, pred_horizon_labels)
+                fig.tight_layout()
+                
+                # Create subfolder for fixed time predictions
+                subfolder_path = f"{self.save_dir}/fix_time_pred"
+                make_dir_if_not_exist(subfolder_path)
+                
+                save_path = f"{subfolder_path}/{task}_{sec_id}_sim{sim_id}_time{time_step_to_viz*self.data_time_step + self.input_window}.pdf"
+                fig.savefig(save_path)
+                logger.info(f"Save GMM prediction visualization to {save_path}")
+                plt.close(fig)

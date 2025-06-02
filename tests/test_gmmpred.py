@@ -4,9 +4,21 @@ import pickle
 import torch 
 
 from netsanut.models import GMMPred, GMMPredictionHead
+from netsanut.models.gmmpred import gaussian_density
 
 class TestGMM(unittest.TestCase):
 
+    def test_gaussian_density(self):
+        import numpy as np
+        from scipy.stats import norm
+        
+        density_value = gaussian_density(torch.tensor([1.0]), torch.tensor([2.0]), torch.tensor([3.0]))
+        # Check if the density value is close to the expected value
+        expected_value = norm.pdf(3.0, loc=1.0, scale=np.sqrt(2.0))
+        
+        self.assertTrue(np.allclose(density_value.numpy(), expected_value, atol=1e-6))
+        self.addCleanup(lambda: torch.cuda.empty_cache())  # Clear GPU memory after test
+        
     def test_gmm_density(self):
         N, T, P, C = 4, 10, 19, 32
         xmin, xmax, n_points = 0, 6, 1000
@@ -16,7 +28,7 @@ class TestGMM(unittest.TestCase):
         log_var = -2 * torch.ones(N, T, P, 3) # variances are e^-2 everywhere
         
         xs = torch.linspace(xmin, xmax, n_points)
-        mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
+        mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var.exp(), xs)
         self.assertTrue(mixture_density.shape == (N, T, P, 1000))
         # check the value at 0
         var = torch.tensor(-2).exp()

@@ -9,17 +9,20 @@ To run a training in the terminal, use the following command:
 
     python scripts/train.py --config-file config/HiMSNet.py model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop
 
-After the training, you can run evaluation on the trained model as follows:
+wAfter the training, you can run evaluation on the trained model as follows (you don't need to pass config override again, just load the config file saved to the output directory).
 
-    python scripts/train.py --eval-only --config-file config/HiMSNet.py model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop train.checkpoint=scratch/himsnet_5hop/model_final.pth evaluation.visualize=True
+    python scripts/train.py --eval-only --config-file scratch/himsnet_5hop/config.py evaluation.visualize=True
 
-You can also run debugging using VS Code. For example, to debug the evaluation of a trained HiMSNet model, put the following to parse_args(...):
+It is possible to override the checkpoint in case you want to evaluate another checkpoint rather than the finally saved one by adding `train.checkpoint=scratch/himsnet_5hop/model_final.pth`
 
-    "--eval-only --config-file config/HiMSNet.py model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop train.checkpoint=scratch/himsnet_5hop/model_final.pth evaluation.visualize=True".split()
+You can also run debugging using VS Code. For example, to debug the evaluation of a trained HiMSNet model, put the following to parse_args(...). 
+
+    "--eval-only --config-file saved_folder/config.py evaluation.visualize=True".split()
 """
 
 import torch
 import numpy as np
+from pathlib import Path
 
 from netsanut.config import default_argument_parser, default_setup, ConfigLoader
 from netsanut.engine import DefaultTrainer, hooks
@@ -27,6 +30,16 @@ from netsanut.models import build_model
 from netsanut.data import build_train_loader, build_test_loader, build_dataset
 from netsanut.evaluation import build_evaluator
 from netsanut.solver import build_optimizer, build_scheduler
+
+def get_checkpoint_path(cfg, args) -> str:
+    """
+    Get the path to the checkpoint file based on the config file and output directory.
+    If the checkpoint is specified in the config, use that; otherwise, use the default path.
+    """
+    if Path(cfg.train.checkpoint).is_file():
+        return cfg.train.checkpoint
+    else:
+        return "{}/model_final.pth".format(Path(args.config_file).parent)
 
 def main(args):
     
@@ -42,7 +55,7 @@ def main(args):
         test_loader = build_test_loader(build_dataset(cfg.dataset.test), cfg.dataloader.test)
         evaluator = build_evaluator(**cfg.evaluation)
         # in evaluation mode, just load the checkpoint and call evaluation function
-        state_dict = DefaultTrainer.load_file(ckpt_path=cfg.train.checkpoint)
+        state_dict = DefaultTrainer.load_file(ckpt_path=get_checkpoint_path(cfg, args))
         model.load_state_dict(state_dict['model'])
         eval_res = evaluator(
             model, 
