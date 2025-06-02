@@ -8,29 +8,28 @@ We assume there is a conda environment called `pytorch` with [PyTorch](https://p
 
 ```bash
 git clone https://github.com/Weijiang-Xiong/netsanut.git
-python -m pip install -e . --use-pep517
+python -m pip install -e .
 ```
 
 For the preprocessing and usage of datasets, please follow the [readme file](datasets/README.md) in `datasets` folder.
 
 ### Basic Usage
 
-The main entrance scripts are placed under `tools`.
+The main entrance scripts are placed under `scripts`.
 
 * `train.py` provides the training pipeline and evaluation
-* `visualize.py` provides visualization about the model calibration and predictions
 * `run_multiple.py` is a script to format and run multiple commands in sequence using `subprocess.run`
 
-For example, the following command will train a model using the specifications in `config/NeTSFormer_uncertainty.py` , and override the output dir to `results/debug`.
+For example, the following command will train a model using the specifications in `config/HiMSNet.py` , and override the output dir to `scratch/himsnet_5hop`.
 
 ```
-python tools/train.py --config-file config/NeTSFormer_uncertainty.py train.output_dir=results/debug
+python scripts/train.py --config-file config/HiMSNet.py model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop
 ```
 
-After training, the results can be analysed
+After training, the results can be visualized using the following command
 
 ```
-python tools/visualize.py --result-dir results/debug
+python scripts/train.py --eval-only --config-file scratch/himsnet_5hop/config.py evaluation.visualize=True
 ```
 
 For a complete walk through of the training and visualization workflow, please look at the comments in the scripts.
