@@ -36,7 +36,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
     eval_tasks = ["seg", "reg"]
     data_min = {"seg": 0.0, "reg": 0.0}
     data_max = {"seg": 14.0, "reg": 9.0}
-    label_seq = {"seg": "pred_speed", "reg": "pred_speed_regional"}
+    seq_labels_by_task = {"seg": "pred_speed", "reg": "pred_speed_regional"}
     # the confidence levels to evaluate, from 0.5 to 0.95 with step 0.05
     eval_confs = np.round(np.arange(0.5, 1.0, 0.05), 2).tolist()
     ci_pts = 500 # the number of points to evaluate the GMM density, for confidence interval
@@ -61,16 +61,20 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         self.knn_nb = 20  # the number of nearest neighbors to find, default 20
         self.gpu = True  # whether to use GPU acceleration, default True
 
+    
+    def collect_predictions(self, model, data_loader, pred_seqs = None, data_seqs = None):
         
-    def collect_drone_speed(self, model: nn.Module, data_loader: DataLoader) -> Dict[str, torch.Tensor]:
-        
-        _, all_labels = self.collect_predictions(model=model, data_loader=data_loader, 
-                                                         pred_seqs=[], data_seqs=['drone_speed'])
-        
-        # replace the nan values (when no vehicles are present) with the mean value
-        return all_labels["drone_speed"][..., 0].nan_to_num(
+        all_preds, all_data = super().collect_predictions(
+            model=model, data_loader=data_loader, 
+            pred_seqs=pred_seqs, data_seqs=data_seqs
+        )
+        if "drone_speed" in all_data:
+            all_data["drone_speed"] = all_data["drone_speed"][..., 0].nan_to_num(
             nan=data_loader.dataset.metadata['mean_and_std']['drone_speed'][0]
             )
+            
+        return all_preds, all_data
+    
     
     def analyze_scores(self, scores, note:str=None, verbose=False):
         """ Given an error score tensor of shape (N, T, P), we summarize the score over the time steps.
@@ -106,9 +110,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             model,
             data_loader,
             pred_seqs=dataset.output_seqs + self.add_output_seq,
-            data_seqs=dataset.output_seqs,
+            data_seqs=dataset.output_seqs + ['drone_speed'],
         )
-        all_data["drone_speed"] = self.collect_drone_speed(model, data_loader)
         cdf_xs = torch.linspace(self.data_min['seg'], self.data_max['seg'] , self.ci_pts)
 
         
@@ -534,7 +537,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         
         ymin = self.data_min[task]
         ymax = self.data_max[task]
-        label_seq = self.label_seq[task]
+        label_seq = self.seq_labels_by_task[task]
         
         y_vals = torch.linspace(ymin, ymax, self.vis_pts)
         num_sessions = len(all_preds[label_seq]) // sample_per_session
@@ -642,7 +645,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         
         ymin = self.data_min[task]
         ymax = self.data_max[task]
-        label_seq = self.label_seq[task]
+        label_seq = self.seq_labels_by_task[task]
         
         y_vals = torch.linspace(ymin, ymax, self.vis_pts)
         num_sessions = len(all_preds[label_seq]) // sample_per_session
