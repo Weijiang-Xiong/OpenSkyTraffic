@@ -57,7 +57,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         super().__init__(ignore_value, mape_threshold, save_dir, save_note, visualize)
         if add_output_seq is not None:  # overwrite the default if provided
             self.add_output_seq = add_output_seq
-        self.sp_size = 10  # the size of the chunks to split the tensors space dimension, default 10
+        self.sp_size = 20  # the size of the chunks to split the tensors space dimension, default 10
         self.knn_nb = 20  # the number of nearest neighbors to find, default 20
         self.gpu = True  # whether to use GPU acceleration, default True
 
@@ -434,9 +434,23 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         
         gt_knn = self.compute_knn_neighbors(inputs, gt, k=knn_nb)
         
+        # after sorting, the NaN values are at the end of the tensor
         sorted_gt, _ = torch.sort(gt_knn, dim=-1)
+        
         # reshape sorted_gt to (N, T, sp_size, k, 1), so the last dimension will be broadcasted with xs
-        knn_ecdf  = (sorted_gt.unsqueeze(-1) <= xs).sum(dim=-2).float() / knn_nb # → (N, T, sp_size, X)
+        # knn_ecdf  = (sorted_gt.unsqueeze(-1) <= xs).sum(dim=-2).float() / knn_nb # → (N, T, sp_size, X)
+        
+        # since the KNN neighbors are sorted, we can use searchsorted to get the counts, i.e., how many 
+        # neighbors are less than or equal to each value in xs (i.e., the index to insert xs in the sorted_gt)
+        # this is more memory-friendly than the previous implementation, which tries to allocate (N, T, sp_size, k, X)
+        N_dim, T_dim, sp_size_dim, _ = sorted_gt.shape
+        counts = torch.searchsorted(
+            # We need to replace the NaN values with inf because otherwise searchsorted will think the values should 
+            # be inserted at the end of the tensor, and we always get k counts, and ecdf will be 1.0. 
+            torch.nan_to_num(sorted_gt, nan=float("inf")), 
+            xs.view(1,1,1,-1).expand(N_dim, T_dim, sp_size_dim, -1), 
+            side='right')
+        knn_ecdf = counts.float() / knn_nb # → (N, T, sp_size, X)
         
         return knn_ecdf
     
@@ -458,8 +472,14 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         
         # Compute pairwise L2 distances between all N samples along T dimension for all P
         # Result shape: (N, N, P)
-        dist = torch.sqrt(torch.sum((x.unsqueeze(1) - x.unsqueeze(0))**2, dim=2))
-        
+        dist = rearrange(
+            torch.cdist(rearrange(x, "N T P -> P N T"), rearrange(x, "N T P -> P N T"), p=2.0),
+            "P N1 N2 -> N1 N2 P",
+        )
+        # this is a previous implementation that is not memory efficient, because it tries to 
+        # it will try to allocate (N, N, T, P) for the pairwise difference before taking the sum over T
+        # dist = torch.sqrt(torch.sum((x.unsqueeze(1) - x.unsqueeze(0))**2, dim=2))
+
         # Find k nearest neighbors for each sample at each P location
         # Result shapes: (N, k, P)
         _, knn_indices = torch.topk(dist, k=k, dim=1, largest=False)
@@ -469,7 +489,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         # Result shape: (N, k, P, T)
         knn_y = y[knn_indices, # from the k nearest neighbors
                   :, # keep all time steps 
-                  torch.arange(P).view(1, 1, P).expand(N, k, P)]
+                  torch.arange(P).view(1, 1, P).expand(N, k, -1)]
         
         return rearrange(knn_y, 'N k P T -> N T P k')
     
