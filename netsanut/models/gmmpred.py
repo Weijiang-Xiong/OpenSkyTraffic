@@ -16,8 +16,20 @@ from .attention import MultiHeadAttention
 
 logger = logging.getLogger("default")
 
-def gaussian_density(mean, var, x):
-    return torch.exp(-0.5 * ((x - mean) ** 2) / var) / torch.sqrt(2 * torch.pi * var)
+def gaussian_density(mean, log_var, x):
+    """
+    Compute Gaussian probability density in a numerically stable way using log variance.
+    
+    Args:
+        mean: Mean of the Gaussian distribution
+        log_var: Log of the variance (log σ²)
+        x: Points at which to evaluate the density
+        
+    Returns:
+        Gaussian probability density values
+    """
+    # Compute density using log variance for numerical stability
+    return torch.exp(-0.5 * ((x - mean) ** 2) / torch.exp(log_var) - 0.5 * log_var - 0.5 * torch.log(torch.tensor([2 * torch.pi], device=mean.device)))
 
 class GMMPredictionHead(nn.Module):
     
@@ -136,7 +148,7 @@ class GMMPredictionHead(nn.Module):
         self.uncertainty.bias.data.fill_(1.0)
     
     @staticmethod
-    def get_mixture_density(mixing:torch.Tensor, means: torch.Tensor, variance: torch.Tensor, xs: torch.Tensor) -> torch.Tensor:
+    def get_mixture_density(mixing:torch.Tensor, means: torch.Tensor, log_var: torch.Tensor, xs: torch.Tensor) -> torch.Tensor:
         """ Compute the probability density of a gaussian mixture model at points `xs`
         
         Notation of shape: 
@@ -148,7 +160,7 @@ class GMMPredictionHead(nn.Module):
         Args:
             mixing (torch.Tensor): mixture coefficients, shape (N, T, P, K) 
             means (torch.Tensor): predicted means, shape (N, T, P, K)
-            variance (torch.Tensor): predicted variance, shape (N, T, P, K)
+            log_var (torch.Tensor): predicted log variance, shape (N, T, P, K)
             xs (torch.Tensor): the points to evaluate the probability density, shape (n_points,)
 
         Returns:
@@ -157,7 +169,7 @@ class GMMPredictionHead(nn.Module):
         
         component_densities = gaussian_density(
                             means[..., None], 
-                            variance[..., None], 
+                            log_var[..., None], 
                             xs.reshape(*([1] * len(means.shape)), -1)) # xs[*[None]*len(means.shape), :]
         weighted_densities = mixing[..., None] * component_densities
         mixture_density = (weighted_densities).sum(axis=-2)
@@ -184,7 +196,7 @@ class GMMPredictionHead(nn.Module):
         num_comp = mixing.shape[-1]
         xs = torch.linspace(xmin, xmax, n_points).to(mixing.device)
         dx = abs(xmin - xmax) / n_points
-        mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var.exp(), xs)
+        mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
 
         values, indexes = torch.sort(mixture_density, dim=-1, descending=True)
         prob_mass = (values * dx).cumsum(dim=-1)

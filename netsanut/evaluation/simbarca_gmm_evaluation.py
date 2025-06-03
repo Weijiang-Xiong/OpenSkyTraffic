@@ -57,7 +57,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         super().__init__(ignore_value, mape_threshold, save_dir, save_note, visualize)
         if add_output_seq is not None:  # overwrite the default if provided
             self.add_output_seq = add_output_seq
-        self.sp_size = 10  # the size of the chunks to split the tensors space dimension, default 20
+        self.sp_size = 10  # the size of the chunks to split the tensors space dimension, default 10
         self.knn_nb = 20  # the number of nearest neighbors to find, default 20
         self.gpu = True  # whether to use GPU acceleration, default True
 
@@ -165,7 +165,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         #         mixing=all_preds["seg_mixing"],
         #         means=all_preds["seg_means"],
         #         log_var=all_preds["seg_log_var"],
-        #         gt=all_labels["pred_speed"],
+        #         gt=all_data["pred_speed"],
         #         xmin=self.data_min["seg"],
         #         xmax=self.data_max["seg"],
         #         n_points=self.ci_pts,
@@ -281,7 +281,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         return CRPS
 
 
-    def seg_invalid_to_ignore_value(self, scores, gt):
+    def invalid_to_ignore_value(self, scores, gt):
         """
         Ignore invalid values in the scores tensor based on the ground truth tensor.
         
@@ -331,7 +331,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         tensor_names = ["mixing", "means", "log_var", "inputs", "gt"]
         scores = self._compute_crps(tensors, tensor_names, gmm_cdf_func, knn_ecdf_func, xs, sp_size, gpu)
         
-        return self.seg_invalid_to_ignore_value(scores, gt)
+        return self.invalid_to_ignore_value(scores, gt)
     
     
     def get_crps_gmm_vs_gt(self, mixing, means, log_var, xs, gt, sp_size=20, gpu=True):
@@ -362,7 +362,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         tensor_names = ["mixing", "means", "log_var", "gt"]
         scores = self._compute_crps(tensors, tensor_names, gmm_cdf_func, gt_cdf_func, xs, sp_size, gpu)
         
-        return self.seg_invalid_to_ignore_value(scores, gt)
+        return self.invalid_to_ignore_value(scores, gt)
 
 
     def get_crps_pred_vs_emp_dist(self, pred, xs, inputs, gt, sp_size=20, knn_nb=20, gpu=True):
@@ -393,7 +393,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         tensor_names = ["pred", "inputs", "gt"]
         scores = self._compute_crps(tensors, tensor_names, pred_cdf_func, knn_cdf_func, xs, sp_size, gpu)
         
-        return self.seg_invalid_to_ignore_value(scores, gt)
+        return self.invalid_to_ignore_value(scores, gt)
 
 
     def get_point_cdf(self, tensor, xs, gpu=True):
@@ -417,8 +417,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             means = means.cuda()
             log_var = log_var.cuda()
             xs = xs.cuda()
-        
-        gmm_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var.exp(), xs)
+    
+        gmm_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
         dx = abs(xs[1] - xs[0]) # the step size of the x values
         gmm_cdf = torch.cumsum(gmm_density * dx, axis=-1)
         gmm_cdf = gmm_cdf / gmm_cdf[..., -1].unsqueeze(-1) # ensure the CDF ends at 1
@@ -571,7 +571,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
                 pdf_matrix = GMMPredictionHead.get_mixture_density(
                     rearrange(mixing_by_session[s][:, p], "T K -> () T () K"),
                     rearrange(means_by_session[s][:, p], "T K -> () T () K"),
-                    rearrange(logvar_by_session[s][:, p], "T K -> () T () K").exp(),
+                    rearrange(logvar_by_session[s][:, p], "T K -> () T () K"),
                     y_vals,
                 ).squeeze().numpy()
                 
