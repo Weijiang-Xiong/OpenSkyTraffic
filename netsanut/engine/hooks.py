@@ -12,6 +12,7 @@ from omegaconf import DictConfig
 
 import torch
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 
 from netsanut.engine.base import TrainerBase
 
@@ -37,24 +38,27 @@ class EvalHook(HookBase):
     def __init__(self, 
                  eval_function:Callable, 
                  metric_suffix="eval", 
-                 eval_after_epoch: bool =True,
+                 period: int = 0,
                  eval_after_train: bool =True) -> None:
         super().__init__()
         self.eval_function = eval_function
         self.suffix = metric_suffix
-        self.eval_after_epoch = eval_after_epoch
+        self.period = period # no per-epoch evaluation by default
         self.eval_after_train = eval_after_train
     
     def after_epoch(self, trainer: TrainerBase):
-        if not self.eval_after_epoch:
+        if self.period <= 0:
             return
+        elif self.period > 1 and (trainer.epoch_num + 1) % self.period != 0:
+            return
+        # if eval_per_epoch is 1, we evaluate every epoch
         
         ts = time.perf_counter()
-        validation_metrics = self.eval_function(trainer.model)
+        res = self.eval_function(trainer.model)
         te = time.perf_counter()
         trainer.storage.put_scalar(name="epoch_inference_time", value=te-ts)
-        if isinstance(validation_metrics, dict):
-            trainer.storage.put_scalars(**validation_metrics, suffix=self.suffix)
+        if isinstance(res, dict):
+            trainer.storage.put_scalars(**res, suffix=self.suffix)
         
     def after_train(self, trainer: TrainerBase):
         if not self.eval_after_train:
@@ -249,3 +253,26 @@ class MetadataHook(HookBase):
     
     def before_train(self, trainer: TrainerBase):
         trainer.model.adapt_to_metadata(self.metadata)
+
+
+class TensorboardWriter(HookBase):
+    """
+        Write the training log to tensorboard, the period should be the same as the evaluation period
+    """
+    def __init__(self, save_dir: str, period: int = 0) -> None:
+        super().__init__()
+        self.save_dir = save_dir
+        self.period = period
+        self.writer = SummaryWriter(log_dir=self.save_dir)
+        
+    def after_epoch(self, trainer: TrainerBase):
+        if self.period <= 0:
+            return
+        elif self.period > 1 and (trainer.epoch_num + 1) % self.period != 0:
+            return
+        
+        for key, (value, epoch_num) in trainer.storage.latest().items():
+            self.writer.add_scalar(key, value, epoch_num)
+
+    def after_train(self, trainer: TrainerBase):
+        self.writer.close()
