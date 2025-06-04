@@ -258,6 +258,7 @@ class MetadataHook(HookBase):
 class TensorboardWriter(HookBase):
     """
         Write the training log to tensorboard, the period should be the same as the evaluation period
+        This writer write the metrics every a few epochs, so the step-wise metrics will not be completely recorded.
     """
     def __init__(self, save_dir: str, period: int = 0) -> None:
         super().__init__()
