@@ -165,6 +165,7 @@ cython_debug/
 *.pth
 scratch
 .vscode
+.cursor
 datasets/*
 # allow git to manage readme and preprocessing scripts
 !datasets/README.md
