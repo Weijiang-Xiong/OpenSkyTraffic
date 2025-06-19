@@ -57,12 +57,13 @@ class TestGMM(unittest.TestCase):
         log_var = -2 * torch.ones(N, T, P, 3) # variances are e^-2 everywhere
         
         xs = torch.linspace(xmin, xmax, n_points)
-        mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var.exp(), xs)
+        mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
         self.assertTrue(mixture_density.shape == (N, T, P, 1000))
-        # check the value at 0
-        var = torch.tensor(-2).exp()
-        value = sum(1/(3*torch.sqrt(torch.tensor([2*torch.pi*var]))) * torch.tensor([-1/(2*var), -9/(2*var), -25/(2*var)]).exp())
-        self.assertTrue(torch.allclose(mixture_density[..., 0], value))
+        var = torch.tensor(-2).exp().item()
+        scipy_value = 1/3 * (norm.pdf(xs.numpy(), loc=1.0, scale=np.sqrt(var)) + 
+                             norm.pdf(xs.numpy(), loc=3.0, scale=np.sqrt(var)) +
+                             norm.pdf(xs.numpy(), loc=5.0, scale=np.sqrt(var)))
+        self.assertTrue(torch.allclose(mixture_density[0, 0, 0, :], torch.tensor(scipy_value, dtype=torch.float32)))
     
     def test_gmm_confidence_interval(self):
         N, T, P, C = 4, 10, 19, 32

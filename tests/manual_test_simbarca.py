@@ -1,3 +1,8 @@
+"""
+This script is called manual test because we can't automatically check the dataset,
+one have to manually plot the results and do some sanity checks.
+"""
+
 import unittest
 import logging
 

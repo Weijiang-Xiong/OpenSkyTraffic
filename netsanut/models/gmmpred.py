@@ -32,8 +32,18 @@ def gaussian_density(mean, log_var, x):
     return torch.exp(-0.5 * ((x - mean) ** 2) / torch.exp(log_var) - 0.5 * log_var - 0.5 * torch.log(torch.tensor([2 * torch.pi], device=mean.device)))
 
 class GMMPredictionHead(nn.Module):
-    
-    def __init__(self, in_dim, hid_dim:int, anchors:List[float], sizes:List[float], pred_steps:int=10, ignore_value:float=-1.0, dropout=0.1, zero_init=False, mcd_estimation=False):
+    def __init__(
+        self,
+        in_dim,
+        hid_dim: int,
+        anchors: List[float],
+        sizes: List[float],
+        pred_steps: int = 10,
+        ignore_value: float = -1.0,
+        dropout=0.1,
+        zero_init=False,
+        mcd_estimation=False,
+    ):
         super().__init__()
         self.pred_steps = pred_steps
         self.ignore_value = ignore_value
@@ -212,17 +222,17 @@ class GMMPredictionHead(nn.Module):
                                       torch.zeros_like(x_is_in_interval[..., :1]).bool()], dim=-1)
         
         diff = torch.diff(x_is_in_interval_pad.int(), dim=-1)
-        index_range = torch.arange(diff.size(-1))
+        index_range = torch.arange(diff.size(-1), device=xs.device)
         # x_is_in_interval: (F, T, T, F, F, T, T, F); diff: [1, 0, -1, 0, 1, 0, -1], one element less.
         # the index of 1 in diff (0, 4) is the same as the lower bound index in x_is_in_interval (0, 4)
         # the index of -1 in diff (2, 6) is 1 + the index of the upper bound index in x_is_in_interval (1, 5)
         # We filled the other values with the biggest index (unpadded), so after sorting, they will be at 
         # the end then we can know the interval is empty by checking if lb == ub
         lb_index = torch.sort(
-            torch.where(diff == 1, index_range, torch.full_like(index_range, fill_value=xs.size(-1)-1)) 
+            torch.where(diff == 1, index_range, torch.full_like(index_range, fill_value=xs.size(-1)-1, device=xs.device)) 
             )[0][..., :num_comp]
         ub_index = torch.sort(
-            torch.where(diff == -1, index_range-1, torch.full_like(index_range, fill_value=xs.size(-1)-1))
+            torch.where(diff == -1, index_range-1, torch.full_like(index_range, fill_value=xs.size(-1)-1, device=xs.device))
             )[0][..., :num_comp]
         lb = xs[lb_index]
         ub = xs[ub_index]

@@ -1,7 +1,7 @@
 import json
 import logging
 import numpy as np 
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn 
@@ -29,6 +29,9 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         C: number of features (value and time)
         K: number of GMM components
         X: number of points to evaluate density
+
+        Note that NaN values can exist in the input, groundtruth and scores, so whenever we do an average, we 
+        need to use torch.nanmean instead of a simple mean.
     """
     # these are the additional output sequences other than the predicted targets
     # for GMM prediction, that would be the GMM parameters for segments and regions
@@ -62,6 +65,9 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         self.gpu = True  # whether to use GPU acceleration, default True
 
     
+    #########################################################################################
+    ################ Functions for collecting data and statistics         ###################
+    #########################################################################################
     def collect_predictions(self, model, data_loader, pred_seqs = None, data_seqs = None):
         
         all_preds, all_data = super().collect_predictions(
@@ -77,8 +83,10 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
     
     
     def analyze_scores(self, scores, note:str=None, verbose=False):
-        """ Given an error score tensor of shape (N, T, P), we summarize the score over the time steps.
+        """ Given an error score tensor of shape (N, T, P), we summarize the score at each time step.
             The summary is saved to self.saved_metrics, with the key being the note.
+            Note that the scores need to be filtered with self.ignore_score_when_gt_isnan, otherwise the aggregation will be incorrect. 
+            The reason for not putting self.ignore_score_when_gt_isnan in the analyze_scores function is that we may want to use other analysis procedure, rather than just averaging for each time step. So we leave it to the caller to do the filtering.
             
             Args:
                 scores: Error scores with shape (N, T, P)
@@ -96,9 +104,34 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         if verbose:
             logger.info(f"Saved average {note} scores by time step to saved_metrics")
             logger.info(f"Overall average {note}: {self.saved_scores['scalar'][f'{note}']:.4f}")
-    
-    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
+
+
+    def ignore_score_when_gt_isnan(self, scores, gt) -> torch.Tensor:
+        """
+        Ignore values in the scores tensor where the ground truth (gt) is NaN.
+        This is needed because sometimes a gt is NaN, but its KNN is not entirely NaN.
+        Without this function, we can still compute a CRPS score in theory, but it is not considered as valid.
         
+        Args:
+            scores: Tensor of CRPS scores
+            gt: Ground truth tensor
+        """
+        scores[gt.isnan()] = self.ignore_value
+
+        return scores
+    
+
+    #########################################################################################
+    ################ Main evaluation routines           #####################################
+    #########################################################################################
+    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
+        """ This evaluation function is structured as follows:
+                0. run the super class's evaluation function (deterministic metrics)
+                1. collect predictions and required data sequences from the model and dataset
+                2. run various evaluation functions (CRPS, CI, etc.), average scores saved to self.saved_scores
+                3. if visualization is required, plot the scores and predictions
+                4. return the average scores (so that the engine and hooks can have access to the main scores at this round)
+        """
         _ = super().evaluate(model, data_loader, verbose=verbose)
         
         dataset: SimBarca = data_loader.dataset
@@ -112,132 +145,240 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             pred_seqs=dataset.output_seqs + self.add_output_seq,
             data_seqs=dataset.output_seqs + ['drone_speed'],
         )
-        cdf_xs = torch.linspace(self.data_min['seg'], self.data_max['seg'] , self.ci_pts)
-
-        
-        crps_gmm_emp = self.get_crps_gmm_vs_emp_dist(
-            mixing=all_preds["seg_mixing"],
-            means=all_preds["seg_means"],
-            log_var=all_preds["seg_log_var"],
-            xs=cdf_xs,
-            inputs=all_data["drone_speed"],
-            gt=all_data["pred_speed"],
-            sp_size=self.sp_size,
-            knn_nb=self.knn_nb,
-            gpu=self.gpu,
-        )
-        self.analyze_scores(crps_gmm_emp, note="CRPS_GMM_EMP")
-        if verbose:
-            logger.info("Evaluate CRPS score for GMM predictions using KNN empirical distribution...")
-            logger.info("The average CRPS {}".format(crps_gmm_emp.nanmean()))
-
-        
-        crps_pred_emp = self.get_crps_pred_vs_emp_dist(
-            pred=all_preds["pred_speed"],
-            xs=cdf_xs,
-            inputs=all_data["drone_speed"],
-            gt=all_data["pred_speed"],
-            sp_size=self.sp_size,
-            knn_nb=self.knn_nb,
-            gpu=self.gpu,
-        )
-        self.analyze_scores(crps_pred_emp, note="CRPS_PRED_EMP")
-        if verbose:
-            logger.info("Evaluate CRPS score for point predictions using the KNN empirical distribution...")
-            logger.info("The average CRPS {}".format(crps_pred_emp.nanmean()))
-        
-        crps_gmm_gt = self.get_crps_gmm_vs_gt(
-            mixing=all_preds["seg_mixing"],
-            means=all_preds["seg_means"],
-            log_var=all_preds["seg_log_var"],
-            xs=cdf_xs,
-            gt=all_data["pred_speed"],
-            sp_size=self.sp_size,
-            gpu=self.gpu,
-        )
-        self.analyze_scores(crps_gmm_gt, note="CRPS_GMM_GT")
-        if verbose:
-            logger.info("Evaluate CRPS score for GMM predictions using the ground truth point distribution...")
-            logger.info("The average CRPS {}".format(crps_gmm_gt.nanmean()))
-
-        # for conf in self.eval_confs:
-        #     self.eval_gmm_confidence_interval(
-        #         mixing=all_preds["seg_mixing"],
-        #         means=all_preds["seg_means"],
-        #         log_var=all_preds["seg_log_var"],
-        #         gt=all_data["pred_speed"],
-        #         xmin=self.data_min["seg"],
-        #         xmax=self.data_max["seg"],
-        #         n_points=self.ci_pts,
-        #         conf=conf
-        #     )
+        logger.info("Evaluating CRPS scores")
+        self.evaluate_crps(all_preds, all_data, verbose=verbose)
+        logger.info("Evaluating confidence intervals")
+        self.evaluate_confidence_interval(all_preds, all_data, verbose=verbose)
         
         if self.visualize:
             
-            self.plot_scores()
+            self.plot_crps_scores()
+            self.save_scores_to_json()
             
             # Pass lists of positions and sessions instead of looping here
             p_list_seg = [s2i[sec] for sec in soi]
             s_list = list(range(len(session_ids)))
             p_list_reg = list(range(len(dataset.cluster_id.unique()))) # For regional predictions
             
+            fix_time_pred_path = f"{self.save_dir}/fix_time_pred"
+            make_dir_if_not_exist(fix_time_pred_path)
+            logger.info(f"Plotting predictions at a fixed timestamp, files saved to {fix_time_pred_path}")
+
             self.plot_pred_fix_time(all_preds, all_data,
                     p_list=p_list_seg, s_list=s_list,
                     time_step_to_viz=10, pred_horizons=10,
                     sample_per_session=dataset.sample_per_session, task="seg",
-                    sec_ids=soi, sim_ids=session_ids)
+                    sec_ids=soi, sim_ids=session_ids, subfolder_path=fix_time_pred_path)
             
+            gmm_pred_path = f"{self.save_dir}/gmm_predictions"
+            make_dir_if_not_exist(gmm_pred_path)
+            logger.info(f"Plotting GMM predictions, files saved to {gmm_pred_path}")
+
             self.plot_30min_gmm_preds(all_preds, all_data, p_list=p_list_seg, s_list=s_list, 
-                    sample_per_session=dataset.sample_per_session, task="seg", sim_ids=session_ids, sec_ids=soi, with_knn=True)
+                    sample_per_session=dataset.sample_per_session, task="seg", sim_ids=session_ids, 
+                    sec_ids=soi, with_knn=True, subfolder_path=gmm_pred_path)
             self.plot_30min_gmm_preds(all_preds, all_data, p_list=p_list_reg, s_list=s_list,
-                    sample_per_session=dataset.sample_per_session, task="reg", sim_ids=session_ids, sec_ids=p_list_reg)
+                    sample_per_session=dataset.sample_per_session, task="reg", sim_ids=session_ids,
+                    sec_ids=p_list_reg, subfolder_path=gmm_pred_path)
     
         return self.saved_scores['scalar']
 
 
-    def eval_gmm_confidence_interval(self, mixing, means, log_var, gt, xmin, xmax, n_points, conf):
+    #########################################################################################
+    ################ Evaluation subroutines        ##########################################
+    #########################################################################################
+    def evaluate_confidence_interval(self, all_preds, all_data, verbose=False):
         """
-            Evaluate the GMM confidence interval for the predictions, with two aspects into account:
-                1. The percentage of predictions within the confidence interval
-                2. The width of the confidence interval
+        This function evaluates the confidence interval of the GMM prediction.
+        """
+        for conf in self.eval_confs:
+            within_ci, interval_width = self.point_wise_cover_and_width(
+                mixing=all_preds["seg_mixing"],
+                means=all_preds["seg_means"],
+                log_var=all_preds["seg_log_var"],
+                gt=all_data["pred_speed"],
+                xmin=self.data_min["seg"],
+                xmax=self.data_max["seg"],
+                n_points=self.ci_pts,
+                conf=conf,
+                sp_size=self.sp_size,
+                gpu=self.gpu,
+            )
+
+            within_ci = self.ignore_score_when_gt_isnan(within_ci, all_data["pred_speed"])
+            interval_width = self.ignore_score_when_gt_isnan(interval_width, all_data["pred_speed"])
+
+            self.analyze_scores(
+                scores=within_ci.float(),
+                note=f"CI_COVER_{conf}",
+                verbose=False, # don't separately print the scores for each confidence level
+            )
+            self.analyze_scores(
+                scores=interval_width,
+                note=f"CI_WIDTH_{conf}",
+                verbose=False, # don't separately print the scores for each confidence level
+            )
+        
+        # from the saved CI_COVER and CI_WIDTH, compute the calibration error and average width
+        # confidence calibration error is the absolute difference between confidence level and the average coverage
+        CCE_conf_horizon, AW_conf_horizon = [], []
+        for conf in self.eval_confs:
+            CCE_conf_horizon.append(abs(self.saved_scores['vector'][f'CI_COVER_{conf}'] - conf))
+            AW_conf_horizon.append(self.saved_scores['vector'][f'CI_WIDTH_{conf}'])
+
+        # concatenate the scores along a new dimension, which is the confidence level
+        CCE_horizon = np.stack(CCE_conf_horizon, axis=-1).mean(axis=-1)
+        AW_horizon = np.stack(AW_conf_horizon, axis=-1).mean(axis=-1)
+
+        # save the scores 
+        self.saved_scores['scalar']['mCCE'] = CCE_horizon.mean().item()
+        self.saved_scores['scalar']['mAW'] = AW_horizon.mean().item()
+        self.saved_scores['vector']['CCE_horizon'] = CCE_horizon.tolist()
+        self.saved_scores['vector']['AW_horizon'] = AW_horizon.tolist()
+        if verbose:
+            logger.info(f"mCCE: {self.saved_scores['scalar']['mCCE']:.4f}, mAW: {self.saved_scores['scalar']['mAW']:.4f}")
+
+
+    def evaluate_crps(self, all_preds, all_data, verbose=False):
+
+        cdf_xs = torch.linspace(self.data_min['seg'], self.data_max['seg'] , self.ci_pts)
+
+        self.analyze_scores(
+            scores=self.ignore_score_when_gt_isnan(
+                self.get_crps_gmm_vs_emp_dist(
+                    mixing=all_preds["seg_mixing"],
+                    means=all_preds["seg_means"],
+                    log_var=all_preds["seg_log_var"],
+                    xs=cdf_xs,
+                    inputs=all_data["drone_speed"],
+                    gt=all_data["pred_speed"],
+                    sp_size=self.sp_size,
+                    knn_nb=self.knn_nb,
+                    gpu=self.gpu,
+                ),
+                all_data["pred_speed"],
+            ),
+            note="CRPS_GMM_EMP",
+            verbose=verbose,
+        )
+
+        self.analyze_scores(
+            scores=self.ignore_score_when_gt_isnan(
+                self.get_crps_pred_vs_emp_dist(
+                    pred=all_preds["pred_speed"],
+                    xs=cdf_xs,
+                    inputs=all_data["drone_speed"],
+                    gt=all_data["pred_speed"],
+                    sp_size=self.sp_size,
+                    knn_nb=self.knn_nb,
+                    gpu=self.gpu,
+                ),
+                all_data["pred_speed"],
+            ),
+            note="CRPS_PRED_EMP",
+            verbose=verbose,
+        )
+
+        self.analyze_scores(
+            scores=self.ignore_score_when_gt_isnan(
+                self.get_crps_gmm_vs_gt(
+                    mixing=all_preds["seg_mixing"],
+                    means=all_preds["seg_means"],
+                    log_var=all_preds["seg_log_var"],
+                    xs=cdf_xs,
+                    gt=all_data["pred_speed"],
+                    sp_size=self.sp_size,
+                    gpu=self.gpu,
+                ),
+                all_data["pred_speed"],
+            ),
+            note="CRPS_GMM_GT",
+            verbose=verbose,
+        )
+
+
+    #########################################################################################
+    ################ Functions utilized in the subroutines        ###########################
+    #########################################################################################
+    @staticmethod
+    def point_wise_cover_and_width(
+        mixing: torch.Tensor,
+        means: torch.Tensor,
+        log_var: torch.Tensor,
+        gt: torch.Tensor,
+        xmin: float,
+        xmax: float,
+        n_points: int,
+        conf: float,
+        sp_size: int = 20,
+        gpu: bool = True,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+            For each point in gt, compute whether it is covered by the `conf` confidence interval of the GMM prediction,
+            as well as the width of the confidence interval.
             
-            mixing: the GMM mixing coefficients
-            means: the GMM means
-            variances: the GMM variances
-            gt: the ground truth values
+            Args:
+                mixing: the GMM mixing coefficients, shape (N, T, P, K)
+                means: the GMM means, shape (N, T, P, K)
+                log_var: the GMM variances, shape (N, T, P, K)
+                gt: the ground truth values, shape (N, T, P)
+                xmin: the minimum value of the predicted variable
+                xmax: the maximum value of the predicted variable
+                n_points: the number of points to evaluate the GMM density
+                conf: the confidence level
+
+            Returns:
+                within_ci: a boolean tensor indicating whether the ground truth value is within the confidence interval, shape (N, T, P)
+                interval_width: the average width of the confidence interval, shape (N, T, P)
         """
 
         # split tensors along spatial dimension to save memory
-        tensor_names = ["mixing", "means", "log_var"]
-        tensors = [mixing, means, log_var]
+        tensor_names = ["mixing", "means", "log_var", "gt"]
+        tensors = [mixing, means, log_var, gt]
         split_tensors = {}
         for name, tensor in zip(tensor_names, tensors):
-            split_tensors[name] = torch.split(tensor, self.sp_size, dim=2)
+            split_tensors[name] = torch.split(tensor, sp_size, dim=2)
         
 
-        score_by_chunk = []
+        score_by_chunk = {"within_ci": [], "interval_width": []}
         # Get the number of chunks from any tensor (they all have the same number)
         num_chunks = len(split_tensors[tensor_names[0]])
         for i in range(num_chunks):
             # Extract current chunk for each tensor
             chunks = {name: split_tensors[name][i] for name in tensor_names}
 
+            # put the tensors on GPU if available
+            if gpu and torch.cuda.is_available():
+                chunks = {name: tensor.cuda() for name, tensor in chunks.items()}
+
             gmm_confidence_intervals = GMMPredictionHead.get_confidence_interval(
-                chunks["mixing"].cuda(), chunks["means"].cuda(), chunks["log_var"].cuda(),
+                chunks["mixing"], chunks["means"], chunks["log_var"],
                 xmin=xmin, xmax=xmax, n_points=n_points, conf=conf
             )
             
             # Compute the percentage of predictions within the confidence interval
-            within_ci = (gmm_confidence_intervals[0] <= gt) & (gt <= gmm_confidence_intervals[1])
-            score_by_chunk.append(within_ci.float())
+            # a confidence interval can contain at most K subintervals, where K is the number of GMM components
+            # if any subinterval covers the ground truth value, the prediction is within the confidence interval
+            within_ci = torch.any(
+                torch.logical_and( 
+                    gmm_confidence_intervals[0] <= chunks["gt"].unsqueeze(-1), 
+                    gmm_confidence_intervals[1] >= chunks["gt"].unsqueeze(-1)
+                ), 
+                dim=-1
+            ) # (N, T, P)
+            interval_width = torch.abs(gmm_confidence_intervals[1] - gmm_confidence_intervals[0]).sum(dim=-1) # (N, T, P)
+            score_by_chunk['within_ci'].append(within_ci)
+            score_by_chunk['interval_width'].append(interval_width)
     
         # Concatenate the chunks
-        score = torch.cat(score_by_chunk, dim=-1).cpu()
+        within_ci = torch.cat(score_by_chunk['within_ci'], dim=-1)
+        interval_width = torch.cat(score_by_chunk['interval_width'], dim=-1)
 
-        return score
+        return within_ci, interval_width
 
 
-    def _compute_crps(self, tensors, tensor_names, cdf_func1, cdf_func2, xs, sp_size=20, gpu=True):
+    @staticmethod
+    def _compute_crps(tensors, tensor_names, cdf_func1, cdf_func2, xs, sp_size=20, gpu=True):
         """
         Compute CRPS between two distributions.
         
@@ -266,10 +407,14 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         for i in range(num_chunks):
             # Extract current chunk for each tensor
             chunks = {name: split_tensors[name][i] for name in tensor_names}
+
+            if gpu and torch.cuda.is_available():
+                chunks = {k: v.cuda() for k, v in chunks.items()}
+                xs = xs.to('cuda')
             
             # Compute CDFs using the provided functions
-            cdf1 = cdf_func1(chunks, xs, gpu)
-            cdf2 = cdf_func2(chunks, xs, gpu)
+            cdf1 = cdf_func1(chunks, xs)
+            cdf2 = cdf_func2(chunks, xs)
             
             # Compute CRPS
             CRPS_chunk = torch.sum((cdf1 - cdf2)**2 * abs(xs[1] - xs[0]), dim=-1)
@@ -280,19 +425,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         
         return CRPS
 
-
-    def invalid_to_ignore_value(self, scores, gt):
-        """
-        Ignore invalid values in the scores tensor based on the ground truth tensor.
-        
-        Args:
-            scores: Tensor of CRPS scores
-            gt: Ground truth tensor
-        """
-        scores[gt.isnan()] = self.ignore_value
-
-        return scores
-    
     
     def get_crps_gmm_vs_emp_dist(self, mixing, means, log_var, xs, inputs, gt, sp_size=20, knn_nb=20, gpu=True):
         """
@@ -321,17 +453,17 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             CRPS_emp: the CRPS score between predicted and empirical distribution, with shape (N, T, P)
         """
         
-        def gmm_cdf_func(chunks, xs, gpu):
-            return self.get_gmm_cdf(chunks["mixing"], chunks["means"], chunks["log_var"], xs, gpu=gpu)
-        def knn_ecdf_func(chunks, xs, gpu):
-            return self.get_knn_ecdf(chunks["inputs"], chunks["gt"], knn_nb, xs, gpu=gpu)
+        def gmm_cdf_func(chunks, xs):
+            return self.get_gmm_cdf(chunks["mixing"], chunks["means"], chunks["log_var"], xs)
+        def knn_ecdf_func(chunks, xs):
+            return self.get_knn_ecdf(chunks["inputs"], chunks["gt"], knn_nb, xs)
         
         # split the tensors along the spatial location dimension to get chunks, save memory
         tensors = [mixing, means, log_var, inputs, gt]
         tensor_names = ["mixing", "means", "log_var", "inputs", "gt"]
         scores = self._compute_crps(tensors, tensor_names, gmm_cdf_func, knn_ecdf_func, xs, sp_size, gpu)
         
-        return self.invalid_to_ignore_value(scores, gt)
+        return scores
     
     
     def get_crps_gmm_vs_gt(self, mixing, means, log_var, xs, gt, sp_size=20, gpu=True):
@@ -352,17 +484,17 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             CRPS scores (N, T, P)
         """
         # Define CDF computation functions
-        def gmm_cdf_func(chunks, xs, gpu):
-            return self.get_gmm_cdf(chunks['mixing'], chunks['means'], chunks['log_var'], xs, gpu)
+        def gmm_cdf_func(chunks, xs):
+            return self.get_gmm_cdf(chunks['mixing'], chunks['means'], chunks['log_var'], xs)
         
-        def gt_cdf_func(chunks, xs, gpu):
-            return self.get_point_cdf(chunks['gt'], xs, gpu)
+        def gt_cdf_func(chunks, xs):
+            return self.get_point_cdf(chunks['gt'], xs)
         
         tensors = [mixing, means, log_var, gt]
         tensor_names = ["mixing", "means", "log_var", "gt"]
         scores = self._compute_crps(tensors, tensor_names, gmm_cdf_func, gt_cdf_func, xs, sp_size, gpu)
         
-        return self.invalid_to_ignore_value(scores, gt)
+        return scores
 
 
     def get_crps_pred_vs_emp_dist(self, pred, xs, inputs, gt, sp_size=20, knn_nb=20, gpu=True):
@@ -383,41 +515,31 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             CRPS scores (N, T, P)
         """
         # Define CDF computation functions
-        def pred_cdf_func(chunks, xs, gpu):
-            return self.get_point_cdf(chunks['pred'], xs, gpu)
+        def pred_cdf_func(chunks, xs):
+            return self.get_point_cdf(chunks['pred'], xs)
         
-        def knn_cdf_func(chunks, xs, gpu):
-            return self.get_knn_ecdf(chunks['inputs'], chunks['gt'], knn_nb, xs, gpu)
+        def knn_cdf_func(chunks, xs):
+            return self.get_knn_ecdf(chunks['inputs'], chunks['gt'], knn_nb, xs)
         
         tensors = [pred, inputs, gt]
         tensor_names = ["pred", "inputs", "gt"]
         scores = self._compute_crps(tensors, tensor_names, pred_cdf_func, knn_cdf_func, xs, sp_size, gpu)
         
-        return self.invalid_to_ignore_value(scores, gt)
+        return scores
 
 
-    def get_point_cdf(self, tensor, xs, gpu=True):
+    def get_point_cdf(self, tensor, xs):
         """ tensor has shape (N, T, sp_size), can be ground-truth or predicted most-likely values.
             xs has shape (X,), which is the points to evaluate the CDF.
         
             The CDF is a step function jumping at the value of tensor, with shape (N, T, sp_size, X).
         """
-        if gpu and torch.cuda.is_available():
-            tensor = tensor.cuda()
-            xs = xs.cuda()
-        
         point_cdf = (tensor.unsqueeze(-1) < xs).float()
         
         return point_cdf
 
         
-    def get_gmm_cdf(self, mixing, means, log_var, xs, gpu=True):
-        if gpu and torch.cuda.is_available():
-            mixing = mixing.cuda()
-            means = means.cuda()
-            log_var = log_var.cuda()
-            xs = xs.cuda()
-    
+    def get_gmm_cdf(self, mixing, means, log_var, xs):
         gmm_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
         dx = abs(xs[1] - xs[0]) # the step size of the x values
         gmm_cdf = torch.cumsum(gmm_density * dx, axis=-1)
@@ -426,13 +548,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         return gmm_cdf
     
     
-    def get_knn_ecdf(self, inputs, gt, knn_nb, xs, gpu=True):
-        if gpu and torch.cuda.is_available():
-            inputs = inputs.cuda()
-            gt = gt.cuda()
-            xs = xs.cuda()
-        
-        gt_knn = self.compute_knn_neighbors(inputs, gt, k=knn_nb)
+    def get_knn_ecdf(self, inputs, gt, knn_nb, xs):
+        gt_knn = self.get_knn_neighbors(inputs, gt, k=knn_nb)
         
         # after sorting, the NaN values are at the end of the tensor
         sorted_gt, _ = torch.sort(gt_knn, dim=-1)
@@ -446,16 +563,21 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         N_dim, T_dim, sp_size_dim, _ = sorted_gt.shape
         counts = torch.searchsorted(
             # We need to replace the NaN values with inf because otherwise searchsorted will think the values should 
-            # be inserted at the end of the tensor, and we always get k counts, and ecdf will be 1.0. 
+            # be inserted at the end of the tensor, and we always get k counts
             torch.nan_to_num(sorted_gt, nan=float("inf")), 
             xs.view(1,1,1,-1).expand(N_dim, T_dim, sp_size_dim, -1), 
             side='right')
-        knn_ecdf = counts.float() / knn_nb # → (N, T, sp_size, X)
+
+        # we divide by the valid values (ignoring nan) to get the empirical CDF that always ends at 1.0
+        num_valid_neighbors = torch.logical_not(gt_knn.isnan()).sum(dim=-1)
+        knn_ecdf = counts.float() / num_valid_neighbors.unsqueeze(-1).float()
         
+        # at this step, if an element in gt is NaN, the corresponding knn_ecdf will be NaN as well.
+        # this will be addressed by self.invalid_to_ignore_value before returning the scores.
         return knn_ecdf
     
-    
-    def compute_knn_neighbors(self, x, y, k=20):
+    @staticmethod
+    def get_knn_neighbors(x, y, k=20):
         """
         For each spatial location, we compute the k nearest neighbors among all samples in the dataset (including self), according to the L2 distance in the input time series (drone speed, nan values replaced by mean). 
         The target output y is then gathered according to the k nearest neighbors, and they form an empirical distribution.
@@ -493,39 +615,67 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         
         return rearrange(knn_y, 'N k P T -> N T P k')
     
-    
-    def plot_scores(self):
+    #########################################################################################
+    ############### Functions for plotting statistics        ################################
+    #########################################################################################
+
+    def plot_crps_scores(self):
         """ 
             Plot the scores saved in self.saved_scores, which is a dictionary with keys being the score types.
             The values are numpy arrays with shape (T,) or (P,) for each time step and spatial location.
         """
         scores_by_time = self.saved_scores["vector"]
         # plot the scores by time step
-        plot_legends = [
-            ("CRPS_GMM_EMP", "GMM vs Empirical", "-"),
-            ("CRPS_PRED_EMP", "Pred vs Empirical", "-"),
-            ("CRPS_GMM_GT", "GMM vs GT", "--"),
-            ("pred_speed_mae", "Pred vs GT (MAE)", "--"),
+        plot_legends_emp = [
+            ("CRPS_GMM_EMP", "GMM vs Empirical"),
+            ("CRPS_PRED_EMP", "Pred vs Empirical")
         ]
+        plot_legends_gt = [            
+            ("CRPS_GMM_GT", "GMM vs GT"),
+            ("pred_speed_mae", "Pred vs GT (MAE)")
+        ]
+        for plot_legends, base_name in zip([plot_legends_emp, plot_legends_gt], ["emp", "gt"]):
+            fig, ax = plt.subplots(figsize=(6, 5))
+            for seq_name, seq_legend in plot_legends:
+                if seq_name in scores_by_time.keys():
+                    v = scores_by_time[seq_name]
+                # plot the scores by time step using the specified line style
+                ax.plot(v, label=seq_legend)
+                
+            ax.set_xticks(np.arange(len(v)))
+            ax.set_xticklabels(3 * (np.arange(len(v))+1) )
+            ax.set_xlabel("Prediction Time Horizion (min)")
+            ax.set_ylabel("Score")
+            ax.legend(loc="upper left")
+            ax.set_title("CRPS by Time Horizion")
+            plt.tight_layout()
+            save_path = f"{self.save_dir}/crps_by_time_{base_name}_{self.save_note}.pdf"
+            plt.savefig(save_path)
+            logger.info(f"Save scores by time step to {save_path}")
+            plt.close(fig)  # Close figure to free memory
 
-        fig, ax = plt.subplots(figsize=(6, 5))
-        for seq_name, seq_legend, line_style in plot_legends:
-            if seq_name in scores_by_time.keys():
-                v = scores_by_time[seq_name]
-            # plot the scores by time step using the specified line style
-            ax.plot(v, line_style, label=seq_legend)
-            
-        ax.set_xticks(np.arange(len(v)))
-        ax.set_xticklabels(3 * (np.arange(len(v))+1) )
-        ax.set_xlabel("Prediction Time Horizion (min)")
-        ax.set_ylabel("Score")
-        ax.legend(loc="upper left")
-        ax.set_title("CRPS by Time Horizion")
-        plt.tight_layout()
-        save_path = f"{self.save_dir}/scores_by_time_{self.save_note}.pdf"
-        plt.savefig(save_path)
-        logger.info(f"Save scores by time step to {save_path}")
-        plt.close(fig)  # Close figure to free memory
+    
+    def save_scores_to_json(self, file_name: str = "final_evaluation_scores.json"):
+        """
+        Save the scores to a JSON file.
+        The scores are saved in a dictionary with keys being the score types and values being the scores.
+        """
+
+        scalar_res = {k:float(v) for k, v in self.saved_scores['scalar'].items()}
+        vector_res = {k:v for k, v in self.saved_scores['vector'].items() if isinstance(v, list)}
+        res_to_save = {
+            "average": scalar_res,
+            "horizon": vector_res
+        }
+
+        save_path = f"{self.save_dir}/{file_name}"
+        with open(save_path, 'w') as f:
+            json.dump(res_to_save, f, indent=4)
+        logger.info(f"Saved scores to {save_path}")
+
+    #########################################################################################
+    ############### Functions for plotting time-series predictions        ###################
+    #########################################################################################
 
     def plot_30min_gmm_preds(
         self,
@@ -538,6 +688,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         sec_ids: List = None,
         sim_ids: List = None,
         with_knn=False,
+        verbose=False,
+        subfolder_path=None,
     ):
         """ 
             Plot the GMM prediction for positions `p_list` at simulation sessions `s_list`
@@ -580,7 +732,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         for p, sec_id in zip(p_list, sec_ids):
             
             if with_knn: # Compute KNN neighbors for the last time step
-                knn = self.compute_knn_neighbors(
+                knn = self.get_knn_neighbors(
                     x=all_data['drone_speed'][:, -1, p].reshape(-1, 1, 1), 
                     y=all_data['pred_speed'][:, -1, p].reshape(-1, 1, 1)
                 )
@@ -621,13 +773,10 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
                 # Generate descriptive filename
                 position_label = f"region{p}" if task == "reg" else f"section{p}_aimsun{sec_id}"
                 
-                # Create subfolder for 30min ahead predictions
-                subfolder_path = f"{self.save_dir}/gmm_predictions"
-                make_dir_if_not_exist(subfolder_path)
-                
                 save_path = f"{subfolder_path}/{position_label}_sim{sim_id}.pdf"
                 fig.savefig(save_path)
-                logger.info(f"Save GMM prediction visualization to {save_path}")
+                if verbose:
+                    logger.info(f"Save GMM prediction visualization to {save_path}")
                 plt.close(fig)  # Close figure to free memory
                 
                 
@@ -643,11 +792,14 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         task=None,
         sec_ids: List = None,
         sim_ids: List = None,
+        subfolder_path=None,
+        verbose=False,
     ):
         """ 
             Plot the GMM prediction at a fixed time stamp for different prediction horizons (3min to 30min ahead).
-            E.g., for 8 am in simulation session 1, we plot the predicted speed when the input window is 3 min, 6 min, ..., 30 min before 8 am. When the input window is 3 min before 8 am, our input data is from 7:27 - 7:57 am, and 8 am is just the next time step.
-            
+            E.g., for 8 am in simulation session 1, we plot the predicted speed when the input window is 3 min, 6 min, ..., 30 min before 8 am. 
+            When the input window is 3 min before 8 am, our input data is from 7:27 - 7:57 am, and 8 am is just the next time step.
+
             Args:
                 all_preds: dictionary of all predictions, values are tensors of shape (N, T, P, K) for GMM parameters and (N, T, P) for predicted speed
                 all_data: dictionary of all data sequences (input and output alike), values are tensors of shape (N, T_i, P) where T_i may vary
@@ -721,11 +873,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
                 ax.set_xticks(xx, pred_horizon_labels)
                 fig.tight_layout()
                 
-                # Create subfolder for fixed time predictions
-                subfolder_path = f"{self.save_dir}/fix_time_pred"
-                make_dir_if_not_exist(subfolder_path)
-                
                 save_path = f"{subfolder_path}/{task}_{sec_id}_sim{sim_id}_time{time_step_to_viz*self.data_time_step + self.input_window}.pdf"
                 fig.savefig(save_path)
-                logger.info(f"Save GMM prediction visualization to {save_path}")
+                if verbose:
+                    logger.info(f"Save GMM prediction visualization to {save_path}")
                 plt.close(fig)

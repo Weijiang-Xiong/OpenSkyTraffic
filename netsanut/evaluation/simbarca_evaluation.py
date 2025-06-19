@@ -227,6 +227,7 @@ class SimBarcaEvaluator:
             self.pred_save_dir = "{}/predictions".format(self.save_dir)
             make_dir_if_not_exist(self.pred_save_dir)
             
+            logger.info("Plotting predictions for sections of interest and regional predictions, check the plots in {}".format(self.pred_save_dir))
             section_id_to_index = {v:k for k, v in dataset.index_to_section_id.items()}
             for section_id in sections_of_interest:
                 section_index = section_id_to_index[section_id]
@@ -255,7 +256,7 @@ class SimBarcaEvaluator:
         return self.saved_scores['scalar']
 
 
-    def plot_pred_for_section(self, all_preds, all_labels, session_ids, demand_scales, section_num=100, regional=False, save_note="example"):
+    def plot_pred_for_section(self, all_preds, all_labels, session_ids, demand_scales, section_num=100, regional=False, save_note="example", verbose=False):
 
         p = section_num
         sample_per_session = 20
@@ -286,7 +287,8 @@ class SimBarcaEvaluator:
         fig.legend(handles, labels, loc='upper center', ncols=2)
         plt.tight_layout(rect=[0, 0, 1, 0.95])  # Leave space for the legend at the top
         fig.savefig("{}/30min_ahead_{}_{}_{}.pdf".format(self.pred_save_dir, sequence, p, save_note))
-        logger.info("Saved the plot to {}/30min_ahead_{}_{}_{}.pdf".format(self.pred_save_dir, sequence, p, save_note))
+        if verbose:
+            logger.info("Saved the plot to {}/30min_ahead_{}_{}_{}.pdf".format(self.pred_save_dir, sequence, p, save_note))
         
         
     def plot_MAE_by_location(self, node_coordinates, all_preds, all_labels, save_note="example"):
