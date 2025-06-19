@@ -1,7 +1,6 @@
 import os
 
 import seaborn as sns
-sns.set_style("darkgrid")
 
 from netsanut.config import default_argument_parser, ConfigLoader
 from netsanut.engine import DefaultTrainer
@@ -9,6 +8,8 @@ from netsanut.models import build_model
 from netsanut.data import build_trainvaltest_loaders
 from netsanut.predict import Visualizer
 from netsanut.utils.event_logger import setup_logger
+
+sns.set_style("darkgrid")
 
 if __name__ == "__main__":
     

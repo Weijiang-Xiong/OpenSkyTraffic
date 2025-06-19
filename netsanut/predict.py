@@ -5,7 +5,7 @@ from typing import List, Dict
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns 
-sns.set_style("darkgrid")
+
 import pandas as pd
 import geopandas
 import contextily as ctx
@@ -16,6 +16,8 @@ from torch.utils.data import DataLoader
 
 from netsanut.evaluation import collect_predictions, uncertainty_metrics, EVAL_CONFS
 from netsanut.utils.io import make_dir_if_not_exist
+
+sns.set_style("darkgrid")
 
 class Visualizer:
     
