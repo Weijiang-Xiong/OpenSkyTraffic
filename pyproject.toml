@@ -38,3 +38,6 @@ vis = [
 [tool.setuptools]
 # If you have one top-level package
 packages = ["netsanut"]
+
+[tool.ruff]
+target-version = "py311"
