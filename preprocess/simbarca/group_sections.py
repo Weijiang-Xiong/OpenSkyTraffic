@@ -36,7 +36,7 @@ plt.xlabel('X Grid ID')
 plt.ylabel('Y Grid ID')
 plt.title('Region clusters and monitoring grids')
 plt.tight_layout()
-plt.savefig('datasets/simbarca/metadata/cluster.pdf')
+plt.savefig('datasets/simbarca/figures/cluster.pdf')
 
 
 # save the modified dataframe to a csv file
