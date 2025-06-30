@@ -17,7 +17,7 @@ logger = logging.getLogger("default")
 class SimbarcaBase(BaseDataset):
     """
     This dataset implements the functions that are useful at the level of simulation sessions.
-    Data are stored as numpy arrays (not pandas dataframes).
+    Data are stored as numpy arrays (not pandas dataframes or torch tensors).
 
         1. reading the aggregated timeseries, and reading the simulation settings by sessions
         2. reading the road network structure and setting the metadata (these are provided by simulator)
@@ -77,28 +77,20 @@ class SimbarcaBase(BaseDataset):
         self.index_to_section_id: Dict[int, int]
         self.intersection_polygon: Dict[str, Any]
 
-        self.init_data_sequences(self.load_seq_files())
-        self.init_graph_structure(self.read_graph_structure())
+        # initialize data sequences and metadata 
+        self.init_raw_sequences(self.load_seq_files())
+        self.init_graph_structure()
         session_info = self.get_session_properties()
         self.session_ids = session_info["session_ids"]
         self.demand_scales = session_info["demand_scales"]
 
-
-    def __len__(self) -> int:
-        raise NotImplementedError("This is not implemented in the base class")
-
-    def __getitem__(self, idx: int):
-        raise NotImplementedError("This is not implemented in the base class")
-
-    def set_metadata_dict(self) -> Dict[str, Any]:
-        raise NotImplementedError("This is not implemented in the base class")
-
-    def collate_fn(self, batch: List[Dict[str, Any]]) -> Dict[str, Any]:
-        raise NotImplementedError("This is not implemented in the base class")
+        # a few representative sections, for visualization examples 
+        with open(self.soi_file, "r") as f:
+            self.sections_of_interest = [int(x) for x in f.read().split(",")]
 
     @property
     def num_sessions(self) -> int:
-        return len(self._session_ids)
+        return len(self.session_ids)
 
     def load_seq_files(self) -> List[Dict[str, Any]]:
         """Load agg_timeseries.pkl files from various session folders in parallel"""
@@ -120,7 +112,7 @@ class SimbarcaBase(BaseDataset):
 
         return loaded_seqs
 
-    def init_data_sequences(self, seqs: List[pd.DataFrame]):
+    def init_raw_sequences(self, seqs: List[pd.DataFrame]):
 
         # drone measurements, every 5s
         timestamp_5s: pd.DatetimeIndex = seqs[0]['drone_vdist'].index.to_numpy()
@@ -190,7 +182,7 @@ class SimbarcaBase(BaseDataset):
         }
 
 
-    def read_graph_structure(self):
+    def init_graph_structure(self):
         """ read the graph structure for the road network from Aimsun-exported metadata.
         """
         
@@ -236,30 +228,17 @@ class SimbarcaBase(BaseDataset):
             adjacency_matrix[section_id_to_index[row.dst], section_id_to_index[row.org]] = 1
         edge_index = np.array(adjacency_matrix.nonzero())
         
-        return {
-            "adjacency": adjacency_matrix,
-            "segment_lengths": segment_lengths,
-            "edge_index": edge_index,
-            "node_coordinates": node_coordinates,
-            "cluster_id": cluster_id,
-            "grid_id": section_grid_id,
-            "section_ids_sorted": section_ids_sorted,
-            "index_to_section_id": index_to_section_id,
-            "section_id_to_index": section_id_to_index,
-            "intersection_polygon": intersection_polygon,
-        }
-    
-    def init_graph_structure(self, structure_dict):
-        self.adjacency = structure_dict["adjacency"]
-        self.segment_lengths = structure_dict["segment_lengths"]
-        self.edge_index = structure_dict["edge_index"]
-        self.node_coordinates = structure_dict["node_coordinates"]
-        self.cluster_id = structure_dict["cluster_id"]
-        self.grid_id = structure_dict["grid_id"]
-        self.section_ids_sorted = structure_dict["section_ids_sorted"]
-        self.section_id_to_index = structure_dict["section_id_to_index"]
-        self.index_to_section_id = structure_dict["index_to_section_id"]
-        self.intersection_polygon = structure_dict["intersection_polygon"]
+        self.adjacency = adjacency_matrix
+        self.segment_lengths = segment_lengths
+        self.edge_index = edge_index
+        self.node_coordinates = node_coordinates
+        self.cluster_id = cluster_id
+        self.grid_id = section_grid_id
+        self.section_ids_sorted = section_ids_sorted
+        self.index_to_section_id = index_to_section_id
+        self.section_id_to_index = section_id_to_index
+        self.intersection_polygon = intersection_polygon
+
 
 class SimBarcaForecast(SimbarcaBase):
 

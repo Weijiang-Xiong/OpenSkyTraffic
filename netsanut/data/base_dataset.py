@@ -17,7 +17,7 @@ class BaseDataset(Dataset, ABC):
 
 
     @abstractmethod
-    def set_metadata_dict(self) -> Dict[str, Any]:
+    def load_or_compute_metadata(self) -> Dict[str, Any]:
         pass
 
 

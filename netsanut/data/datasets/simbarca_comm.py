@@ -13,17 +13,17 @@ class SimBarcaSpeed(SimBarcaForecast):
         self.step_size: int 
         self.sample_per_session: int 
 
-        self.timestamp: torch.Tensor # shape (T)
+        self.time_in_day: torch.Tensor # shape (T)
         self.speed_data: torch.Tensor # shape (n_sessions, T, P)
         self.in_indexes: torch.Tensor # boolean tensor of shape (sample_per_session, T)
         self.out_indexes: torch.Tensor # boolean tensor of shape (sample_per_session, T)
 
         self.prepare_data_for_prediction()
-        self.set_metadata_dict()
+        self.load_or_compute_metadata()
         self.clean_up_raw_sequences()
 
     def __repr__(self):
-        return f"""SimBarca(
+        return f"""SimBarcaSpeed(
             split={self.split},
             input_window={self.input_window},
             pred_window={self.pred_window},
@@ -40,17 +40,18 @@ class SimBarcaSpeed(SimBarcaForecast):
         """
         session_id = index // self.sample_per_session
         offset = index % self.sample_per_session
+
+        # for input, we need to encode the time of the day for more information, no need for output 
         input_time_in_day = self.time_in_day[self.in_indexes[offset]]
-        output_time_in_day = self.time_in_day[self.out_indexes[offset]]
         input_values = self.speed_data[session_id, self.in_indexes[offset], :]
         output_values = self.speed_data[session_id, self.out_indexes[offset], :]
 
         # repeat the time in day over the spatial locations and stack with the speed data 
         source = torch.stack([input_values, input_time_in_day.unsqueeze(1).repeat(1, input_values.shape[1])], dim=-1)
-        target = torch.stack([output_values, output_time_in_day.unsqueeze(1).repeat(1, output_values.shape[1])], dim=-1)
+
         return {
             "source": source,
-            "target": target,
+            "target": output_values,
         }
 
     def prepare_data_for_prediction(self):
@@ -66,7 +67,7 @@ class SimBarcaSpeed(SimBarcaForecast):
         self.in_indexes = torch.from_numpy(self.in_indexes).to(torch.bool)
         self.out_indexes = torch.from_numpy(self.out_indexes).to(torch.bool)
 
-    def set_metadata_dict(self):
+    def load_or_compute_metadata(self):
         metadata = {
             "adjacency": torch.as_tensor(self.adjacency, dtype=torch.long),
             "edge_index": torch.as_tensor(self.edge_index, dtype=torch.long),
