@@ -1,6 +1,8 @@
 from .common_cfg import train, scheduler, evaluation
 from .common_cfg import adam as optimizer
+from .datasets import simbarca_msmt
 
+dataset = simbarca_msmt
 train.test_best_ckpt = False
 train.output_dir = "scratch/gmmpred_fullinfo"
 evaluation.evaluator_type = "simbarcagmm"
@@ -23,11 +25,6 @@ model = {
     "adjacency_hop": 5,
     "dropout": 0.1,
     "zero_init": True,
-}
-
-dataset = {
-    "train": {"name": "simbarca_train", "force_reload": False},
-    "test": {"name": "simbarca_test", "force_reload": False},
 }
 
 dataloader = {

@@ -14,7 +14,7 @@ from einops import rearrange
 
 from ..utils.io import make_dir_if_not_exist
 from ..models.gmmpred import GMMPredictionHead
-from ..data.datasets import SimBarca
+from ..data.datasets import SimBarcaMSMT
 from .simbarca_evaluation import SimBarcaEvaluator
 
 sns.set_style('darkgrid')
@@ -134,7 +134,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         """
         _ = super().evaluate(model, data_loader, verbose=verbose)
         
-        dataset: SimBarca = data_loader.dataset
+        dataset: SimBarcaMSMT = data_loader.dataset
         soi: List[int] = dataset.sections_of_interest
         s2i = dataset.section_id_to_index  # section ID to array index in space dimension
         session_ids = dataset.session_ids  # list of simulation session IDs
