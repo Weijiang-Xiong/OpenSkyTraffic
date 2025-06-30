@@ -29,8 +29,9 @@ adamw = {
 
 sgd = {
     "type": "sgd",
-    "lr": 1e-2,
-    "momentum": 0.9
+    "lr": 0.001,
+    "momentum": 0,
+    "weight_decay": 0
 }
 
 scheduler = {

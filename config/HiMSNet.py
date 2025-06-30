@@ -1,5 +1,6 @@
 from .common_cfg import train, scheduler, evaluation
 from .common_cfg import adam as optimizer
+from .datasets import simbarca_msmt
 
 train.test_best_ckpt = False
 train.output_dir = "scratch/himsnet"
@@ -24,11 +25,7 @@ model = {
     "attn_agg": True,
 }
 
-dataset = {
-    "train": {"name": "simbarca_train", "force_reload": False},
-    "test": {"name": "simbarca_test", "force_reload": False},
-}
-
+dataset = simbarca_msmt
 dataloader = {
     "train": {"batch_size": 8},
     "test": {"batch_size": 8}
