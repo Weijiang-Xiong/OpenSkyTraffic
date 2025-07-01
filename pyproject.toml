@@ -10,7 +10,7 @@ name = "skytraffic"
 version = "0.5.0"
 description = "Your package description here"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 authors = [
   { name = "Weijiang Xiong", email = "weijiangxiong1998@gmail.com" },
 ]
