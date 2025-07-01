@@ -16,7 +16,7 @@ def default_argument_parser():
     parser = argparse.ArgumentParser(description='Run simulations')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
     parser.add_argument('--init-seed', type=int, default=42, help='Initial seed for random number generator')
-    parser.add_argument('--data-root', type=str, default='/home/weijiang/Projects/Netsanut/datasets/simbarca', help='Root directory for data')
+    parser.add_argument('--data-root', type=str, default='/home/weijiang/Projects/SkyTraffic/datasets/simbarca', help='Root directory for data')
     parser.add_argument('--num-thread', type=int, default=16, help='Number of threads to use when obtaining vehicle information')
     parser.add_argument('--num-sim', type=int, default=100, help='Number of simulations to run')
     parser.add_argument('--start-idx', type=int, default=0, help='Starting index for simulation folders')

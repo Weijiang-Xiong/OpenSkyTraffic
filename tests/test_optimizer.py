@@ -2,8 +2,8 @@ import unittest
 import torch.nn as nn 
 
 from omegaconf import OmegaConf
-from netsanut.config import ConfigLoader
-from netsanut.solver import build_optimizer
+from skytraffic.config import ConfigLoader
+from skytraffic.solver import build_optimizer
 
 class SimpleModel(nn.Module):
     def __init__(self):

@@ -24,12 +24,12 @@ import torch
 import numpy as np
 from pathlib import Path
 
-from netsanut.config import default_argument_parser, default_setup, ConfigLoader
-from netsanut.engine import DefaultTrainer, hooks
-from netsanut.models import build_model
-from netsanut.data import build_train_loader, build_test_loader, build_dataset
-from netsanut.evaluation import build_evaluator
-from netsanut.solver import build_optimizer, build_scheduler
+from skytraffic.config import default_argument_parser, default_setup, ConfigLoader
+from skytraffic.engine import DefaultTrainer, hooks
+from skytraffic.models import build_model
+from skytraffic.data import build_train_loader, build_test_loader, build_dataset
+from skytraffic.evaluation import build_evaluator
+from skytraffic.solver import build_optimizer, build_scheduler
 
 def get_checkpoint_path(cfg, args) -> str:
     """

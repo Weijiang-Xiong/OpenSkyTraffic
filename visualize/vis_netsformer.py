@@ -2,12 +2,12 @@ import os
 
 import seaborn as sns
 
-from netsanut.config import default_argument_parser, ConfigLoader
-from netsanut.engine import DefaultTrainer
-from netsanut.models import build_model
-from netsanut.data import build_trainvaltest_loaders
-from netsanut.predict import Visualizer
-from netsanut.utils.event_logger import setup_logger
+from skytraffic.config import default_argument_parser, ConfigLoader
+from skytraffic.engine import DefaultTrainer
+from skytraffic.models import build_model
+from skytraffic.data import build_trainvaltest_loaders
+from skytraffic.predict import Visualizer
+from skytraffic.utils.event_logger import setup_logger
 
 sns.set_style("darkgrid")
 

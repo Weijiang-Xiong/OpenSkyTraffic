@@ -1,6 +1,6 @@
 import unittest
 
-from netsanut.data.datasets import MetrDataset
+from skytraffic.data.datasets import MetrDataset
 import torch
 from torch.utils.data import DataLoader
 

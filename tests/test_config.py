@@ -1,6 +1,6 @@
 import copy
 import unittest
-from netsanut.config import ConfigLoader
+from skytraffic.config import ConfigLoader
 from omegaconf import OmegaConf, DictConfig
 
 class TestConfig(unittest.TestCase):

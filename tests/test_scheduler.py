@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import FakeData
 from torchvision.transforms import ToTensor
 
-from netsanut.solver.lr_schedule import WarmupMultiStepScaler
+from skytraffic.solver.lr_schedule import WarmupMultiStepScaler
 
 class Model(nn.Module):
     

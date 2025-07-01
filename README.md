@@ -1,4 +1,4 @@
-## Netsanut: Networked Time Series Analysis for Urban Transportation
+## skytraffic: Networked Time Series Analysis for Urban Transportation
 
 In a modern transporation network, various sensors can be installed on roads and vehicles to collect traffic information of a specific location, whose record will be a time series. Meanwhile, different locations are connected via the network, which results in spatial relations among the time series. We coin this data representation as Networked Time Series (NeTS), and his package aims to provide a framework for training deep learning models for Networked Time Series Analysis in the domain of Urban Transportation.
 
@@ -7,7 +7,7 @@ In a modern transporation network, various sensors can be installed on roads and
 We assume there is a conda environment called `pytorch` with [PyTorch](https://pytorch.org/get-started/locally/) correctly installed.
 
 ```bash
-git clone https://github.com/Weijiang-Xiong/netsanut.git
+git clone https://github.com/Weijiang-Xiong/SkyTraffic.git
 python -m pip install -e .
 ```
 
@@ -40,7 +40,7 @@ For a complete walk through of the training and visualization workflow, please l
 project_root
 ├── config : experiment configuration files
 ├── datasets : the dataset files (raw and processed) and metadata
-├── netsanut : codes
+├── skytraffic : codes
 │   ├── config : configuration management
 │   ├── data : dataset loading and transform
 │   ├── engine : training loop

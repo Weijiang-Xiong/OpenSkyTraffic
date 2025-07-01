@@ -4,7 +4,7 @@
 import json
 import numpy as np
 import matplotlib.pyplot as plt
-from netsanut.data.datasets import SimBarcaMSMT
+from skytraffic.data.datasets import SimBarcaMSMT
 
 with open("datasets/simbarca/metadata/sections_of_interest.txt", "r") as f:
     IDS_OF_INTEREST = [int(x) for x in f.read().split(",")]

@@ -2,11 +2,11 @@ import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
 
-from netsanut.loss import GeneralizedProbRegLoss
+from ..loss import GeneralizedProbRegLoss
 from typing import Dict, Tuple
 from einops import rearrange
 
-from netsanut.data.transform import TensorDataScaler
+from ..data.transform import TensorDataScaler
 from .common import MLP, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 

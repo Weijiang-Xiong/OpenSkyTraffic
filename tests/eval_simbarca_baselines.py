@@ -4,8 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from netsanut.evaluation.simbarca_evaluation import SimBarcaEvaluator
-from netsanut.utils.io import make_dir_if_not_exist
+from skytraffic.evaluation.simbarca_evaluation import SimBarcaEvaluator
+from skytraffic.utils.io import make_dir_if_not_exist
 
 def save_res_to_dir(save_dir, res, save_note="default"):
     res = dict(res)
@@ -131,8 +131,8 @@ def evaluate_trivial_models(data_loader, ignore_value=np.nan, save_dir="/scratch
     
 
 if __name__ == "__main__":
-    from netsanut.data.datasets import SimBarcaMSMT
-    from netsanut.utils.event_logger import setup_logger
+    from skytraffic.data.datasets import SimBarcaMSMT
+    from skytraffic.utils.event_logger import setup_logger
     make_dir_if_not_exist("scratch/simbarca_trivial_baselines")
     logger = setup_logger(name="default", level=logging.INFO, log_file="scratch/simbarca_trivial_baselines/eval_log.log")
 
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     data_loader = DataLoader(dataset, batch_size=8, shuffle=False, collate_fn=dataset.collate_fn)
     evaluate_trivial_models(data_loader, ignore_value=np.nan, save_dir="scratch/simbarca_trivial_baselines")
     
-    from netsanut.data.datasets import SimBarcaRandomObservation
+    from skytraffic.data.datasets import SimBarcaRandomObservation
     dataset = SimBarcaRandomObservation(split="test")
     data_loader = DataLoader(dataset, batch_size=8, shuffle=False, collate_fn=dataset.collate_fn)
     evaluate_trivial_models(data_loader, ignore_value=np.nan, save_dir="scratch/simbarcarnd_trivial_baselines")

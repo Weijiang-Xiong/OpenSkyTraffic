@@ -18,13 +18,13 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-import netsanut
-from netsanut.data import DATASET_CATALOG
+import skytraffic
+from ..catalog import DATASET_CATALOG
 from .simbarca_base import SimBarcaForecast
  
 sns.set_style("darkgrid")
 
-_package_init_file = netsanut.__file__
+_package_init_file = skytraffic.__file__
 _root: Path = (Path(_package_init_file).parent.parent).resolve()
 assert _root.exists(), "please check package installation"
 
