@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
-from netsanut.data.datasets import SimBarca
+from skytraffic.data.datasets import SimBarca
 
 sns.set_theme(style="darkgrid")
 

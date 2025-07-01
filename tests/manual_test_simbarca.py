@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader
 
-from netsanut.data.datasets import SimBarcaMSMT
-from netsanut.utils.event_logger import setup_logger
+from skytraffic.data.datasets import SimBarcaMSMT
+from skytraffic.utils.event_logger import setup_logger
 logger = setup_logger(name="default", level=logging.INFO)
 
 def visualize_batch(data_dict, pred_dict=None, save_dir="./", batch_num=0, section_num=573, save_note="example"):

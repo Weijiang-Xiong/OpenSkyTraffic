@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from netsanut.evaluation import prediction_metrics, masked_prediction_metrics
+from skytraffic.evaluation import prediction_metrics, masked_prediction_metrics
 
 class TestLoss(unittest.TestCase):
 

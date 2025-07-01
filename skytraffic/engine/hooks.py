@@ -14,8 +14,6 @@ import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
-from netsanut.engine.base import TrainerBase
-
 from .base import HookBase, TrainerBase
 
 class EpochTimer(HookBase):

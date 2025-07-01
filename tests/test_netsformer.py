@@ -1,7 +1,7 @@
 import torch 
 import unittest
-from netsanut.models import NeTSFormer
-from netsanut.models.netsformer import TemporalAggregate
+from skytraffic.models import NeTSFormer
+from skytraffic.models.netsformer import TemporalAggregate
 from einops import rearrange
 
 class TestNetsFormer(unittest.TestCase):

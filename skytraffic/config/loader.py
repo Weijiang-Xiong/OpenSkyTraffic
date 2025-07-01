@@ -19,7 +19,7 @@ from dataclasses import is_dataclass
 
 logger = logging.getLogger("default")
 
-_CFG_PACKAGE_NAME = "netsanut._cfg_loader"
+_CFG_PACKAGE_NAME = "skytraffic._cfg_loader"
 
 def _validate_py_syntax(filename):
     # see also https://github.com/open-mmlab/mmcv/blob/master/mmcv/utils/config.py

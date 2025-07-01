@@ -17,8 +17,8 @@ import torch.nn as nn
 from typing import List, Tuple, Dict, Callable
 from einops import rearrange
 
-from netsanut.loss import GeneralizedProbRegLoss
-from netsanut.data import TensorDataScaler
+from ..loss import GeneralizedProbRegLoss
+from ..data import TensorDataScaler
 from .common import LearnedPositionalEncoding, PositionalEncoding
 from .base import BaseModel
 from .catalog import MODEL_CATALOG

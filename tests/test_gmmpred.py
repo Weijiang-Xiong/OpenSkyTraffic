@@ -5,8 +5,8 @@ import torch
 import numpy as np
 from scipy.stats import norm
 
-from netsanut.models import GMMPred, GMMPredictionHead
-from netsanut.models.gmmpred import gaussian_density
+from skytraffic.models import GMMPred, GMMPredictionHead
+from skytraffic.models.gmmpred import gaussian_density
 
 class TestGMM(unittest.TestCase):
 

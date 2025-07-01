@@ -3,7 +3,7 @@ import unittest
 import torch 
 import torch.nn as nn
 
-from netsanut.models import NeTSFormer
+from skytraffic.models import NeTSFormer
 
 # from https://gist.github.com/airalcorn2/50ec06517ce96ecc143503e21fa6cb91
 def patch_attention(m):

@@ -1,6 +1,6 @@
 import unittest
 import torch 
-from netsanut.data import TensorDataScaler
+from skytraffic.data import TensorDataScaler
 
 class TestScaler(unittest.TestCase):
     
