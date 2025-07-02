@@ -16,6 +16,12 @@ from ..utils.io import make_dir_if_not_exist
 from ..models.gmmpred import GMMPredictionHead
 from ..data.datasets import SimBarcaMSMT
 from .simbarca_evaluation import SimBarcaEvaluator
+from .metrics import (
+    get_knn_ecdf,
+    interval_coverage_and_width,
+    crps_from_cdf,
+    ignore_score_when_gt_isnan
+)
 
 sns.set_style('darkgrid')
 logger = logging.getLogger("default")
@@ -104,21 +110,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         if verbose:
             logger.info(f"Saved average {note} scores by time step to saved_metrics")
             logger.info(f"Overall average {note}: {self.saved_scores['scalar'][f'{note}']:.4f}")
-
-
-    def ignore_score_when_gt_isnan(self, scores, gt) -> torch.Tensor:
-        """
-        Ignore values in the scores tensor where the ground truth (gt) is NaN.
-        This is needed because sometimes a gt is NaN, but its KNN is not entirely NaN.
-        Without this function, we can still compute a CRPS score in theory, but it is not considered as valid.
-        
-        Args:
-            scores: Tensor of CRPS scores
-            gt: Ground truth tensor
-        """
-        scores[gt.isnan()] = self.ignore_value
-
-        return scores
     
 
     #########################################################################################
@@ -191,33 +182,24 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         """
         This function evaluates the confidence interval of the GMM prediction.
         """
+        xs = torch.linspace(self.data_min["seg"], self.data_max["seg"], self.ci_pts)
+        tensors = [all_preds["seg_mixing"], all_preds["seg_means"], all_preds["seg_log_var"], all_data["pred_speed"]]
+        tensor_names = ["mixing", "means", "log_var", "gt"]
+
         for conf in self.eval_confs:
-            within_ci, interval_width = self.point_wise_cover_and_width(
-                mixing=all_preds["seg_mixing"],
-                means=all_preds["seg_means"],
-                log_var=all_preds["seg_log_var"],
-                gt=all_data["pred_speed"],
-                xmin=self.data_min["seg"],
-                xmax=self.data_max["seg"],
-                n_points=self.ci_pts,
+            within_ci, interval_width = self.gmm_interval_coverage_and_width(
+                tensors=tensors,
+                tensor_names=tensor_names,
+                xs=xs,
                 conf=conf,
                 sp_size=self.sp_size,
                 gpu=self.gpu,
             )
 
-            within_ci = self.ignore_score_when_gt_isnan(within_ci, all_data["pred_speed"])
-            interval_width = self.ignore_score_when_gt_isnan(interval_width, all_data["pred_speed"])
-
-            self.analyze_scores(
-                scores=within_ci.float(),
-                note=f"CI_COVER_{conf}",
-                verbose=False, # don't separately print the scores for each confidence level
-            )
-            self.analyze_scores(
-                scores=interval_width,
-                note=f"CI_WIDTH_{conf}",
-                verbose=False, # don't separately print the scores for each confidence level
-            )
+            within_ci = ignore_score_when_gt_isnan(within_ci, all_data["pred_speed"], self.ignore_value)
+            interval_width = ignore_score_when_gt_isnan(interval_width, all_data["pred_speed"], self.ignore_value)
+            self.analyze_scores(scores=within_ci.float(),note=f"CI_COVER_{conf}",verbose=False)
+            self.analyze_scores(scores=interval_width,note=f"CI_WIDTH_{conf}",verbose=False)
         
         # from the saved CI_COVER and CI_WIDTH, compute the calibration error and average width
         # confidence calibration error is the absolute difference between confidence level and the average coverage
@@ -244,7 +226,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         cdf_xs = torch.linspace(self.data_min['seg'], self.data_max['seg'] , self.ci_pts)
 
         self.analyze_scores(
-            scores=self.ignore_score_when_gt_isnan(
+            scores=ignore_score_when_gt_isnan(
                 self.get_crps_gmm_vs_emp_dist(
                     mixing=all_preds["seg_mixing"],
                     means=all_preds["seg_means"],
@@ -263,7 +245,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         )
 
         self.analyze_scores(
-            scores=self.ignore_score_when_gt_isnan(
+            scores=ignore_score_when_gt_isnan(
                 self.get_crps_pred_vs_emp_dist(
                     pred=all_preds["pred_speed"],
                     xs=cdf_xs,
@@ -280,7 +262,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         )
 
         self.analyze_scores(
-            scores=self.ignore_score_when_gt_isnan(
+            scores=ignore_score_when_gt_isnan(
                 self.get_crps_gmm_vs_gt(
                     mixing=all_preds["seg_mixing"],
                     means=all_preds["seg_means"],
@@ -300,130 +282,33 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
     #########################################################################################
     ################ Functions utilized in the subroutines        ###########################
     #########################################################################################
-    @staticmethod
-    def point_wise_cover_and_width(
-        mixing: torch.Tensor,
-        means: torch.Tensor,
-        log_var: torch.Tensor,
-        gt: torch.Tensor,
-        xmin: float,
-        xmax: float,
-        n_points: int,
+    def gmm_interval_coverage_and_width(
+        tensors: List[torch.Tensor],
+        tensor_names: List[str],
+        xs: torch.Tensor,
         conf: float,
         sp_size: int = 20,
         gpu: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """ This is a helper function to pass the function for confidence interval
         """
-            For each point in gt, compute whether it is covered by the `conf` confidence interval of the GMM prediction,
-            as well as the width of the confidence interval.
-            
-            Args:
-                mixing: the GMM mixing coefficients, shape (N, T, P, K)
-                means: the GMM means, shape (N, T, P, K)
-                log_var: the GMM variances, shape (N, T, P, K)
-                gt: the ground truth values, shape (N, T, P)
-                xmin: the minimum value of the predicted variable
-                xmax: the maximum value of the predicted variable
-                n_points: the number of points to evaluate the GMM density
-                conf: the confidence level
-
-            Returns:
-                within_ci: a boolean tensor indicating whether the ground truth value is within the confidence interval, shape (N, T, P)
-                interval_width: the average width of the confidence interval, shape (N, T, P)
-        """
-
-        # split tensors along spatial dimension to save memory
-        tensor_names = ["mixing", "means", "log_var", "gt"]
-        tensors = [mixing, means, log_var, gt]
-        split_tensors = {}
-        for name, tensor in zip(tensor_names, tensors):
-            split_tensors[name] = torch.split(tensor, sp_size, dim=2)
-        
-
-        score_by_chunk = {"within_ci": [], "interval_width": []}
-        # Get the number of chunks from any tensor (they all have the same number)
-        num_chunks = len(split_tensors[tensor_names[0]])
-        for i in range(num_chunks):
-            # Extract current chunk for each tensor
-            chunks = {name: split_tensors[name][i] for name in tensor_names}
-
-            # put the tensors on GPU if available
-            if gpu and torch.cuda.is_available():
-                chunks = {name: tensor.cuda() for name, tensor in chunks.items()}
-
-            gmm_confidence_intervals = GMMPredictionHead.get_confidence_interval(
+        # Define confidence interval function wrapper
+        def ci_function(chunks, xs, conf):
+            return GMMPredictionHead.get_confidence_interval(
                 chunks["mixing"], chunks["means"], chunks["log_var"],
-                xmin=xmin, xmax=xmax, n_points=n_points, conf=conf
+                xs, conf=conf
             )
-            
-            # Compute the percentage of predictions within the confidence interval
-            # a confidence interval can contain at most K subintervals, where K is the number of GMM components
-            # if any subinterval covers the ground truth value, the prediction is within the confidence interval
-            within_ci = torch.any(
-                torch.logical_and( 
-                    gmm_confidence_intervals[0] <= chunks["gt"].unsqueeze(-1), 
-                    gmm_confidence_intervals[1] >= chunks["gt"].unsqueeze(-1)
-                ), 
-                dim=-1
-            ) # (N, T, P)
-            interval_width = torch.abs(gmm_confidence_intervals[1] - gmm_confidence_intervals[0]).sum(dim=-1) # (N, T, P)
-            score_by_chunk['within_ci'].append(within_ci)
-            score_by_chunk['interval_width'].append(interval_width)
-    
-        # Concatenate the chunks
-        within_ci = torch.cat(score_by_chunk['within_ci'], dim=-1)
-        interval_width = torch.cat(score_by_chunk['interval_width'], dim=-1)
-
-        return within_ci, interval_width
-
-
-    @staticmethod
-    def _compute_crps(tensors, tensor_names, cdf_func1, cdf_func2, xs, sp_size=20, gpu=True):
-        """
-        Compute CRPS between two distributions.
         
-        Args:
-            tensors: List of tensor inputs needed for composing the CDFs
-            tensor_names: List of names corresponding to the tensors
-            cdf_func1: First CDF computation function (prediction)
-            cdf_func2: Second CDF computation function (reference)
-            xs: Points to evaluate CDFs at, shape (X,)
-            sp_size: Chunk size for spatial dimension splitting
-            gpu: Whether to use GPU acceleration
-            
-        Returns:
-            CRPS scores with shape (N, T, P)
-        """
-        
-        # Split tensors along spatial dimension to save memory
-        split_tensors = {}
-        for name, tensor in zip(tensor_names, tensors):
-            split_tensors[name] = torch.split(tensor, sp_size, dim=2)
-        
-        CRPS_by_chunk = []
-        # Get the number of chunks from any tensor (they all have the same number)
-        num_chunks = len(split_tensors[tensor_names[0]])
-        
-        for i in range(num_chunks):
-            # Extract current chunk for each tensor
-            chunks = {name: split_tensors[name][i] for name in tensor_names}
-
-            if gpu and torch.cuda.is_available():
-                chunks = {k: v.cuda() for k, v in chunks.items()}
-                xs = xs.to('cuda')
-            
-            # Compute CDFs using the provided functions
-            cdf1 = cdf_func1(chunks, xs)
-            cdf2 = cdf_func2(chunks, xs)
-            
-            # Compute CRPS
-            CRPS_chunk = torch.sum((cdf1 - cdf2)**2 * abs(xs[1] - xs[0]), dim=-1)
-            CRPS_by_chunk.append(CRPS_chunk)
-        
-        # Concatenate the chunks
-        CRPS = torch.cat(CRPS_by_chunk, dim=-1).cpu()
-        
-        return CRPS
+        # Use the new generic function
+        return interval_coverage_and_width(
+            tensors=tensors,
+            tensor_names=tensor_names,
+            ci_function=ci_function,
+            xs=xs,
+            conf=conf,
+            sp_size=sp_size,
+            gpu=gpu
+        )
 
     
     def get_crps_gmm_vs_emp_dist(self, mixing, means, log_var, xs, inputs, gt, sp_size=20, knn_nb=20, gpu=True):
@@ -456,12 +341,12 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         def gmm_cdf_func(chunks, xs):
             return self.get_gmm_cdf(chunks["mixing"], chunks["means"], chunks["log_var"], xs)
         def knn_ecdf_func(chunks, xs):
-            return self.get_knn_ecdf(chunks["inputs"], chunks["gt"], knn_nb, xs)
+            return get_knn_ecdf(chunks["inputs"], chunks["gt"], knn_nb, xs)
         
         # split the tensors along the spatial location dimension to get chunks, save memory
         tensors = [mixing, means, log_var, inputs, gt]
         tensor_names = ["mixing", "means", "log_var", "inputs", "gt"]
-        scores = self._compute_crps(tensors, tensor_names, gmm_cdf_func, knn_ecdf_func, xs, sp_size, gpu)
+        scores = crps_from_cdf(tensors, tensor_names, gmm_cdf_func, knn_ecdf_func, xs, sp_size, gpu)
         
         return scores
     
@@ -492,7 +377,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         
         tensors = [mixing, means, log_var, gt]
         tensor_names = ["mixing", "means", "log_var", "gt"]
-        scores = self._compute_crps(tensors, tensor_names, gmm_cdf_func, gt_cdf_func, xs, sp_size, gpu)
+        scores = crps_from_cdf(tensors, tensor_names, gmm_cdf_func, gt_cdf_func, xs, sp_size, gpu)
         
         return scores
 
@@ -519,11 +404,11 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             return self.get_point_cdf(chunks['pred'], xs)
         
         def knn_cdf_func(chunks, xs):
-            return self.get_knn_ecdf(chunks['inputs'], chunks['gt'], knn_nb, xs)
+            return get_knn_ecdf(chunks['inputs'], chunks['gt'], knn_nb, xs)
         
         tensors = [pred, inputs, gt]
         tensor_names = ["pred", "inputs", "gt"]
-        scores = self._compute_crps(tensors, tensor_names, pred_cdf_func, knn_cdf_func, xs, sp_size, gpu)
+        scores = crps_from_cdf(tensors, tensor_names, pred_cdf_func, knn_cdf_func, xs, sp_size, gpu)
         
         return scores
 
@@ -540,80 +425,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
 
         
     def get_gmm_cdf(self, mixing, means, log_var, xs):
-        gmm_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
-        dx = abs(xs[1] - xs[0]) # the step size of the x values
-        gmm_cdf = torch.cumsum(gmm_density * dx, axis=-1)
-        gmm_cdf = gmm_cdf / gmm_cdf[..., -1].unsqueeze(-1) # ensure the CDF ends at 1
-        
-        return gmm_cdf
+        return GMMPredictionHead.get_mixture_cdf(mixing, means, log_var, xs)
     
-    
-    def get_knn_ecdf(self, inputs, gt, knn_nb, xs):
-        gt_knn = self.get_knn_neighbors(inputs, gt, k=knn_nb)
-        
-        # after sorting, the NaN values are at the end of the tensor
-        sorted_gt, _ = torch.sort(gt_knn, dim=-1)
-        
-        # reshape sorted_gt to (N, T, sp_size, k, 1), so the last dimension will be broadcasted with xs
-        # knn_ecdf  = (sorted_gt.unsqueeze(-1) <= xs).sum(dim=-2).float() / knn_nb # → (N, T, sp_size, X)
-        
-        # since the KNN neighbors are sorted, we can use searchsorted to get the counts, i.e., how many 
-        # neighbors are less than or equal to each value in xs (i.e., the index to insert xs in the sorted_gt)
-        # this is more memory-friendly than the previous implementation, which tries to allocate (N, T, sp_size, k, X)
-        N_dim, T_dim, sp_size_dim, _ = sorted_gt.shape
-        counts = torch.searchsorted(
-            # We need to replace the NaN values with inf because otherwise searchsorted will think the values should 
-            # be inserted at the end of the tensor, and we always get k counts
-            torch.nan_to_num(sorted_gt, nan=float("inf")), 
-            xs.view(1,1,1,-1).expand(N_dim, T_dim, sp_size_dim, -1), 
-            side='right')
-
-        # we divide by the valid values (ignoring nan) to get the empirical CDF that always ends at 1.0
-        num_valid_neighbors = torch.logical_not(gt_knn.isnan()).sum(dim=-1)
-        knn_ecdf = counts.float() / num_valid_neighbors.unsqueeze(-1).float()
-        
-        # at this step, if an element in gt is NaN, the corresponding knn_ecdf will be NaN as well.
-        # this will be addressed by self.invalid_to_ignore_value before returning the scores.
-        return knn_ecdf
-    
-    @staticmethod
-    def get_knn_neighbors(x, y, k=20):
-        """
-        For each spatial location, we compute the k nearest neighbors among all samples in the dataset (including self), according to the L2 distance in the input time series (drone speed, nan values replaced by mean). 
-        The target output y is then gathered according to the k nearest neighbors, and they form an empirical distribution.
-        
-        Args:
-            x: Data tensor of shape (N, T, P) to compute distances from
-            y: Data tensor of shape (N, T, P) to gather neighbors from
-            k: Number of nearest neighbors to find (default: 20)
-            
-        Returns:
-            knn_y: Tensor of shape (N, T, P, k) containing the corresponding y values of k nearest neighbors
-        """
-        N, T, P = x.shape
-        
-        # Compute pairwise L2 distances between all N samples along T dimension for all P
-        # Result shape: (N, N, P)
-        dist = rearrange(
-            torch.cdist(rearrange(x, "N T P -> P N T"), rearrange(x, "N T P -> P N T"), p=2.0),
-            "P N1 N2 -> N1 N2 P",
-        )
-        # this is a previous implementation that is not memory efficient, because it tries to 
-        # it will try to allocate (N, N, T, P) for the pairwise difference before taking the sum over T
-        # dist = torch.sqrt(torch.sum((x.unsqueeze(1) - x.unsqueeze(0))**2, dim=2))
-
-        # Find k nearest neighbors for each sample at each P location
-        # Result shapes: (N, k, P)
-        _, knn_indices = torch.topk(dist, k=k, dim=1, largest=False)
-
-        # Gather the corresponding y values using advanced indexing
-        # https://numpy.org/doc/stable/user/basics.indexing.html#advanced-indexing
-        # Result shape: (N, k, P, T)
-        knn_y = y[knn_indices, # from the k nearest neighbors
-                  :, # keep all time steps 
-                  torch.arange(P).view(1, 1, P).expand(N, k, -1)]
-        
-        return rearrange(knn_y, 'N k P T -> N T P k')
     
     #########################################################################################
     ############### Functions for plotting statistics        ################################

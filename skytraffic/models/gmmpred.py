@@ -185,18 +185,25 @@ class GMMPredictionHead(nn.Module):
         mixture_density = (weighted_densities).sum(axis=-2)
         
         return mixture_density
-    
+
     @staticmethod
-    def get_confidence_interval(mixing, means, log_var, xmin=0, xmax=14, n_points=1000, conf:float=0.90):
+    def get_mixture_cdf(mixing, means, log_var, xs):
+        gmm_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
+        dx = abs(xs[1] - xs[0]) # the step size of the x values
+        gmm_cdf = torch.cumsum(gmm_density * dx, axis=-1)
+        gmm_cdf = gmm_cdf / gmm_cdf[..., -1].unsqueeze(-1) # ensure the CDF ends at 1
+        
+        return gmm_cdf
+
+    @staticmethod
+    def get_confidence_interval(mixing, means, log_var, xs, conf:float=0.90):
         """ Compute the confidence interval of a gaussian mixture model
 
         Args:
             mixing (torch.tensor): the mixing coefficients of the Gaussian components, shape (N, T, P, K)
             means (torch.tensor): the means of the Gaussian components, shape (N, T, P, K)
             log_var (torch.tensor): the log variance of the Gaussian components, shape (N, T, P, K)
-            xmin (int, optional): minimum value of the predicted variable. Defaults to 0.
-            xmax (int, optional): maximum value of the predicted variable. Defaults to 14.
-            n_points (torch.tensor, optional): number of points to validate probability density. Defaults to 1000.
+            xs (torch.tensor): the points to evaluate the probability density, shape (n_points,)
             conf (float, optional): confidence level. Defaults to 0.90.
 
         Returns:
@@ -204,8 +211,8 @@ class GMMPredictionHead(nn.Module):
             ub (torch.tensor): upper bound of the confidence interval
         """
         num_comp = mixing.shape[-1]
-        xs = torch.linspace(xmin, xmax, n_points).to(mixing.device)
-        dx = abs(xmin - xmax) / n_points
+        xs = xs.to(mixing.device)
+        dx = abs(xs[1] - xs[0])
         mixture_density = GMMPredictionHead.get_mixture_density(mixing, means, log_var, xs)
 
         values, indexes = torch.sort(mixture_density, dim=-1, descending=True)
