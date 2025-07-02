@@ -1,153 +1,125 @@
-""" This file defines a base model for a interfaces and 
-    shared functionalities
+""" This file defines a base model interface and 
+    shared functionalities for neural network models
 """
 import logging 
-
-from typing import Dict, Any, Mapping, Tuple
-from scipy.stats import rv_continuous, gennorm
+from abc import ABC, abstractmethod
+from typing import Dict, Any, Tuple
 
 import torch 
 import torch.nn as nn 
 
-from ..data import TensorDataScaler
-
 logger = logging.getLogger("default")
 
-class BaseModel(nn.Module):
+class BaseModel(nn.Module, ABC):
+    """
+    Abstract base class for neural network models in the SkyTraffic project.
     
-    def __init__(self, beta:int=None) -> None:
+    Provides common interface and functionality that all models should implement,
+    including data preprocessing, training/inference logic, and metadata handling.
+    """
+    
+    def __init__(self) -> None:
         super().__init__()
-        self.datascaler: TensorDataScaler
-        self._calibrated_intervals: Dict[float, float] = dict() 
-        self._beta: int = beta
-        self._distribution: rv_continuous = None
-        self._set_distribution(beta=self._beta)
+        self.metadata = None
 
     @property   
     def device(self):
+        """Get the device of the model parameters"""
         return list(self.parameters())[0].device
     
     @property
     def num_params(self):
+        """Get the number of trainable parameters"""
         return sum([p.numel() for p in self.parameters() if p.requires_grad])
-    
-    @property
-    def is_probabilistic(self):
-        return self._distribution is not None
 
     def forward(self, data: dict[str, torch.Tensor]):
         """
-            time series forecasting task, 
-            data is assumed to have (N, T, M, C) shape (assumed to be unnormalized)
-            label is assumed to have (N, T, M) shape (assumed to be unnormalized)
-            
-            compute loss in training mode, predict future values in inference
-        """
+        Main forward pass that handles both training and inference modes.
         
+        Args:
+            data: Dictionary containing input data and optionally target data
+            
+        Returns:
+            Dict containing loss values (training) or predictions (inference)
+        """
         # preprocessing (if any)
         source, target = self.preprocess(data)
         
         if self.training:
-            assert target is not None, "label should be provided for training"
+            assert target is not None, "target should be provided for training"
             return self.compute_loss(source, target)
         else:
-            # we should not have target sequences in inference
             return self.inference(source)
 
+    @abstractmethod
     def preprocess(self, data: dict[str, torch.Tensor]) -> Tuple[Any, Any]:
-        
-        source = self.datascaler.transform(data['source'].to(self.device))
-        target = data['target'].to(self.device)
-        
-        return source, target
-
-    def make_pred(self, source: torch.Tensor) -> Any:
-        """ This function will run a forward pass of the model with the source sequence
-            the returned values are flexible, and may include anything depending on the 
-            needs of `compute_loss` and `inference`
         """
-        raise NotImplementedError
-
-    def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """ This will be used in training, to compute the loss using source and target, and it
-            can first call `make_pred` to have the prediction of the model, and then forward the loss
-        """
-        raise NotImplementedError
-    
-    def inference(self, source:torch.Tensor, target: torch.Tensor=None) -> Dict[str, torch.Tensor]:
-        """ this function calls `make_pred` to obtain predictions, 
-            different models may have different post-processing, for example some filtering
-        """
-        raise NotImplementedError
-
-    
-    def adapt_to_metadata(self, metadata):
-        raise NotImplementedError
-
-
-    def _set_distribution(self, beta:int) -> rv_continuous:
+        Preprocess input data before feeding to the model.
         
-        if beta is None:
-            self._distribution = None 
-        else:
-            self._distribution = gennorm(beta=int(beta))
-
-        return self._distribution
-    
-    def offset_coeff(self, 
-                    confidence:float, 
-                    return_calibrated=True
-        )-> Dict[float, float]:
-        """ 
-        compute a `k` for a Generalized Gaussian Distribution parameterized by `beta`
-        such that 0.5 * confidence_interval_width = k * std, 
-        one can later obtain the confidence interval by
-            upper_bound = mean + k * pred_std
-            lower_bound = mean - k * pred_std
-            
-        References
-            https://en.wikipedia.org/wiki/Generalized_normal_distribution
-            https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.gennorm.html
-
         Args:
-            confidence (float): _description_
-            return_calibrated (bool, optional): _description_. Defaults to True.
-
-        Returns:
-            Dict[float,Tuple[float, float]]: a mapping from confidence score to offset coefficient
-        """
-        # use the calibrated result if it has been calibrated 
-        if return_calibrated and confidence in self._calibrated_intervals.keys():
-            interval = self._calibrated_intervals[confidence]
-        else:
-            try:
-                interval = self._distribution.interval(confidence)
-            except AttributeError:
-                logger.warning("Make sure self._distribution is properly initialized, and it has the method `interval` for confidence intervals")
-                interval = (0.0, 0.0)
+            data: Raw input data dictionary
             
-        return abs(interval[0])
-    
-    def post_process(self, res):
-        # the scale of uncertainty, supposed to have the same unit as prediction
-        # so it makes sense to add them. 
-        res['sigma'] = torch.exp(res['plog_sigma']*(1.0/self._beta))
-        return res
-    
-    def update_calibration(self, intervals: Dict[float,Tuple[float, float]]):
-        self._calibrated_intervals.update(intervals)
-    
-    def state_dict(self):
-        ret = super().state_dict()
-        ret["_beta"] = self._beta
-        ret["_calibrated_intervals"] = self._calibrated_intervals
-        return ret
+        Returns:
+            Tuple of (source, target) where source is preprocessed input
+            and target is the ground truth (can be None during inference)
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def compute_loss(self, source: Any, target: Any) -> Dict[str, torch.Tensor]:
+        """
+        Compute loss during training.
         
-    def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = False):
-        self._beta = state_dict["_beta"]
-        self._set_distribution(self._beta)
-        self._calibrated_intervals = state_dict["_calibrated_intervals"]
-        del state_dict["_beta"]
-        del state_dict["_calibrated_intervals"]
-        super().load_state_dict(state_dict, strict)
-        return
+        Args:
+            source: Preprocessed input data
+            target: Ground truth data
+            
+        Returns:
+            Dictionary containing loss values (must include 'loss' key)
+        """
+        raise NotImplementedError
+    
+    @abstractmethod
+    def inference(self, source: Any) -> Dict[str, torch.Tensor]:
+        """
+        Perform inference/prediction.
+        
+        Args:
+            source: Preprocessed input data
+            
+        Returns:
+            Dictionary containing model predictions
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def adapt_to_metadata(self, metadata):
+        """
+        Adapt the model to dataset-specific metadata.
+        
+        This method is called during training setup to configure the model
+        based on dataset characteristics like normalization parameters,
+        adjacency matrices, etc.
+        
+        Args:
+            metadata: Dataset metadata dictionary
+        """
+        raise NotImplementedError
+
+    def state_dict(self):
+        """
+        Get model state dictionary.
+        
+        Default implementation returns standard PyTorch state dict.
+        Override if you need to save additional state (metadata, scalers, etc.)
+        """
+        return super().state_dict()
+        
+    def load_state_dict(self, state_dict, strict: bool = True):
+        """
+        Load model state dictionary.
+        
+        Default implementation uses standard PyTorch loading.
+        Override if you saved additional state in state_dict().
+        """
+        return super().load_state_dict(state_dict, strict)
