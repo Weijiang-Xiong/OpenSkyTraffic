@@ -73,7 +73,8 @@ class TestGMM(unittest.TestCase):
         means = torch.ones(N, T, P, 3) * torch.tensor([1.0, 3.0, 5.0]) # evenly spaced from 0 to 6
         log_var = -2 * torch.ones(N, T, P, 3) # variances are e^-2 everywhere
         
-        lb, ub = GMMPredictionHead.get_confidence_interval(mixing, means, log_var, xmin, xmax, n_points, 0.70)
+        xs = torch.linspace(xmin, xmax, n_points)
+        lb, ub = GMMPredictionHead.get_confidence_interval(mixing, means, log_var, xs, 0.70)
         pass 
         
 

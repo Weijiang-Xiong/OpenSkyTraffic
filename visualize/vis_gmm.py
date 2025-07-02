@@ -44,7 +44,7 @@ for confidence, color in zip([0.3, 0.5, 0.7, 0.9], ['darkred', 'orange', 'darkgr
     lb, ub = GMMPredictionHead.get_confidence_interval(mixing.reshape(1,1,1,-1), 
                                                        means.reshape(1,1,1,-1), 
                                                        torch.log(variances.reshape(1,1,1,-1)), 
-                                                       xmin, xmax, n_points, confidence)
+                                                       xs, confidence)
     
     for vl, vu in zip(lb.squeeze().tolist(), ub.squeeze().tolist()):
         if vl == vu:

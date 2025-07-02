@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple
 from collections import defaultdict
 
 from ..utils.io import flatten_results_dict, make_dir_if_not_exist
-from .metrics import prediction_metrics
+from .metrics import common_metrics
 from ..data.datasets import SimBarcaMSMT
 
 logger = logging.getLogger("default")
@@ -152,7 +152,7 @@ class SimBarcaEvaluator:
             for i in range(seq_preds.shape[1]):  # number of predicted time step
                 pred = seq_preds[:, i, :]
                 real = seq_labels[:, i, :]
-                step_metrics = prediction_metrics(pred, real, self.ignore_value, self.mape_threshold)
+                step_metrics = common_metrics(pred, real, self.ignore_value, self.mape_threshold)
                 for k, v in step_metrics.items():
                     eval_res_over_time[seq_name][k].append(v)
                     
@@ -165,7 +165,7 @@ class SimBarcaEvaluator:
                     )
 
             # average performance on all prediction steps, usually not reported in papers, but this can be useful in logging
-            seq_res = prediction_metrics(seq_preds, seq_labels, self.ignore_value, self.mape_threshold)
+            seq_res = common_metrics(seq_preds, seq_labels, self.ignore_value, self.mape_threshold)
             if verbose:
                 logger.info("On average over different time steps")
                 logger.info(
