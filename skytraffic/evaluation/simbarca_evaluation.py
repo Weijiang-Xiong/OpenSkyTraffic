@@ -29,8 +29,8 @@ class SimBarcaEvaluator:
         self.visualize = visualize
         make_dir_if_not_exist(self.save_dir)
         # for saving various evaluation metrics in analysis
-        score_types = ["vector", "scalar"]
-        self.saved_scores = {k:v for k, v in zip(score_types, [dict() for _ in range(len(score_types))])}
+        self.metrics_scalar: Dict[str, float] = dict()
+        self.metrics_vector: Dict[str, List] = dict()
         
     def __call__(self, model: nn.Module, data_loader: DataLoader, **kwargs) -> Dict[str, float]:
         return self.evaluate(model, data_loader, **kwargs)
@@ -186,9 +186,9 @@ class SimBarcaEvaluator:
         eval_res_over_time = flatten_results_dict(eval_res_over_time)
         avg_eval_res = {k:sum(v)/len(v) for k, v in flatten_results_dict(eval_res_over_time).items()}
         
-        # save the results to self.saved_scores
-        self.saved_scores['vector'].update(eval_res_over_time)
-        self.saved_scores['scalar'].update(avg_eval_res)
+        # save the results to self.metrics_vector and self.metrics_scalar
+        self.metrics_vector.update(eval_res_over_time)
+        self.metrics_scalar.update(avg_eval_res)
 
 
     def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
@@ -253,7 +253,7 @@ class SimBarcaEvaluator:
                     save_note="{}_region{}".format(self.save_note, r),
                 )
         # return this for EvalHook to do logging in training
-        return self.saved_scores['scalar']
+        return self.metrics_scalar
 
 
     def plot_pred_for_section(self, all_preds, all_labels, session_ids, demand_scales, section_num=100, regional=False, save_note="example", verbose=False):

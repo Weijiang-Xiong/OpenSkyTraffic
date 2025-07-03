@@ -103,13 +103,13 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             logger.error(f"The note can not be {note}, please use a different one.")
         
         # Save average score at each time step (averaging over samples N and spatial locations P)
-        self.saved_scores['vector'][note] = torch.nanmean(scores, dim=(0, 2)).cpu().numpy()
+        self.metrics_vector[note] = torch.nanmean(scores, dim=(0, 2)).cpu().numpy().tolist()
         # Save the mean over all the time steps, ignoring NaN values
-        self.saved_scores['scalar'][f'{note}'] = torch.nanmean(scores).item()
+        self.metrics_scalar[f'{note}'] = torch.nanmean(scores).item()
         
         if verbose:
             logger.info(f"Saved average {note} scores by time step to saved_metrics")
-            logger.info(f"Overall average {note}: {self.saved_scores['scalar'][f'{note}']:.4f}")
+            logger.info(f"Overall average {note}: {self.metrics_scalar[f'{note}']:.4f}")
     
 
     #########################################################################################
@@ -119,7 +119,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         """ This evaluation function is structured as follows:
                 0. run the super class's evaluation function (deterministic metrics)
                 1. collect predictions and required data sequences from the model and dataset
-                2. run various evaluation functions (CRPS, CI, etc.), average scores saved to self.saved_scores
+                2. run various evaluation functions (CRPS, CI, etc.), average scores saved to self.metrics_scalar and self.metrics_vector
                 3. if visualization is required, plot the scores and predictions
                 4. return the average scores (so that the engine and hooks can have access to the main scores at this round)
         """
@@ -172,7 +172,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
                     sample_per_session=dataset.sample_per_session, task="reg", sim_ids=session_ids,
                     sec_ids=p_list_reg, subfolder_path=gmm_pred_path)
     
-        return self.saved_scores['scalar']
+        return self.metrics_scalar
 
 
     #########################################################################################
@@ -205,20 +205,20 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         # confidence calibration error is the absolute difference between confidence level and the average coverage
         CCE_conf_horizon, AW_conf_horizon = [], []
         for conf in self.eval_confs:
-            CCE_conf_horizon.append(abs(self.saved_scores['vector'][f'CI_COVER_{conf}'] - conf))
-            AW_conf_horizon.append(self.saved_scores['vector'][f'CI_WIDTH_{conf}'])
+            CCE_conf_horizon.append(abs(self.metrics_vector[f'CI_COVER_{conf}'] - conf))
+            AW_conf_horizon.append(self.metrics_vector[f'CI_WIDTH_{conf}'])
 
         # concatenate the scores along a new dimension, which is the confidence level
         CCE_horizon = np.stack(CCE_conf_horizon, axis=-1).mean(axis=-1)
         AW_horizon = np.stack(AW_conf_horizon, axis=-1).mean(axis=-1)
 
         # save the scores 
-        self.saved_scores['scalar']['mCCE'] = CCE_horizon.mean().item()
-        self.saved_scores['scalar']['mAW'] = AW_horizon.mean().item()
-        self.saved_scores['vector']['CCE_horizon'] = CCE_horizon.tolist()
-        self.saved_scores['vector']['AW_horizon'] = AW_horizon.tolist()
+        self.metrics_scalar['mCCE'] = CCE_horizon.mean().item()
+        self.metrics_scalar['mAW'] = AW_horizon.mean().item()
+        self.metrics_vector['CCE_horizon'] = CCE_horizon.tolist()
+        self.metrics_vector['AW_horizon'] = AW_horizon.tolist()
         if verbose:
-            logger.info(f"mCCE: {self.saved_scores['scalar']['mCCE']:.4f}, mAW: {self.saved_scores['scalar']['mAW']:.4f}")
+            logger.info(f"mCCE: {self.metrics_scalar['mCCE']:.4f}, mAW: {self.metrics_scalar['mAW']:.4f}")
 
 
     def evaluate_crps(self, all_preds, all_data, verbose=False):
@@ -437,7 +437,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             Plot the scores saved in self.saved_scores, which is a dictionary with keys being the score types.
             The values are numpy arrays with shape (T,) or (P,) for each time step and spatial location.
         """
-        scores_by_time = self.saved_scores["vector"]
+        scores_by_time = self.metrics_vector
         # plot the scores by time step
         plot_legends_emp = [
             ("CRPS_GMM_EMP", "GMM vs Empirical"),
@@ -474,8 +474,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         The scores are saved in a dictionary with keys being the score types and values being the scores.
         """
 
-        scalar_res = {k:float(v) for k, v in self.saved_scores['scalar'].items()}
-        vector_res = {k:v for k, v in self.saved_scores['vector'].items() if isinstance(v, list)}
+        scalar_res = {k:float(v) for k, v in self.metrics_scalar.items()}
+        vector_res = {k:v for k, v in self.metrics_vector.items() if isinstance(v, list)}
         res_to_save = {
             "average": scalar_res,
             "horizon": vector_res
