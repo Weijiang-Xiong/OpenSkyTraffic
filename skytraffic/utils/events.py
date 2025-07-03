@@ -123,9 +123,7 @@ class EventStorage:
         _STORAGE_STACK.pop()
         
         if exc_type is not None:
-            logger.error("Encountered Exception: {} {}".format(exc_type, exc_value))
-            logger.error("Traceback:")
-            logger.error(traceback.format_exc())
+            logger.error("Encountered Exception", exc_info=(exc_type, exc_value, exc_traceback))
             
     def put_scalar(self, name, value, suffix=None):
         """ update both the 
