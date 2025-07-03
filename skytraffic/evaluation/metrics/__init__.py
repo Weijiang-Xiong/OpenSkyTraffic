@@ -6,5 +6,6 @@ from .probabilistic import (
 )
 from .metrics_helper import (
     get_knn_ecdf,
+    get_knn_neighbors,
     ignore_score_when_gt_isnan
 )

@@ -169,7 +169,19 @@ def experiment_gmm_model(cfg_str, command_list, note="0"):
     f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=False train.output_dir=scratch/gmmpred_bayes_avg_{note} train.eval_train=False"
     )
     command_list.append(
+    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=False model.use_drone=False train.output_dir=scratch/gmmpred_bayes_avg_no_drone_{note} train.eval_train=False"
+    )
+    command_list.append(
+    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=False model.use_ld=False train.output_dir=scratch/gmmpred_bayes_avg_no_ld_{note} train.eval_train=False"
+    )
+    command_list.append(
     f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=True train.output_dir=scratch/gmmpred_map_est_{note} train.eval_train=False"
+    )
+    command_list.append(
+    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=True model.use_drone=False train.output_dir=scratch/gmmpred_map_est_no_drone_{note} train.eval_train=False"
+    )
+    command_list.append(
+    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=True model.use_ld=False train.output_dir=scratch/gmmpred_map_est_no_ld_{note} train.eval_train=False"
     )
 
 if __name__ == "__main__":
