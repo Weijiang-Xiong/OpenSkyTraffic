@@ -18,6 +18,7 @@ from ..data.datasets import SimBarcaMSMT
 from .simbarca_evaluation import SimBarcaEvaluator
 from .metrics import (
     get_knn_ecdf,
+    get_knn_neighbors,
     interval_coverage_and_width,
     crps_from_cdf,
     ignore_score_when_gt_isnan
@@ -149,7 +150,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             # Pass lists of positions and sessions instead of looping here
             p_list_seg = [s2i[sec] for sec in soi]
             s_list = list(range(len(session_ids)))
-            p_list_reg = list(range(len(dataset.cluster_id.unique()))) # For regional predictions
+            p_list_reg = list(range(len(np.unique(dataset.cluster_id)))) # For regional predictions
             
             fix_time_pred_path = f"{self.save_dir}/fix_time_pred"
             make_dir_if_not_exist(fix_time_pred_path)
@@ -204,19 +205,21 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         # from the saved CI_COVER and CI_WIDTH, compute the calibration error and average width
         # confidence calibration error is the absolute difference between confidence level and the average coverage
         CCE_conf_horizon, AW_conf_horizon = [], []
-        for conf in self.eval_confs:
-            CCE_conf_horizon.append(abs(self.metrics_vector[f'CI_COVER_{conf}'] - conf))
+        # we evaluate CI by averaging the metrics over all prediction horizons. 
+        # uncomment these following lines to save the CI evaluation results for each prediction horizon
+        for conf in self.eval_confs: 
+            CCE_conf_horizon.append([abs(x - conf) for x in self.metrics_vector[f'CI_COVER_{conf}']])
             AW_conf_horizon.append(self.metrics_vector[f'CI_WIDTH_{conf}'])
 
         # concatenate the scores along a new dimension, which is the confidence level
-        CCE_horizon = np.stack(CCE_conf_horizon, axis=-1).mean(axis=-1)
-        AW_horizon = np.stack(AW_conf_horizon, axis=-1).mean(axis=-1)
+        mCCE_horizon = np.stack(CCE_conf_horizon, axis=-1).mean(axis=-1)
+        mAW_horizon = np.stack(AW_conf_horizon, axis=-1).mean(axis=-1)
 
         # save the scores 
-        self.metrics_scalar['mCCE'] = CCE_horizon.mean().item()
-        self.metrics_scalar['mAW'] = AW_horizon.mean().item()
-        self.metrics_vector['CCE_horizon'] = CCE_horizon.tolist()
-        self.metrics_vector['AW_horizon'] = AW_horizon.tolist()
+        self.metrics_scalar['mCCE'] = mCCE_horizon.mean().item()
+        self.metrics_scalar['mAW'] = mAW_horizon.mean().item()
+        self.metrics_vector['mCCE'] = mCCE_horizon.tolist()
+        self.metrics_vector['mAW'] = mAW_horizon.tolist()
         if verbose:
             logger.info(f"mCCE: {self.metrics_scalar['mCCE']:.4f}, mAW: {self.metrics_scalar['mAW']:.4f}")
 
@@ -282,6 +285,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
     #########################################################################################
     ################ Functions utilized in the subroutines        ###########################
     #########################################################################################
+    @staticmethod
     def gmm_interval_coverage_and_width(
         tensors: List[torch.Tensor],
         tensor_names: List[str],
@@ -545,7 +549,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         for p, sec_id in zip(p_list, sec_ids):
             
             if with_knn: # Compute KNN neighbors for the last time step
-                knn = self.get_knn_neighbors(
+                knn = get_knn_neighbors(
                     x=all_data['drone_speed'][:, -1, p].reshape(-1, 1, 1), 
                     y=all_data['pred_speed'][:, -1, p].reshape(-1, 1, 1)
                 )
