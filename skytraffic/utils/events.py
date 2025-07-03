@@ -9,8 +9,8 @@
 """
 import copy
 import traceback 
-import numpy as np
 import logging
+import numpy as np
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 from typing import List, Optional, Tuple
 from collections import defaultdict
@@ -123,9 +123,7 @@ class EventStorage:
         _STORAGE_STACK.pop()
         
         if exc_type is not None:
-            logger.error("Encountered Exception: {} {}".format(exc_type, exc_value))
-            logger.error("Traceback:")
-            logger.error(traceback.format_exc())
+            logger.error("Encountered Exception", exc_info=(exc_type, exc_value, exc_traceback))
             
     def put_scalar(self, name, value, suffix=None):
         """ update both the 
