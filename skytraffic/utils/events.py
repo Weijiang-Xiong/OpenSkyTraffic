@@ -10,11 +10,13 @@
 import copy
 import traceback 
 import numpy as np
+import logging
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 from typing import List, Optional, Tuple
 from collections import defaultdict
 
 _STORAGE_STACK = []
+logger = logging.getLogger("default")
 
 class HistoryBuffer:
     """
@@ -121,9 +123,9 @@ class EventStorage:
         _STORAGE_STACK.pop()
         
         if exc_type is not None:
-            print("Encountered Exception: {} {}".format(exc_type, exc_value))
-            print("Traceback:")
-            traceback.print_tb(exc_traceback)
+            logger.error("Encountered Exception: {} {}".format(exc_type, exc_value))
+            logger.error("Traceback:")
+            logger.error(traceback.format_exc())
             
     def put_scalar(self, name, value, suffix=None):
         """ update both the 
