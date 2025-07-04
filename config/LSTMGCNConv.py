@@ -2,11 +2,11 @@ from .common_cfg import train, scheduler, evaluation
 from .common_cfg import adamw as optimizer
 
 train.test_best_ckpt = False
-train.output_dir = "scratch/lstmgnn"
+train.output_dir = "scratch/lstmgcnconv"
 evaluation.evaluator_type = "metrla"
 
 model = {
-    "name": "LSTMGNN",
+    "name": "LSTMGCNConv",
     "device": "cuda",
     "use_global": True,
     "layernorm": True,

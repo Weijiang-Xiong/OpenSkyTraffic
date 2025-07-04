@@ -11,7 +11,7 @@ from .common import MLP, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 from .base import BaseModel
 
-class LSTMGNN(BaseModel):
+class LSTMGCNConv(BaseModel):
     def __init__(
         self,
         use_global=True,
@@ -21,7 +21,7 @@ class LSTMGNN(BaseModel):
         layernorm=True,
         adjacency_hop: int = 1,
         dropout: float = 0.1,
-        invalid_value: float = 0.0,
+        input_null_value: float = 0.0,
         norm_label_for_loss: bool = True,
     ):
         """
@@ -36,7 +36,7 @@ class LSTMGNN(BaseModel):
         """
         super().__init__()
         self.use_global = use_global
-        self.invalid_value = invalid_value
+        self.input_null_value = input_null_value
         self.adjacency_hop = adjacency_hop
         self.norm_label_for_loss = norm_label_for_loss
         self.metadata: Dict[str, torch.Tensor] = None
@@ -70,7 +70,7 @@ class LSTMGNN(BaseModel):
         target = data["target"].to(self.device)
 
         # replace the label values with nan, so that they will be ignored in the loss after normalization
-        target[target == self.invalid_value] = torch.nan
+        target[target == self.input_null_value] = torch.nan
 
         # normalize the data
         source = self.datascaler.transform(source)
@@ -172,5 +172,5 @@ class LSTMGNN(BaseModel):
         self.metadata = state_dict["metadata"]
         super().load_state_dict(state_dict["model_params"], strict=strict)
         
-if __name__.endswith("lstmgnn"):
-    MODEL_CATALOG.register(LSTMGNN)
+if __name__.endswith("lstmgcnconv"):
+    MODEL_CATALOG.register(LSTMGCNConv)
