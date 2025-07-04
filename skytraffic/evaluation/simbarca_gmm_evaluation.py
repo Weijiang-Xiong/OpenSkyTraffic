@@ -466,7 +466,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             ax.legend(loc="upper left")
             ax.set_title("CRPS by Time Horizion")
             plt.tight_layout()
-            save_path = f"{self.save_dir}/crps_by_time_{base_name}_{self.save_note}.pdf"
+            save_path = f"{self.save_dir}/crps_by_time_{base_name}.pdf"
             plt.savefig(save_path)
             logger.info(f"Save scores by time step to {save_path}")
             plt.close(fig)  # Close figure to free memory

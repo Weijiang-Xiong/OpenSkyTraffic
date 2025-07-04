@@ -21,11 +21,10 @@ logger = logging.getLogger("default")
 
 class SimBarcaEvaluator:
 
-    def __init__(self, ignore_value=float("nan"), mape_threshold=1.0, save_dir: str=None, save_note="", visualize=False) -> None:
+    def __init__(self, ignore_value=float("nan"), mape_threshold=1.0, save_dir: str=None, visualize=False) -> None:
         self.ignore_value = ignore_value
         self.mape_threshold = mape_threshold
         self.save_dir = save_dir
-        self.save_note = save_note
         self.visualize = visualize
         make_dir_if_not_exist(self.save_dir)
         # for saving various evaluation metrics in analysis
@@ -91,7 +90,7 @@ class SimBarcaEvaluator:
             ax.set_xlabel("Demand Scale")
             ax.set_ylabel("MAE")
             # ax.set_title("MAE by Demand Scale for {}".format(seq_name))
-            fig_path = "{}/MAE_by_demand_scale_{}_{}.pdf".format(self.save_dir, self.save_note, seq_name)
+            fig_path = "{}/MAE_by_demand_scale_{}.pdf".format(self.save_dir, seq_name)
             fig.tight_layout()
             fig.savefig(fig_path)
             logger.info("Save MAE by demand scale plot to {}".format(fig_path))
@@ -133,7 +132,7 @@ class SimBarcaEvaluator:
         ax.set_xlabel("Upper bound of average segment speed")
         ax.set_ylabel("MAE")
         # ax.set_title("MAE by Average Speed")
-        fig_path = "{}/MAE_by_avg_speed_{}.pdf".format(self.save_dir, self.save_note)
+        fig_path = "{}/MAE_by_avg_speed.pdf".format(self.save_dir)
         fig.tight_layout()
         fig.savefig(fig_path)
         plt.close()
@@ -209,7 +208,6 @@ class SimBarcaEvaluator:
                 dataset.node_coordinates,
                 all_preds,
                 all_labels,
-                save_note=self.save_note,
             )
             
             # do evaluation for different demand scales
@@ -239,7 +237,7 @@ class SimBarcaEvaluator:
                     session_ids,
                     demand_scales,
                     section_num=section_index,
-                    save_note="{}_aimsunid_{}".format(self.save_note, aimsun_sec_id),
+                    save_note="_aimsunid_{}".format(aimsun_sec_id),
                 )
             # plot for regional prediction
             for r in range(4):
@@ -250,7 +248,7 @@ class SimBarcaEvaluator:
                     demand_scales,
                     section_num=r,
                     regional=True,
-                    save_note="{}_region{}".format(self.save_note, r),
+                    save_note="region{}".format(r),
                 )
         # return this for EvalHook to do logging in training
         return self.metrics_scalar
@@ -305,7 +303,7 @@ class SimBarcaEvaluator:
     
     
     def format_results_excel(self, eval_res):
-        excel_string = "{}".format(self.save_note)
+        excel_string = "METHOD"
         for task in eval_res.keys():
             for time_step in [4, 9]:
                 excel_string += " {:.2f} {:.1f}% {:.2f}".format(
@@ -316,7 +314,7 @@ class SimBarcaEvaluator:
         return excel_string
         
     def format_results_latex(self, eval_res):
-        latex_string = "{}".format(self.save_note)
+        latex_string = "METHOD"
         for task in eval_res.keys():
             for time_step in [4, 9]:
                 latex_string += " & {:.2f} & {:.1f}\\% & {:.2f}".format(
