@@ -12,10 +12,13 @@ plt.rcParams['figure.dpi'] = 300
 plt.rcParams['font.size'] = 12
 
 SIMBARCA_RESULTS = {
-        "gmmpred_bayes_avg_fullinfo": "Bayes-100%",
-        "gmmpred_bayes_avg_rndobs": "Bayes-10%",
+    "gmmpred_bayes_avg_fullinfo": "Full-Both",
+    "gmmpred_bayes_avg_no_drone_fullinfo": "Full-LD",
+    "gmmpred_bayes_avg_no_ld_fullinfo": "Full-Drone",
+    "gmmpred_bayes_avg_rndobs": "Partial-Both",
+    "gmmpred_bayes_avg_no_drone_rndobs": "Partial-LD",
+    "gmmpred_bayes_avg_no_ld_rndobs": "Partial-Drone",
     }
-
 
 RESULT_GROUPS = {
     "simbarca": SIMBARCA_RESULTS,
@@ -65,9 +68,9 @@ def plot_cce_horizon(results, save_note="dataset"):
     plt.figure(figsize=(8, 6))
     
     for method, data in results.items():
-        if "CCE_horizon" in data["horizon"]:
-            horizons = list(range(1, len(data["horizon"]["CCE_horizon"]) + 1))
-            cce_values = data["horizon"]["CCE_horizon"]
+        if "mCCE" in data["horizon"]:
+            horizons = list(range(1, len(data["horizon"]["mCCE"]) + 1))
+            cce_values = data["horizon"]["mCCE"]
             plt.plot(horizons, cce_values, marker='o', label=method, linewidth=2)
     
     plt.xlabel('Prediction Horizon')
@@ -85,9 +88,9 @@ def plot_aw_horizon(results, save_note="dataset"):
     plt.figure(figsize=(8, 6))
     
     for method, data in results.items():
-        if "AW_horizon" in data["horizon"]:
-            horizons = list(range(1, len(data["horizon"]["AW_horizon"]) + 1))
-            aw_values = data["horizon"]["AW_horizon"]
+        if "mAW" in data["horizon"]:
+            horizons = list(range(1, len(data["horizon"]["mAW"]) + 1))
+            aw_values = data["horizon"]["mAW"]
             plt.plot(horizons, aw_values, marker='o', label=method, linewidth=2)
     
     plt.xlabel('Prediction Horizon')
@@ -96,6 +99,47 @@ def plot_aw_horizon(results, save_note="dataset"):
     plt.legend()
     plt.tight_layout()
     save_path = f'visualize/figures/{save_note}_maw_by_pred_horizon.pdf'
+    plt.savefig(save_path, bbox_inches='tight')
+    print(f"Saved figure to {save_path}")
+    plt.show()
+
+def plot_crps_gt(results, save_note="dataset"):
+    """Plot CRPS_GMM_GT values over prediction horizon."""
+    plt.figure(figsize=(8, 6))
+    
+    for method, data in results.items():
+        if "CRPS_GMM_GT" in data["horizon"]:
+            horizons = list(range(1, len(data["horizon"]["CRPS_GMM_GT"]) + 1))
+            crps_values = data["horizon"]["CRPS_GMM_GT"]
+            plt.plot(horizons, crps_values, marker='o', label=method, linewidth=2)
+    
+    plt.xlabel('Prediction Horizon')
+    plt.ylabel('CRPS')
+    plt.xticks(range(1, 11))
+    plt.legend()
+    plt.tight_layout()
+    save_path = f'visualize/figures/{save_note}_crps_wrt_gt_by_pred_horizon.pdf'
+    plt.savefig(save_path, bbox_inches='tight')
+    print(f"Saved figure to {save_path}")
+    plt.show()
+
+
+def plot_crps_emp(results, save_note="dataset"):
+    """Plot CRPS_GMM_EMP values over prediction horizon."""
+    plt.figure(figsize=(8, 6))
+    
+    for method, data in results.items():
+        if "CRPS_GMM_EMP" in data["horizon"]:
+            horizons = list(range(1, len(data["horizon"]["CRPS_GMM_EMP"]) + 1))
+            crps_values = data["horizon"]["CRPS_GMM_EMP"]
+            plt.plot(horizons, crps_values, marker='o', label=method, linewidth=2)
+    
+    plt.xlabel('Prediction Horizon')
+    plt.ylabel('CRPS')
+    plt.xticks(range(1, 11))
+    plt.legend()
+    plt.tight_layout()
+    save_path = f'visualize/figures/{save_note}_crps_wrt_emp_by_pred_horizon.pdf'
     plt.savefig(save_path, bbox_inches='tight')
     print(f"Saved figure to {save_path}")
     plt.show()
@@ -118,3 +162,5 @@ if __name__ == "__main__":
     plot_ci_coverage(results, save_note=args.dataset)
     plot_cce_horizon(results, save_note=args.dataset)
     plot_aw_horizon(results, save_note=args.dataset)
+    plot_crps_gt(results, save_note=args.dataset)
+    plot_crps_emp(results, save_note=args.dataset)
