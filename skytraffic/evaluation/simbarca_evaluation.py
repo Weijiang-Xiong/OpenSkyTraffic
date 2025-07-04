@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 
 import matplotlib.pyplot as plt
 import seaborn as sns 
-sns.set_style('darkgrid')
 
 from typing import Dict, List, Tuple
 from collections import defaultdict
@@ -17,6 +16,7 @@ from ..utils.io import flatten_results_dict, make_dir_if_not_exist
 from .metrics import common_metrics
 from ..data.datasets import SimBarcaMSMT
 
+sns.set_style('darkgrid')
 logger = logging.getLogger("default")
 
 class SimBarcaEvaluator:
