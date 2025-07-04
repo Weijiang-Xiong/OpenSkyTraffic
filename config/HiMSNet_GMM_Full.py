@@ -6,12 +6,11 @@ dataset = simbarca_msmt
 train.test_best_ckpt = False
 train.output_dir = "scratch/gmmpred_fullinfo"
 evaluation.evaluator_type = "simbarcagmm"
-evaluation.save_note = "gmmpred"
 evaluation.mape_threshold = 1.0
 evaluation.ignore_value = float("nan")
 evaluation.add_output_seq = ["seg_mixing","seg_means","seg_log_var","reg_mixing","reg_means","reg_log_var"]
 model = {
-    "name": "GMMPred",
+    "name": "HiMSNet_GMM",
     "device": "cuda",
     "use_drone": True,
     "use_ld": True,

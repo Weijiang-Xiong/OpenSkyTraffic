@@ -5,7 +5,6 @@ from .datasets import simbarca_msmt
 train.test_best_ckpt = False
 train.output_dir = "scratch/himsnet"
 evaluation.evaluator_type = "simbarca"
-evaluation.save_note = "himsnet"
 evaluation.mape_threshold = 1.0
 evaluation.ignore_value = float("nan")
 

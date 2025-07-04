@@ -12,7 +12,7 @@ model = {
     "layernorm": True,
     "d_model": 64,
     "global_downsample_factor": 1,
-    "invalid_value": 0.0,
+    "input_null_value": 0.0,
     "adjacency_hop": 1
 }
 
