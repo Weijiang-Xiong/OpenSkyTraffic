@@ -353,7 +353,6 @@ class NeTSFormer(nn.Module):
         mean, plog_sigma = self.make_pred(data)
             
         mean = self.datascaler.inverse_transform(mean)
-        plog_sigma = self.datascaler.inverse_transform_plog_sigma(plog_sigma)
         
         res = {"pred": mean, "plog_sigma": plog_sigma}
         
@@ -366,7 +365,6 @@ class NeTSFormer(nn.Module):
         
         # scale back the predictions and then calculate loss 
         mean = self.datascaler.inverse_transform(mean)
-        plog_sigma = self.datascaler.inverse_transform_plog_sigma(plog_sigma)
         loss = self.loss(mean, label, plog_sigma)
             
         loss_dict = {"loss": loss}
