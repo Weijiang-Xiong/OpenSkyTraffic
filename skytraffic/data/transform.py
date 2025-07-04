@@ -55,22 +55,6 @@ class TensorDataScaler:
         self.mean = self.mean.to(device)
         self.std = self.std.to(device)
         self.inv_std = self.inv_std.to(device)
-
-    def inverse_transform_plog_sigma(self, plog_sigma):
-        
-        """ 
-            we scale the raw input x to zero mean and unit variance variable u using self.transform:
-                u = (x - mean) / std 
-            when we scale back, 
-                x = u * std + mean 
-            the variance should be
-                Var(x) = Var(u) * std**2
-            and the p-log-sigma should be:
-                log Var(x) = log(Var(u)) + 2log(std)
-            However, through experiments, we find this biased p-log-sigma are usually too large,
-            so we discarded this inductive bias, and let the network learn by itself. 
-        """
-        return plog_sigma # + 2*torch.log(self.std)
     
     @property
     def device(self):

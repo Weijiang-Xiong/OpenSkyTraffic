@@ -5,8 +5,8 @@ train = {
     "device": "cuda",
     # select model by validation set performance, and test the best model
     # will test the final model if set to False
-    "best_metric": "mae_train",
-    "test_best_ckpt": True, 
+    "best_metric": None,
+    "test_best_ckpt": False, 
     "grad_clip": 3.0,
     "eval_train": True, # run evaluation on train set after each epoch
     "eval_period": 1, # run evaluation every n epochs
@@ -22,9 +22,10 @@ adam = {
 
 adamw = {
     "type": "adamw",
-    "lr": 1e-3,
-    "weight_decay": 1e-4,
-    "betas": (0.9, 0.999)
+    "lr": 5e-4,                # Slightly higher than Adam
+    "weight_decay": 1e-4,      # Higher weight decay (AdamW handles this better)
+    "betas": (0.9, 0.999),     # Standard values
+    "eps": 1e-8
 }
 
 sgd = {
