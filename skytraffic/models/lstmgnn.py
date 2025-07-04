@@ -2,24 +2,43 @@ import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
 
-from ..loss import GeneralizedProbRegLoss
+from ..loss import masked_mae
 from typing import Dict, Tuple
 from einops import rearrange
 
 from ..data.transform import TensorDataScaler
 from .common import MLP, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
+from .base import BaseModel
 
-class LSTMGNN(nn.Module):
-    def __init__(self, use_global=True, normalize_input=True, scale_output=True, 
-                 d_model=64, global_downsample_factor:int=1, layernorm=True, ignore_value: float=-1.0,
-                 adjacency_hop: int=1):
+class LSTMGNN(BaseModel):
+    def __init__(
+        self,
+        use_global=True,
+        pred_steps: int = 12,
+        d_model=64,
+        global_downsample_factor: int = 1,
+        layernorm=True,
+        adjacency_hop: int = 1,
+        dropout: float = 0.1,
+        invalid_value: float = 0.0,
+        norm_label_for_loss: bool = True,
+    ):
+        """
+        Args:
+            use_global: whether to use GNN module for spatial information
+            d_model: the dimension of the model
+            global_downsample_factor: the factor to downsample the node features for GNN
+            layernorm: whether to use layer normalization after GNN layer
+            adjacency_hop: the number of hops to compute the adjacency matrix
+            invalid_value: the invalid value in the label, will be replaced with NaN in order to be ignored in loss computation
+            norm_label_for_loss: whether to compute the loss after the Z-normalization of label
+        """
         super().__init__()
         self.use_global = use_global
-        self.normalize_input = normalize_input
-        self.scale_output = scale_output
-        self.ignore_value = ignore_value
+        self.invalid_value = invalid_value
         self.adjacency_hop = adjacency_hop
+        self.norm_label_for_loss = norm_label_for_loss
         self.metadata: Dict[str, torch.Tensor] = None
         self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570)
         self.ld_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
@@ -32,7 +51,7 @@ class LSTMGNN(nn.Module):
             global_dim = d_model // global_downsample_factor
             self.channel_down_sample = nn.LazyLinear(out_features=global_dim)
             # embedding, LSTM and MLP already contain dropout, so we only add dropout to the graph convolution
-            self.dropout = nn.Dropout(p=0.1) 
+            self.dropout = nn.Dropout(p=dropout) 
             self.relu = nn.ReLU()
             # check the answer from @rusty1s https://github.com/pyg-team/pytorch_geometric/issues/965
             self.gcn_1 = gnn.GCNConv(in_channels=global_dim, out_channels=global_dim, node_dim=1)
@@ -43,70 +62,63 @@ class LSTMGNN(nn.Module):
 
             self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
             
-        self.prediction = MLP(in_dim=d_model * int(1 + self.use_global), hid_dim=int(d_model * 2), out_dim=12, dropout=0.1)
-        self.loss = GeneralizedProbRegLoss(aleatoric=False, exponent=1, ignore_value=self.ignore_value)
+        self.prediction = MLP(in_dim=d_model * int(1 + self.use_global), hid_dim=int(d_model * 2), out_dim=pred_steps, dropout=dropout)
+        self.loss = masked_mae
 
-    @property
-    def device(self):
-        return list(self.parameters())[0].device
+    def preprocess(self, data: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        source = data["source"].to(self.device)
+        target = data["target"].to(self.device)
 
-    @property
-    def num_params(self):
-        return sum([p.numel() for p in self.parameters() if p.requires_grad])
+        # replace the label values with nan, so that they will be ignored in the loss after normalization
+        target[target == self.invalid_value] = torch.nan
 
-    def forward(self, data: dict[str, torch.Tensor]):
-        """
-        time series forecasting task,
-        data is assumed to have (N, T, P, C) shape (assumed to be unnormalized)
-        label is assumed to have (N, T, P) shape (assumed to be unnormalized)
-
-        compute loss in training mode, predict future values in inference
-        """
-
-        # preprocessing (if any)
-        source, target = self.preprocess(data)
-
-        if self.training:
-            assert target is not None, "label should be provided for training"
-            return self.compute_loss(source, target)
-        else:
-            # we should not have target sequences in inference
-            return self.inference(source)
-
-    def preprocess(self, data: dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.normalize_input:
-            source = {
-                "source": self.datascaler.transform(data["source"].to(self.device)),
-            }
-        else:
-            source = {"source": data["source"].to(self.device)}
-        target = {"target": data["target"].to(self.device)}
+        # normalize the data
+        source = self.datascaler.transform(source)
+        if self.norm_label_for_loss:
+            target = self.datascaler.transform(target)
         
         return source, target
 
-    def post_process(self, prediction: torch.Tensor) -> torch.Tensor:
-        if self.scale_output:
-            # scale back using the inverse_transform of the output scaler
-            prediction["pred"] = self.datascaler.inverse_transform(prediction["pred"])
-
+    def post_process(self, prediction: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        prediction['pred'] = self.datascaler.inverse_transform(prediction["pred"])
         return prediction
 
+    def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        pred_res = self.make_prediction(source)
+        # when label is scaled, we directly train the model to predict the scaled label
+        # otherwise, we scale back the prediction and then compute the loss
+        if self.norm_label_for_loss:
+            loss = self.loss(pred_res["pred"], target)
+        else:
+            loss = self.loss(self.post_process(pred_res)["pred"], target)
+
+        return {"loss": loss}
+
+    def inference(self, source: torch.Tensor) -> torch.Tensor:
+        return self.post_process(self.make_prediction(source))
+
     def make_prediction(self, source: dict[str, torch.Tensor]) -> torch.Tensor:
-        x_ld = source["source"]
-        N, _, P, C = x_ld.shape 
+        fused_features = self.feature_extraction(source)
+        pred = self.prediction(fused_features)
+        return {
+            "pred": rearrange(pred, "N P T -> N T P"),
+        }
+
+    def feature_extraction(self, x: torch.Tensor) -> torch.Tensor:
+        N, _, P, C = x.shape 
 
         all_mode_features = [] # store the features of all modalities
         
-        x_ld = rearrange(x_ld, "N T P C -> N C P T")
-        x_ld = self.ld_embedding(x_ld)
-        x_ld = rearrange(x_ld, "N C P T -> (N T) P C")
-        x_ld = self.spatial_encoding(x_ld)
-        x_ld = rearrange(x_ld, "(N T) P C -> (N P) T C", N=N)
-        x_ld = self.temporal_encoding_ld(x_ld)
-        x_ld, _ = self.ld_temporal(x_ld)
-        x_ld = self.ld_norm(x_ld)
-        x_ld = rearrange(x_ld[:, -1, :], "(N P) C -> N P C", N=N)
-        all_mode_features.append(x_ld)
+        x = rearrange(x, "N T P C -> N C P T")
+        x = self.ld_embedding(x)
+        x = rearrange(x, "N C P T -> (N T) P C")
+        x = self.spatial_encoding(x)
+        x = rearrange(x, "(N T) P C -> (N P) T C", N=N)
+        x = self.temporal_encoding_ld(x)
+        x, _ = self.ld_temporal(x)
+        x = self.ld_norm(x)
+        x = rearrange(x[:, -1, :], "(N P) C -> N P C", N=N)
+        all_mode_features.append(x)
         
         if self.use_global:
             x_global = self.channel_down_sample(torch.cat(all_mode_features, dim=-1))
@@ -120,21 +132,8 @@ class LSTMGNN(nn.Module):
 
         fused_features = torch.cat(all_mode_features, dim=-1)
         
-        pred = self.prediction(fused_features)
-
-        return {
-            "pred": rearrange(pred, "N P T -> N T P"),
-        }
-
-    def compute_loss(self, source: dict[str, torch.Tensor], target: torch.Tensor) -> torch.Tensor:
-        pred_res = self.make_prediction(source)
-        pred_res = self.post_process(pred_res) # scale back and then compute loss 
-        loss = self.loss(pred_res["pred"], target["target"])
-
-        return {"loss": loss}
-
-    def inference(self, source: dict[str, torch.Tensor]) -> torch.Tensor:
-        return self.post_process(self.make_prediction(source))
+        return fused_features
+    
 
     def adapt_to_metadata(self, metadata):
         
@@ -168,10 +167,10 @@ class LSTMGNN(nn.Module):
         state["datascaler"] = self.datascaler.state_dict()
         return state
     
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict, strict: bool = False):
         self.datascaler = TensorDataScaler(**state_dict["datascaler"])
         self.metadata = state_dict["metadata"]
-        super().load_state_dict(state_dict["model_params"])
+        super().load_state_dict(state_dict["model_params"], strict=strict)
         
 if __name__.endswith("lstmgnn"):
     MODEL_CATALOG.register(LSTMGNN)
