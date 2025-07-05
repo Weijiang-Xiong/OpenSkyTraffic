@@ -1,7 +1,39 @@
 import torch 
 from einops import rearrange
+from typing import List, Tuple
 
-def get_knn_ecdf(inputs, gt, knn_nb, xs):
+from .probabilistic import interval_coverage_and_width
+from ...models.gmmpred import GMMPredictionHead
+
+def gmm_interval_coverage_and_width(
+        tensors: List[torch.Tensor],
+        tensor_names: List[str],
+        xs: torch.Tensor,
+        conf: float,
+        sp_size: int = 20,
+        gpu: bool = True,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """ This is a helper function to pass the function for confidence interval
+        """
+        # Define confidence interval function wrapper
+        def ci_function(chunks, xs, conf):
+            return GMMPredictionHead.get_confidence_interval(
+                chunks["mixing"], chunks["means"], chunks["log_var"],
+                xs, conf=conf
+            )
+        
+        # Use the new generic function
+        return interval_coverage_and_width(
+            tensors=tensors,
+            tensor_names=tensor_names,
+            ci_function=ci_function,
+            xs=xs,
+            conf=conf,
+            sp_size=sp_size,
+            gpu=gpu
+        )
+
+def get_knn_ecdf(inputs: torch.Tensor, gt: torch.Tensor, knn_nb: int, xs: torch.Tensor) -> torch.Tensor:
     gt_knn = get_knn_neighbors(inputs, gt, k=knn_nb)
     
     # after sorting, the NaN values are at the end of the tensor
@@ -29,7 +61,7 @@ def get_knn_ecdf(inputs, gt, knn_nb, xs):
     # this will be addressed by self.invalid_to_ignore_value before returning the scores.
     return knn_ecdf
 
-def get_knn_neighbors(x, y, k=20):
+def get_knn_neighbors(x: torch.Tensor, y: torch.Tensor, k: int = 20) -> torch.Tensor:
     """
     For each spatial location, we compute the k nearest neighbors among all samples in the dataset (including self), according to the L2 distance in the input time series (drone speed, nan values replaced by mean). 
     The target output y is then gathered according to the k nearest neighbors, and they form an empirical distribution.

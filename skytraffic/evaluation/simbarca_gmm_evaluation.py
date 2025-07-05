@@ -19,7 +19,7 @@ from .simbarca_evaluation import SimBarcaEvaluator
 from .metrics import (
     get_knn_ecdf,
     get_knn_neighbors,
-    interval_coverage_and_width,
+    gmm_interval_coverage_and_width,
     crps_from_cdf,
     ignore_score_when_gt_isnan
 )
@@ -188,7 +188,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         tensor_names = ["mixing", "means", "log_var", "gt"]
 
         for conf in self.eval_confs:
-            within_ci, interval_width = self.gmm_interval_coverage_and_width(
+            within_ci, interval_width = gmm_interval_coverage_and_width(
                 tensors=tensors,
                 tensor_names=tensor_names,
                 xs=xs,
@@ -285,36 +285,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
     #########################################################################################
     ################ Functions utilized in the subroutines        ###########################
     #########################################################################################
-    @staticmethod
-    def gmm_interval_coverage_and_width(
-        tensors: List[torch.Tensor],
-        tensor_names: List[str],
-        xs: torch.Tensor,
-        conf: float,
-        sp_size: int = 20,
-        gpu: bool = True,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """ This is a helper function to pass the function for confidence interval
-        """
-        # Define confidence interval function wrapper
-        def ci_function(chunks, xs, conf):
-            return GMMPredictionHead.get_confidence_interval(
-                chunks["mixing"], chunks["means"], chunks["log_var"],
-                xs, conf=conf
-            )
-        
-        # Use the new generic function
-        return interval_coverage_and_width(
-            tensors=tensors,
-            tensor_names=tensor_names,
-            ci_function=ci_function,
-            xs=xs,
-            conf=conf,
-            sp_size=sp_size,
-            gpu=gpu
-        )
-
-    
     def get_crps_gmm_vs_emp_dist(self, mixing, means, log_var, xs, inputs, gt, sp_size=20, knn_nb=20, gpu=True):
         """
         This function computes the CRPS score between the GMM prediction and an empirical distribution.
