@@ -4,7 +4,7 @@ from einops import rearrange
 from typing import List, Tuple
 
 from .probabilistic import interval_coverage_and_width, crps_from_cdf
-from ...models.gmmpred import GMMPredictionHead
+from ...models.layers import GMMPredictionHead
 
 
 def get_point_cdf(tensor: torch.Tensor, xs: torch.Tensor) -> torch.Tensor:

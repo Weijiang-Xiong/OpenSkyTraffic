@@ -1,7 +1,8 @@
 import unittest
 import pickle
 import torch
-from skytraffic.models import HiMSNet, ValueEmbedding
+from skytraffic.models import HiMSNet
+from skytraffic.models.layers import ValueEmbedding
 
 class TestHimsNetForward(unittest.TestCase):
     

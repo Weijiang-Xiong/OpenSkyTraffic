@@ -6,7 +6,7 @@ import numpy as np
 from scipy.stats import norm
 
 from skytraffic.models import HiMSNet_GMM
-from skytraffic.models.gmmpred import GMMPredictionHead, gaussian_density
+from skytraffic.models.layers import GMMPredictionHead, gaussian_density
 
 class TestGMM(unittest.TestCase):
 

@@ -18,9 +18,9 @@ from typing import List, Tuple, Dict, Callable, Any, Mapping
 from scipy.stats import rv_continuous, gennorm
 from einops import rearrange
 
-from .loss import GeneralizedProbRegLoss
+from .layers import GeneralizedProbRegLoss
 from ..data import TensorDataScaler
-from .common import LearnedPositionalEncoding, PositionalEncoding
+from .layers import LearnedPositionalEncoding, PositionalEncoding
 from .catalog import MODEL_CATALOG
 
 import warnings

@@ -5,7 +5,7 @@ import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from skytraffic.models import GMMPredictionHead
+from skytraffic.models.layers import GMMPredictionHead
 
 sns.set_style('darkgrid')
 

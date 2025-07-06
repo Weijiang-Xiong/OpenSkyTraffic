@@ -1,7 +1,7 @@
 import unittest
 
 import torch
-from skytraffic.models import PositionalEncoding, LearnedPositionalEncoding
+from skytraffic.models.layers import PositionalEncoding, LearnedPositionalEncoding
 
 class TestPosEncoding(unittest.TestCase):
     
