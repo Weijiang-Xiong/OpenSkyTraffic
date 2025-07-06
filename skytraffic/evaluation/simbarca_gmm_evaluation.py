@@ -17,11 +17,12 @@ from ..models.gmmpred import GMMPredictionHead
 from ..data.datasets import SimBarcaMSMT
 from .simbarca_evaluation import SimBarcaEvaluator
 from .metrics import (
-    get_knn_ecdf,
-    get_knn_neighbors,
     gmm_interval_coverage_and_width,
-    crps_from_cdf,
-    ignore_score_when_gt_isnan
+    ignore_score_when_gt_is,
+    get_knn_neighbors,
+    get_crps_pred_vs_emp_dist,
+    get_crps_gmm_vs_emp_dist,
+    get_crps_gmm_vs_gt
 )
 
 sns.set_style('darkgrid')
@@ -197,8 +198,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
                 gpu=self.gpu,
             )
 
-            within_ci = ignore_score_when_gt_isnan(within_ci, all_data["pred_speed"], self.ignore_value)
-            interval_width = ignore_score_when_gt_isnan(interval_width, all_data["pred_speed"], self.ignore_value)
+            within_ci = ignore_score_when_gt_is(within_ci, all_data["pred_speed"], self.ignore_value)
+            interval_width = ignore_score_when_gt_is(interval_width, all_data["pred_speed"], self.ignore_value)
             self.analyze_scores(scores=within_ci.float(),note=f"CI_COVER_{conf}",verbose=False)
             self.analyze_scores(scores=interval_width,note=f"CI_WIDTH_{conf}",verbose=False)
         
@@ -229,8 +230,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         cdf_xs = torch.linspace(self.data_min['seg'], self.data_max['seg'] , self.ci_pts)
 
         self.analyze_scores(
-            scores=ignore_score_when_gt_isnan(
-                self.get_crps_gmm_vs_emp_dist(
+            scores=ignore_score_when_gt_is(
+                get_crps_gmm_vs_emp_dist(
                     mixing=all_preds["seg_mixing"],
                     means=all_preds["seg_means"],
                     log_var=all_preds["seg_log_var"],
@@ -248,8 +249,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         )
 
         self.analyze_scores(
-            scores=ignore_score_when_gt_isnan(
-                self.get_crps_pred_vs_emp_dist(
+            scores=ignore_score_when_gt_is(
+                get_crps_pred_vs_emp_dist(
                     pred=all_preds["pred_speed"],
                     xs=cdf_xs,
                     inputs=all_data["drone_speed"],
@@ -265,8 +266,8 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         )
 
         self.analyze_scores(
-            scores=ignore_score_when_gt_isnan(
-                self.get_crps_gmm_vs_gt(
+            scores=ignore_score_when_gt_is(
+                get_crps_gmm_vs_gt(
                     mixing=all_preds["seg_mixing"],
                     means=all_preds["seg_means"],
                     log_var=all_preds["seg_log_var"],
@@ -281,125 +282,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             verbose=verbose,
         )
 
-
-    #########################################################################################
-    ################ Functions utilized in the subroutines        ###########################
-    #########################################################################################
-    def get_crps_gmm_vs_emp_dist(self, mixing, means, log_var, xs, inputs, gt, sp_size=20, knn_nb=20, gpu=True):
-        """
-        This function computes the CRPS score between the GMM prediction and an empirical distribution.
-        The empirical distribution of a sample is computed by taking the ground truth of a set of samples, 
-        whose inputs are the K nearest neighbors of the inputs in this sample.  
-        
-        Storing the GMM density for the whole dataset will cost N * T * P * X * 4 Byte.
-        For the Simbarca test set and density evaluated at 1000 points, that means 30 GB. 
-        If we store the density per GMM component, the cost will be multiplied by the number of components, e.g., K=5. 
-        Looping over the spatial locations and doing evaluation separately for them is correct but not efficient.
-        So here we implement a batch-wise evaluation, where we split the tensors along the spatial location dimension to get chunks with size sp_size.
-        
-        Args:
-            mixing: the GMM mixing coefficients, with shape (N, T, P, K)
-            means: the GMM means, with shape (N, T, P, K)
-            log_var: the GMM variances, with shape (N, T, P, K)
-            xs: the points to evaluate the GMM density, with shape (X,)
-            inputs: the input data (value only, no time step), with shape (N, T, P)
-            gt: the ground truth data, with shape (N, T, P)
-            sp_size: the size of the chunks to split the tensors, default is 50
-            knn_nb: the number of nearest neighbors to find, default is 20
-            vis: whether to visualize the GMM density, default is False
-            
-        Returns:
-            CRPS_emp: the CRPS score between predicted and empirical distribution, with shape (N, T, P)
-        """
-        
-        def gmm_cdf_func(chunks, xs):
-            return self.get_gmm_cdf(chunks["mixing"], chunks["means"], chunks["log_var"], xs)
-        def knn_ecdf_func(chunks, xs):
-            return get_knn_ecdf(chunks["inputs"], chunks["gt"], knn_nb, xs)
-        
-        # split the tensors along the spatial location dimension to get chunks, save memory
-        tensors = [mixing, means, log_var, inputs, gt]
-        tensor_names = ["mixing", "means", "log_var", "inputs", "gt"]
-        scores = crps_from_cdf(tensors, tensor_names, gmm_cdf_func, knn_ecdf_func, xs, sp_size, gpu)
-        
-        return scores
-    
-    
-    def get_crps_gmm_vs_gt(self, mixing, means, log_var, xs, gt, sp_size=20, gpu=True):
-        """
-        Compute CRPS between GMM prediction and ground truth values.
-        
-        Args:
-            mixing: GMM mixing coefficients (N, T, P, K)
-            means: GMM means (N, T, P, K)
-            log_var: GMM log variances (N, T, P, K)
-            xs: Points to evaluate density (X,)
-            gt: Ground truth data (N, T, P)
-            vis: Whether to visualize GMM density
-            sp_size: Chunk size for spatial dimension
-            gpu: Whether to use GPU
-            
-        Returns:
-            CRPS scores (N, T, P)
-        """
-        # Define CDF computation functions
-        def gmm_cdf_func(chunks, xs):
-            return self.get_gmm_cdf(chunks['mixing'], chunks['means'], chunks['log_var'], xs)
-        
-        def gt_cdf_func(chunks, xs):
-            return self.get_point_cdf(chunks['gt'], xs)
-        
-        tensors = [mixing, means, log_var, gt]
-        tensor_names = ["mixing", "means", "log_var", "gt"]
-        scores = crps_from_cdf(tensors, tensor_names, gmm_cdf_func, gt_cdf_func, xs, sp_size, gpu)
-        
-        return scores
-
-
-    def get_crps_pred_vs_emp_dist(self, pred, xs, inputs, gt, sp_size=20, knn_nb=20, gpu=True):
-        """
-        Compute CRPS between point prediction and empirical distribution.
-        
-        Args:
-            pred: Point predictions (N, T, P)
-            xs: Points to evaluate density (X,)
-            inputs: Input data (N, T, P)
-            gt: Ground truth data (N, T, P)
-            sp_size: Chunk size for spatial dimension
-            knn_nb: Number of nearest neighbors
-            vis: Whether to visualize prediction
-            gpu: Whether to use GPU
-            
-        Returns:
-            CRPS scores (N, T, P)
-        """
-        # Define CDF computation functions
-        def pred_cdf_func(chunks, xs):
-            return self.get_point_cdf(chunks['pred'], xs)
-        
-        def knn_cdf_func(chunks, xs):
-            return get_knn_ecdf(chunks['inputs'], chunks['gt'], knn_nb, xs)
-        
-        tensors = [pred, inputs, gt]
-        tensor_names = ["pred", "inputs", "gt"]
-        scores = crps_from_cdf(tensors, tensor_names, pred_cdf_func, knn_cdf_func, xs, sp_size, gpu)
-        
-        return scores
-
-
-    def get_point_cdf(self, tensor, xs):
-        """ tensor has shape (N, T, sp_size), can be ground-truth or predicted most-likely values.
-            xs has shape (X,), which is the points to evaluate the CDF.
-        
-            The CDF is a step function jumping at the value of tensor, with shape (N, T, sp_size, X).
-        """
-        point_cdf = (tensor.unsqueeze(-1) < xs).float()
-        
-        return point_cdf
-
-        
-    def get_gmm_cdf(self, mixing, means, log_var, xs):
-        return GMMPredictionHead.get_mixture_cdf(mixing, means, log_var, xs)
     
     
     #########################################################################################
