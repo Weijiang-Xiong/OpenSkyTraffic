@@ -35,18 +35,26 @@ class TensorDataScaler:
         self.inv_std = 1.0 / self.std
         self.to(device)
 
-    def transform(self, data):
-        if data.dim() == 4:  # assume N, T, M, C
+    def transform(self, data, datadim_only: bool = True):
+        """ Apply Z-score normalization to the data.
+            `datadim_only` is set to True by default, because the major use case is to normalize the input data. 
+            Since input data sequences are usually augmented with auxiliary features (like time-in-day encoding), we can only normalize the data dimension.
+            The prediction labels are not augmented, so we need to normalize everything in the input tensor. 
+        """
+        if datadim_only:
             data[..., self.data_dim] = (data[..., self.data_dim] - self.mean) * self.inv_std
-        elif data.dim() == 3:  # (N, T, M) or (N, M, T), in case of data dimension C=1
+        else:
             data = (data - self.mean) * self.inv_std
 
         return data
 
-    def inverse_transform(self, data):
-        if len(data.shape) == 4:  # assume N, T, M, C
+    def inverse_transform(self, data, datadim_only: bool = False):
+        """ Inverse the Z-score normalization.
+            `datadim_only` is set to False by default, because the major use case is to inverse the predictions, which will not contain auxiliary features.
+        """
+        if datadim_only:
             data[..., self.data_dim] = (data[..., self.data_dim] * self.std) + self.mean
-        elif len(data.shape) == 3:  # (N, T, M) or (N, M, T), in case of data dimension C=1
+        else:
             data = (data * self.std) + self.mean
 
         return data

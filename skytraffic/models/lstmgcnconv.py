@@ -75,7 +75,7 @@ class LSTMGCNConv(BaseModel):
         # normalize the data
         source = self.datascaler.transform(source)
         if self.norm_label_for_loss:
-            target = self.datascaler.transform(target)
+            target = self.datascaler.transform(target, datadim_only=False)
         
         return source, target
 

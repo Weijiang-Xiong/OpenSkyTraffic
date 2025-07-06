@@ -13,7 +13,7 @@ class TestScaler(unittest.TestCase):
         scaled_data = scaler.transform(rand_data.clone())
         self.assertTrue(torch.allclose(rand_data[..., 1], scaled_data[..., 1], atol=1e-7))
 
-        scaled_back_full = scaler.inverse_transform(scaled_data.clone())
+        scaled_back_full = scaler.inverse_transform(scaled_data.clone(), datadim_only=True)
         self.assertTrue(torch.allclose(scaled_back_full, rand_data, atol=1e-7))
 
         scaled_back_data_only = scaler.inverse_transform(scaled_data.clone()[..., 0])
