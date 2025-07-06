@@ -106,6 +106,10 @@ class LSTMGCNConv_GMM(LSTMGCNConv):
 
     def post_process(self, prediction: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         prediction['pred'] = self.datascaler.inverse_transform(prediction["pred"])
+        prediction['mixing'] = prediction['mixing']
+        prediction['means'] = self.datascaler.inverse_transform(prediction['means'])
+        prediction['log_var'] = prediction['log_var'] + 2 * torch.log(self.datascaler.std)
+
         return prediction
 
         
