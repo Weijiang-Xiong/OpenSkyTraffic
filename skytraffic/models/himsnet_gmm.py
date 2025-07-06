@@ -10,10 +10,10 @@ from typing import Dict, List, Tuple
 from einops import rearrange
 
 from ..data.transform import TensorDataScaler
-from .common import LearnedPositionalEncoding, ValueEmbedding
+from .layers import LearnedPositionalEncoding, ValueEmbedding
 from .catalog import MODEL_CATALOG
-from .attention import MultiHeadAttention
-from .gmmpred import GMMPredictionHead
+from .layers import MultiHeadAttention
+from .layers import GMMPredictionHead
 
 logger = logging.getLogger("default")
 

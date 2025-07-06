@@ -3,7 +3,7 @@ import torch
 from typing import Dict, List, Any
 
 from .catalog import MODEL_CATALOG
-from .gmmpred import GMMPredictionHead
+from .layers import GMMPredictionHead
 from .lstmgcnconv import LSTMGCNConv
 
 class LSTMGCNConv_GMM(LSTMGCNConv):

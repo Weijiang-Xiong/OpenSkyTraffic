@@ -13,7 +13,7 @@ import seaborn as sns
 from einops import rearrange
 
 from ..utils.io import make_dir_if_not_exist
-from ..models.gmmpred import GMMPredictionHead
+from ..models.layers import GMMPredictionHead
 from ..data.datasets import SimBarcaMSMT
 from .simbarca_evaluation import SimBarcaEvaluator
 from .metrics import (

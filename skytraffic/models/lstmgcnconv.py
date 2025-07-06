@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
 
-from .loss import masked_mae
+from .layers import masked_mae
 from typing import Dict, Tuple
 from einops import rearrange
 
 from ..data.transform import TensorDataScaler
-from .common import MLP, LearnedPositionalEncoding
+from .layers import MLP, LearnedPositionalEncoding
 from .catalog import MODEL_CATALOG
 from .base import BaseModel
 
