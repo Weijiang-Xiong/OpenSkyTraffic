@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
 
-from ..loss import masked_mae
+from .loss import masked_mae
 from typing import Dict, Tuple
 from einops import rearrange
 

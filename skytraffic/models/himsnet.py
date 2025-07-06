@@ -9,7 +9,7 @@ import numpy as np
 from typing import Dict, Tuple
 from einops import rearrange
 
-from ..loss import GeneralizedProbRegLoss
+from .loss import GeneralizedProbRegLoss
 from ..data.transform import TensorDataScaler
 from .common import MLP, LearnedPositionalEncoding, ValueEmbedding
 from .catalog import MODEL_CATALOG
