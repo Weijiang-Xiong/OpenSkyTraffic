@@ -26,6 +26,7 @@ class MetrDataset(Dataset):
     adjacency = 'adj_mx_metr.pkl'
     geo_locations = 'graph_sensor_locations.csv'
     data_dim = 0
+    invalid_value = 0.0
     
     def __init__(self, split='train', adj_type='doubletransition') -> None:
         super().__init__()
@@ -55,14 +56,16 @@ class MetrDataset(Dataset):
         adjacency_matrix: List[torch.Tensor] = [torch.as_tensor(A) for A in adj]
         # separately calculate the mean and std for each channel
         # although it doesn't make sense to do this for time, we can handle it later
-        data_mean = torch.mean(self.data_x, dim=list(range(self.data_x.dim()))[:-1])[self.data_dim]
-        data_std  = torch.std(self.data_x,  dim=list(range(self.data_x.dim()))[:-1])[self.data_dim]
+        data_values = self.data_x[..., self.data_dim]
+        data_mean = torch.mean(data_values[data_values != self.invalid_value])
+        data_std  = torch.std(data_values[data_values != self.invalid_value])
         geo_locations = self.get_geo_locations()
         return {'adjacency': adjacency_matrix, 
                 'mean': data_mean, 
                 'std': data_std, 
                 'data_dim': self.data_dim, 
-                'geo_loc':geo_locations
+                'geo_loc':geo_locations,
+                'invalid_value': self.invalid_value
         }
 
     @staticmethod
@@ -110,7 +113,7 @@ class MetrDataset(Dataset):
         
         xs, ys = torch.cat(xs, dim=0), torch.cat(ys, dim=0)
         
-        return {"source": xs.contiguous(), "target": ys[..., 0].contiguous()}
+        return {"source": xs.contiguous(), "target": ys[..., 0].contiguous(), "metadata": self.metadata}
     
 if __name__.endswith('.metrla'):
     DATASET_CATALOG['metrla_train'] = lambda **arg: MetrDataset(split='train', **arg)

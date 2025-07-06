@@ -5,8 +5,8 @@ import torch
 import numpy as np
 from scipy.stats import norm
 
-from skytraffic.models import GMMPred, GMMPredictionHead
-from skytraffic.models.gmmpred import gaussian_density
+from skytraffic.models import HiMSNet_GMM
+from skytraffic.models.gmmpred import GMMPredictionHead, gaussian_density
 
 class TestGMM(unittest.TestCase):
 
@@ -83,7 +83,7 @@ class TestGMM(unittest.TestCase):
         with open("tests/simbarca_batch.pkl", "rb") as f:
             batch = pickle.load(f)
 
-        model = GMMPred(adjacency_hop=5)
+        model = HiMSNet_GMM(adjacency_hop=5)
         model.train()
         model.adapt_to_metadata(batch["metadata"]) # this should do nothing, as the metadata is already set 
 

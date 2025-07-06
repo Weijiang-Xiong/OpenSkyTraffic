@@ -20,8 +20,19 @@ SIMBARCA_RESULTS = {
     "gmmpred_bayes_avg_no_ld_rndobs": "Partial-Drone",
     }
 
+METR_RESULTS = {
+    "naive_gmm_single": "LGC-GMM-S",
+    "naive_gmm": "LGC-GMM",
+}
+
 RESULT_GROUPS = {
     "simbarca": SIMBARCA_RESULTS,
+    "metr": METR_RESULTS,
+}
+
+PRED_HORIZON = {
+    "simbarca": 10,
+    "metr": 12,
 }
 
 def load_evaluation_results(result_group: dict):
@@ -63,7 +74,7 @@ def plot_ci_coverage(results, save_note="dataset"):
     print(f"Saved figure to {save_path}")
     plt.show()
 
-def plot_cce_horizon(results, save_note="dataset"):
+def plot_cce_horizon(results, save_note="dataset", pred_horizon=10):
     """Plot CCE values over prediction horizon."""
     plt.figure(figsize=(8, 6))
     
@@ -75,7 +86,7 @@ def plot_cce_horizon(results, save_note="dataset"):
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('Confidence Calibration Error (CCE)')
-    plt.xticks(range(1, 11))
+    plt.xticks(range(1, pred_horizon + 1))
     plt.legend()
     plt.tight_layout()
     save_path = f'visualize/figures/{save_note}_mcce_by_pred_horizon.pdf'
@@ -83,7 +94,7 @@ def plot_cce_horizon(results, save_note="dataset"):
     print(f"Saved figure to {save_path}")
     plt.show()
 
-def plot_aw_horizon(results, save_note="dataset"):
+def plot_aw_horizon(results, save_note="dataset", pred_horizon=10):
     """Plot AW values over prediction horizon."""
     plt.figure(figsize=(8, 6))
     
@@ -95,7 +106,7 @@ def plot_aw_horizon(results, save_note="dataset"):
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('Average Width (AW) of CI')
-    plt.xticks(range(1, 11))
+    plt.xticks(range(1, pred_horizon + 1))
     plt.legend()
     plt.tight_layout()
     save_path = f'visualize/figures/{save_note}_maw_by_pred_horizon.pdf'
@@ -103,7 +114,7 @@ def plot_aw_horizon(results, save_note="dataset"):
     print(f"Saved figure to {save_path}")
     plt.show()
 
-def plot_crps_gt(results, save_note="dataset"):
+def plot_crps_gt(results, save_note="dataset", pred_horizon=10):
     """Plot CRPS_GMM_GT values over prediction horizon."""
     plt.figure(figsize=(8, 6))
     
@@ -115,7 +126,7 @@ def plot_crps_gt(results, save_note="dataset"):
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('CRPS')
-    plt.xticks(range(1, 11))
+    plt.xticks(range(1, pred_horizon + 1))
     plt.legend()
     plt.tight_layout()
     save_path = f'visualize/figures/{save_note}_crps_wrt_gt_by_pred_horizon.pdf'
@@ -124,7 +135,7 @@ def plot_crps_gt(results, save_note="dataset"):
     plt.show()
 
 
-def plot_crps_emp(results, save_note="dataset"):
+def plot_crps_emp(results, save_note="dataset", pred_horizon=10):
     """Plot CRPS_GMM_EMP values over prediction horizon."""
     plt.figure(figsize=(8, 6))
     
@@ -136,7 +147,7 @@ def plot_crps_emp(results, save_note="dataset"):
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('CRPS')
-    plt.xticks(range(1, 11))
+    plt.xticks(range(1, pred_horizon + 1))
     plt.legend()
     plt.tight_layout()
     save_path = f'visualize/figures/{save_note}_crps_wrt_emp_by_pred_horizon.pdf'
@@ -151,6 +162,7 @@ if __name__ == "__main__":
 
     # Load results from all methods
     results = load_evaluation_results(RESULT_GROUPS[args.dataset])
+    pred_horizon = PRED_HORIZON[args.dataset]
     
     if not results:
         print("No evaluation results found!")
@@ -160,7 +172,7 @@ if __name__ == "__main__":
     
     # Generate plots
     plot_ci_coverage(results, save_note=args.dataset)
-    plot_cce_horizon(results, save_note=args.dataset)
-    plot_aw_horizon(results, save_note=args.dataset)
-    plot_crps_gt(results, save_note=args.dataset)
-    plot_crps_emp(results, save_note=args.dataset)
+    plot_cce_horizon(results, save_note=args.dataset, pred_horizon=pred_horizon)
+    plot_aw_horizon(results, save_note=args.dataset, pred_horizon=pred_horizon)
+    plot_crps_gt(results, save_note=args.dataset, pred_horizon=pred_horizon)
+    plot_crps_emp(results, save_note=args.dataset, pred_horizon=pred_horizon)

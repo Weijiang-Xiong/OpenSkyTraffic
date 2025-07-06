@@ -96,7 +96,7 @@ def main(args):
             hooks.MetricPrinter(),
             hooks.CheckpointSaver(cfg.train.best_metric, cfg.train.test_best_ckpt, cfg.train.save_period),
             # after training, we print the results on the test set
-            hooks.EvalHook(lambda m: evaluator(m, test_loader, verbose=True), metric_suffix='final_test', period=-1),
+            hooks.EvalHook(lambda m: evaluator(m, test_loader, verbose=True), metric_suffix='final_test'),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
             hooks.PlotTrainingLog(),
             hooks.MetadataHook(metadata=train_set.metadata),
