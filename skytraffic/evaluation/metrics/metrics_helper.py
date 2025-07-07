@@ -226,9 +226,10 @@ def ignore_score_when_gt_is(scores: torch.Tensor, gt: torch.Tensor, invalid_gt: 
         scores: Tensor of CRPS scores
         gt: Ground truth tensor
     """
-    if np.isnan(invalid_gt):
-        scores[gt.isnan()] = ignore_value
-    else:
+    if not np.isnan(invalid_gt):
         scores[gt == invalid_gt] = ignore_value
+    
+    # always ignore NaN values in gt
+    scores[gt.isnan()] = ignore_value
 
     return scores

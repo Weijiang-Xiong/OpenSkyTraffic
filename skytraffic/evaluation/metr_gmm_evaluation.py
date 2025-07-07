@@ -52,7 +52,7 @@ class MetrGMMEvaluator(MetrEvaluator):
             Dictionary of evaluation metrics
         """
         # First get basic deterministic metrics from parent class
-        res = super().evaluate(model, dataloader, verbose=verbose)
+        _ = super().evaluate(model, dataloader, verbose=verbose)
         
         # Collect predictions and data for GMM evaluation
         all_preds, all_data = self.collect_predictions(
@@ -70,9 +70,7 @@ class MetrGMMEvaluator(MetrEvaluator):
         self.evaluate_confidence_interval(all_preds, all_data, verbose=verbose)
         
         # Update results with GMM metrics
-        res.update(self.metrics_scalar)
-        
-        return res
+        return self.metrics_scalar
 
     def evaluate_crps(self, all_preds: Dict[str, torch.Tensor], all_data: Dict[str, torch.Tensor], verbose: bool = False):
         """
