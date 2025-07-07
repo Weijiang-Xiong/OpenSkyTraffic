@@ -48,6 +48,7 @@ class SimbarcaBase(BaseDataset):
     soi_file = "{}/sections_of_interest.txt".format(metadata_folder)
     _sample_start_time = np.datetime64("2005-05-10T08:00:00") # so this is the day set in the simulator
     _sample_end_time = np.datetime64("2005-05-10T10:00:00")
+    invalid_value = float("nan")
 
     def __init__(self, split="train"):
         self.split = split
