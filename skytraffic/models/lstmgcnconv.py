@@ -2,12 +2,14 @@ import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
 
+import numpy as np
+
 from .layers import masked_mae
 from typing import Dict, Tuple
 from einops import rearrange
 
 from ..data.transform import TensorDataScaler
-from .layers import MLP, LearnedPositionalEncoding
+from .layers import MLP, LearnedPositionalEncoding, ValueEmbedding
 from .catalog import MODEL_CATALOG
 from .base import BaseModel
 
@@ -21,7 +23,8 @@ class LSTMGCNConv(BaseModel):
         layernorm=True,
         adjacency_hop: int = 1,
         dropout: float = 0.1,
-        input_null_value: float = 0.0,
+        data_null_value: float = 0.0,
+        loss_ignore_value = np.nan,
         norm_label_for_loss: bool = True,
     ):
         """
@@ -36,12 +39,13 @@ class LSTMGCNConv(BaseModel):
         """
         super().__init__()
         self.use_global = use_global
-        self.input_null_value = input_null_value
+        self.data_null_value = data_null_value
+        self.loss_ignore_value = loss_ignore_value
         self.adjacency_hop = adjacency_hop
         self.norm_label_for_loss = norm_label_for_loss
         self.metadata: Dict[str, torch.Tensor] = None
         self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570)
-        self.ld_embedding = nn.Conv2d(in_channels=2, out_channels=d_model, kernel_size=(1, 1))
+        self.ld_embedding = ValueEmbedding(d_model=d_model, assume_clean_input = not np.isnan(data_null_value))
         self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model)
         self.ld_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
         self.ld_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
@@ -70,7 +74,10 @@ class LSTMGCNConv(BaseModel):
         target = data["target"].to(self.device)
 
         # replace the label values with nan, so that they will be ignored in the loss after normalization
-        target[target == self.input_null_value] = torch.nan
+        if np.isnan(self.data_null_value):
+            target[target.isnan()] = self.loss_ignore_value
+        else:
+            target[target == self.data_null_value] = self.loss_ignore_value
 
         # normalize the data
         source = self.datascaler.transform(source)
@@ -88,9 +95,9 @@ class LSTMGCNConv(BaseModel):
         # when label is scaled, we directly train the model to predict the scaled label
         # otherwise, we scale back the prediction and then compute the loss
         if self.norm_label_for_loss:
-            loss = self.loss(pred_res["pred"], target)
+            loss = self.loss(pred_res["pred"], target, null_val=self.loss_ignore_value)
         else:
-            loss = self.loss(self.post_process(pred_res)["pred"], target)
+            loss = self.loss(self.post_process(pred_res)["pred"], target, null_val=self.loss_ignore_value)
 
         return {"loss": loss}
 
@@ -109,9 +116,8 @@ class LSTMGCNConv(BaseModel):
 
         all_mode_features = [] # store the features of all modalities
         
-        x = rearrange(x, "N T P C -> N C P T")
         x = self.ld_embedding(x)
-        x = rearrange(x, "N C P T -> (N T) P C")
+        x = rearrange(x, "N T P C -> (N T) P C")
         x = self.spatial_encoding(x)
         x = rearrange(x, "(N T) P C -> (N P) T C", N=N)
         x = self.temporal_encoding_ld(x)

@@ -16,7 +16,8 @@ class LSTMGCNConv_GMM(LSTMGCNConv):
         layernorm=True,
         adjacency_hop: int = 1,
         dropout: float = 0.1,
-        input_null_value: float = 0.0,
+        data_null_value: float = 0.0,
+        loss_ignore_value: float = float("nan"),
         norm_label_for_loss: bool = True,
         anchors: List[float] = [-2.0, -1.0, 0.0, 1.0, 2.0],
         sizes: List[float] = [1.0, 1.0, 1.0, 1.0, 1.0],
@@ -31,7 +32,8 @@ class LSTMGCNConv_GMM(LSTMGCNConv):
             layernorm=layernorm,
             adjacency_hop=adjacency_hop,
             dropout=dropout,
-            input_null_value=input_null_value,
+            data_null_value=data_null_value,
+            loss_ignore_value=loss_ignore_value,
             norm_label_for_loss=norm_label_for_loss,
         )
         del self.prediction
