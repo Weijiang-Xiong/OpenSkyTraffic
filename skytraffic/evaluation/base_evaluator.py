@@ -28,6 +28,9 @@ class BaseEvaluator(ABC):
             P: spatial locations 
     """
 
+    ignore_value: float
+    mape_threshold: float
+
     def __init__(
         self,
         save_dir: str = None,
@@ -90,13 +93,13 @@ class BaseEvaluator(ABC):
     def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False) -> Dict[str, float]:
         pass
 
-    def common_metrics_by_horizon(self, pred, label, ignore_value=0.0, mape_threshold=None, verbose:bool=False):
+    def common_metrics_by_horizon(self, pred, label, verbose:bool=False):
         eval_res_over_time = defaultdict(list)
         pred_steps = pred.shape[1]
         for i in range(pred_steps):  # number of predicted time step
             pred_i = pred[:, i, :]
             real_i = label[:, i, :]
-            step_res = common_metrics(pred_i, real_i, ignore_value, mape_threshold)
+            step_res = common_metrics(pred_i, real_i, self.ignore_value, self.mape_threshold)
 
             if verbose:
                 metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in step_res.items()])

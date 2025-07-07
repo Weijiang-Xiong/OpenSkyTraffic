@@ -52,7 +52,7 @@ def MAPE(pred, label, ignore_value=np.nan, threshold=None) -> float:
     
     # we only keep the data points that are valid (not ignore_value) and larger than threshold
     if threshold is not None:
-        mask = mask & (label > threshold)
+        mask = mask & (np.abs(label) > threshold)
     
     error = torch.abs((pred-label)/label)
     error = error[mask]

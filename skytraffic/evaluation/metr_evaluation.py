@@ -15,6 +15,9 @@ logger = logging.getLogger("default")
 
 class MetrEvaluator(BaseEvaluator):
 
+    ignore_value = 0.0
+    mape_threshold = None
+
     def __init__(
         self,
         save_dir: str = None,
