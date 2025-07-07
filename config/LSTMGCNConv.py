@@ -1,8 +1,9 @@
 from .common_cfg import train, scheduler, evaluation
 from .common_cfg import adamw as optimizer
+from .datasets import metrla as dataset 
 
 train.test_best_ckpt = False
-train.output_dir = "scratch/lstmgcnconv"
+train.output_dir = "scratch/lgc"
 evaluation.evaluator_type = "metrla"
 
 model = {
@@ -15,11 +16,6 @@ model = {
     "data_null_value": 0.0,
     "loss_ignore_value": float("nan"),
     "adjacency_hop": 1
-}
-
-dataset = {
-    "train": {"name": "metrla_train"},
-    "test": {"name": "metrla_test"}
 }
 
 dataloader = {
