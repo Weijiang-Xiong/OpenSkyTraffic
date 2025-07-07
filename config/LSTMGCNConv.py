@@ -12,13 +12,14 @@ model = {
     "layernorm": True,
     "d_model": 64,
     "global_downsample_factor": 1,
-    "input_null_value": 0.0,
+    "data_null_value": 0.0,
+    "loss_ignore_value": float("nan"),
     "adjacency_hop": 1
 }
 
 dataset = {
-    "train": {"name": "metrla_train", "adj_type": "doubletransition"},
-    "test": {"name": "metrla_test", "adj_type": "${..train.adj_type}"}
+    "train": {"name": "metrla_train"},
+    "test": {"name": "metrla_test"}
 }
 
 dataloader = {

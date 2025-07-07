@@ -57,8 +57,9 @@ class EvalHook(HookBase):
         trainer.storage.put_scalar(name="epoch_inference_time", value=te-ts)
         if isinstance(res, dict):
             trainer.storage.put_scalars(**res, suffix=self.suffix)
-        trainer.logger.info("Evaluation Metrics: {}".format(
-            "  ".join(["{}: {:.4f}".format(k, v) for k, v in res.items()])
+        trainer.logger.info("Evaluation Metrics ({}): \n {}".format(
+            self.suffix,
+            "  ".join(["{}: {:.4f}".format(k, v) for k, v in res.items()]),
         ))
         
     def after_train(self, trainer: TrainerBase):

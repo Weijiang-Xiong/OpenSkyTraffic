@@ -116,10 +116,10 @@ class ValueEmbedding(nn.Module):
     The embedding layer will apply a simple linear transformation to the valid values and 
     replace the NaN values with corresponding tokens. 
     """
-    def __init__(self, d_model:int, ignore_nan=False) -> None:
+    def __init__(self, d_model:int, assume_clean_input=False) -> None:
         super().__init__()
         self.d_model = d_model
-        self.ignore_nan = ignore_nan # do not replace NaN values with learnable tokens if True
+        self.assume_clean_input = assume_clean_input # do not replace NaN values with learnable tokens if True
         self.time_emb_w = nn.Parameter(torch.randn(1, d_model))
         self.time_emb_b = nn.Parameter(torch.randn(1, d_model))
         self.value_emb_w = nn.Parameter(torch.randn(1, d_model))
@@ -140,7 +140,7 @@ class ValueEmbedding(nn.Module):
         time_emb = time.unsqueeze(-1) * self.time_emb_w + self.time_emb_b
         
         # assume the invalid values are already handled in preprocessing, and don't do it here
-        if self.ignore_nan:
+        if self.assume_clean_input:
             value_emb = value.unsqueeze(-1) * self.value_emb_w + self.value_emb_b
             return (time_emb + value_emb).contiguous()
         

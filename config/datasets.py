@@ -27,3 +27,8 @@ simbarca_rnd = {
 }
 simbarca_rnd['train'].update(randon_observation_params)
 simbarca_rnd['test'].update(randon_observation_params)
+
+simbarcaspd = {
+    "train": {"name": "simbarcaspd_train"},
+    "test": {"name": "simbarcaspd_test"},
+}

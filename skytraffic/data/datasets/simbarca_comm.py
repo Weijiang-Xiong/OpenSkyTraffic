@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List
 
 from .simbarca_base import SimBarcaForecast
+from ..catalog import DATASET_CATALOG
 
 class SimBarcaSpeed(SimBarcaForecast):
 
@@ -77,7 +78,8 @@ class SimBarcaSpeed(SimBarcaForecast):
         # calculate the mean and std of the speed data, excluding the nan values
         metadata['mean'] = torch.mean(self.speed_data[~torch.isnan(self.speed_data)]).item()
         metadata['std'] = torch.std(self.speed_data[~torch.isnan(self.speed_data)]).item()
-
+        metadata['data_dim'] = 0
+        
         self.metadata = metadata
 
     def collate_fn(self, list_of_data_dicts: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
@@ -86,3 +88,7 @@ class SimBarcaSpeed(SimBarcaForecast):
             "target": torch.stack([data_dict["target"] for data_dict in list_of_data_dicts], dim=0),
             "metadata": self.metadata
         }
+    
+if __name__.endswith('.simbarca_comm'):
+    DATASET_CATALOG['simbarcaspd_train'] = lambda **arg: SimBarcaSpeed(split='train', **arg)
+    DATASET_CATALOG['simbarcaspd_test'] = lambda **arg: SimBarcaSpeed(split='test', **arg)

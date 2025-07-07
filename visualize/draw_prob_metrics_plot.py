@@ -19,15 +19,27 @@ SIMBARCA_RESULTS = {
     "gmmpred_bayes_avg_no_drone_rndobs": "Partial-LD",
     "gmmpred_bayes_avg_no_ld_rndobs": "Partial-Drone",
     }
+SIMBARCA_DET_RESULTS = {
+    
+}
 
 METR_RESULTS = {
-    "naive_gmm_single": "LGC-GMM-S",
+    "naive_gmm_single": "LGC-Normal",
     "naive_gmm": "LGC-GMM",
+}
+
+METR_DET_RESULTS = {
+    "lstmgcnconv": "LGC",
 }
 
 RESULT_GROUPS = {
     "simbarca": SIMBARCA_RESULTS,
     "metr": METR_RESULTS,
+}
+
+DET_RESULT_GROUPS = {
+    "simbarca": SIMBARCA_DET_RESULTS,
+    "metr": METR_DET_RESULTS,
 }
 
 PRED_HORIZON = {
@@ -114,7 +126,7 @@ def plot_aw_horizon(results, save_note="dataset", pred_horizon=10):
     print(f"Saved figure to {save_path}")
     plt.show()
 
-def plot_crps_gt(results, save_note="dataset", pred_horizon=10):
+def plot_crps_gt(results, save_note="dataset", pred_horizon=10, det_results=None):
     """Plot CRPS_GMM_GT values over prediction horizon."""
     plt.figure(figsize=(8, 6))
     
@@ -123,6 +135,13 @@ def plot_crps_gt(results, save_note="dataset", pred_horizon=10):
             horizons = list(range(1, len(data["horizon"]["CRPS_GMM_GT"]) + 1))
             crps_values = data["horizon"]["CRPS_GMM_GT"]
             plt.plot(horizons, crps_values, marker='o', label=method, linewidth=2)
+    
+    if det_results is not None:
+        for method, data in det_results.items():
+            if "mae" in data["horizon"]:
+                horizons = list(range(1, len(data["horizon"]["mae"]) + 1))
+                mae_values = data["horizon"]["mae"]
+                plt.plot(horizons, mae_values, marker='o', label=f"{method}-Det (MAE)", linewidth=2)
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('CRPS')
@@ -160,19 +179,20 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", type=str, default="simbarca")
     args = parser.parse_args()
 
-    # Load results from all methods
-    results = load_evaluation_results(RESULT_GROUPS[args.dataset])
+    # Load results from all methods (probabilistic methods and deterministic methods)
+    prob_results = load_evaluation_results(RESULT_GROUPS[args.dataset])
+    det_results = load_evaluation_results(DET_RESULT_GROUPS[args.dataset])
     pred_horizon = PRED_HORIZON[args.dataset]
     
-    if not results:
+    if not prob_results:
         print("No evaluation results found!")
         exit()
     
-    print(f"Found results for {len(results)} methods: {list(results.keys())}")
+    print(f"Found results for {len(prob_results)} methods: {list(prob_results.keys())}")
     
     # Generate plots
-    plot_ci_coverage(results, save_note=args.dataset)
-    plot_cce_horizon(results, save_note=args.dataset, pred_horizon=pred_horizon)
-    plot_aw_horizon(results, save_note=args.dataset, pred_horizon=pred_horizon)
-    plot_crps_gt(results, save_note=args.dataset, pred_horizon=pred_horizon)
-    plot_crps_emp(results, save_note=args.dataset, pred_horizon=pred_horizon)
+    plot_ci_coverage(prob_results, save_note=args.dataset)
+    plot_cce_horizon(prob_results, save_note=args.dataset, pred_horizon=pred_horizon)
+    plot_aw_horizon(prob_results, save_note=args.dataset, pred_horizon=pred_horizon)
+    plot_crps_gt(prob_results, save_note=args.dataset, pred_horizon=pred_horizon, det_results=det_results)
+    plot_crps_emp(prob_results, save_note=args.dataset, pred_horizon=pred_horizon)

@@ -8,7 +8,7 @@ train = {
     "best_metric": None,
     "test_best_ckpt": False, 
     "grad_clip": 3.0,
-    "eval_train": True, # run evaluation on train set after each epoch
+    "eval_train": False, # run evaluation on train set after each epoch
     "eval_period": 1, # run evaluation every n epochs
     "save_period": 5, # save checkpoint every n epochs
 }
