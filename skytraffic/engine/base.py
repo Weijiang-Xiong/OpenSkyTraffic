@@ -1,6 +1,7 @@
 import os
 import time
 import logging
+import traceback
 from collections import defaultdict
 from typing import Dict, List, Optional
 
@@ -112,6 +113,7 @@ class TrainerBase:
                     self.after_epoch()
             except Exception:
                 self.logger.exception("Exception during training:")
+                self.logger.exception(traceback.format_exc())
                 raise
             finally:
                 self.after_train()
