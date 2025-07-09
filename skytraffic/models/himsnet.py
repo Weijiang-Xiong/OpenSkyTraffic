@@ -10,7 +10,7 @@ from typing import Dict, Tuple
 from einops import rearrange
 
 from .layers import GeneralizedProbRegLoss
-from ..data.transform import TensorDataScaler
+from .utils.transform import TensorDataScaler
 from .layers import MLP, LearnedPositionalEncoding, ValueEmbedding
 from .catalog import MODEL_CATALOG
 from .layers import MultiHeadAttention, TransformerEncoderLayer

@@ -8,7 +8,7 @@ from .layers import masked_mae
 from typing import Dict, Tuple
 from einops import rearrange
 
-from ..data.transform import TensorDataScaler
+from .utils.transform import TensorDataScaler
 from .layers import MLP, LearnedPositionalEncoding, ValueEmbedding
 from .catalog import MODEL_CATALOG
 from .base import BaseModel
