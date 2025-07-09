@@ -57,7 +57,7 @@ class EvalHook(HookBase):
         trainer.storage.put_scalar(name="epoch_inference_time", value=te-ts)
         if isinstance(res, dict):
             trainer.storage.put_scalars(**res, suffix=self.suffix)
-        trainer.logger.info("Evaluation Metrics ({}): \n {}".format(
+        trainer.logger.info("Evaluation Metrics ({}): {}".format(
             self.suffix,
             "  ".join(["{}: {:.4f}".format(k, v) for k, v in res.items()]),
         ))
@@ -240,22 +240,6 @@ class PlotTrainingLog(HookBase):
             with open("{}/{}.json".format(self.figure_dir, save_name), "w") as f:
                 json.dump({"epoch": epoch.tolist(), "value": value.tolist()}, f)
             
-class MetadataHook(HookBase):
-    
-    """ In traffic prediction tasks, the model often needs the adjacency matrix to describe
-    the graph structure, and it may also need the mean and std of the data to normalize them.
-    This hook will call the function `adapt_to_medatada` in the model to save these necessary 
-    information into the model, e.g., self.metadata. The metadata should in principle be kept 
-    in the model's state_dict, so they will be saved to checkpoints and then can be loaded 
-    during testing. 
-    """
-    
-    def __init__(self, metadata: Dict[str, torch.Tensor]) -> None:
-        self.metadata = metadata 
-    
-    def before_train(self, trainer: TrainerBase):
-        trainer.model.adapt_to_metadata(self.metadata)
-
 
 class TensorboardWriter(HookBase):
     """

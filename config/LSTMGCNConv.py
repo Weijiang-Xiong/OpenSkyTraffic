@@ -15,7 +15,12 @@ model = {
     "global_downsample_factor": 1,
     "data_null_value": 0.0,
     "loss_ignore_value": float("nan"),
-    "adjacency_hop": 1
+    "adjacency_hop": 1,
+    "dropout": 0.1,
+    "norm_label_for_loss": True,
+    "input_steps": 12,
+    "pred_steps": 12,
+    "num_nodes": 207,
 }
 
 dataloader = {

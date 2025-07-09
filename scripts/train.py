@@ -48,11 +48,11 @@ def main(args):
     cfg = ConfigLoader.load_from_file(args.config_file)
     cfg = ConfigLoader.apply_overrides(cfg, overrides=args.opts)
     default_setup(cfg, args)
-    
-    model = build_model(cfg.model)
-    
+
     if args.eval_only:
-        test_loader = build_test_loader(build_dataset(cfg.dataset.test), cfg.dataloader.test)
+        test_set = build_dataset(cfg.dataset.test)
+        test_loader = build_test_loader(test_set, cfg.dataloader.test)
+        model = build_model(cfg.model, metadata=test_set.metadata)
         evaluator = build_evaluator(**cfg.evaluation)
         # in evaluation mode, just load the checkpoint and call evaluation function
         state_dict = DefaultTrainer.load_file(ckpt_path=get_checkpoint_path(cfg, args))
@@ -64,9 +64,11 @@ def main(args):
         )
         return eval_res
     else:
-        train_set, test_set = build_dataset(cfg.dataset.train), build_dataset(cfg.dataset.test)
+        train_set = build_dataset(cfg.dataset.train)
+        test_set = build_dataset(cfg.dataset.test)
         train_loader = build_train_loader(train_set, cfg.dataloader.train)
         test_loader = build_test_loader(test_set, cfg.dataloader.test)
+        model = build_model(cfg.model, metadata=train_set.metadata)
         # build optimizer and scheduler using the corresponding configurations
         optimizer = build_optimizer(model, cfg.optimizer)
         scheduler = build_scheduler(optimizer, cfg.scheduler)
@@ -99,7 +101,6 @@ def main(args):
             hooks.EvalHook(lambda m: evaluator(m, test_loader, verbose=True), metric_suffix='final_test'),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
             hooks.PlotTrainingLog(),
-            hooks.MetadataHook(metadata=train_set.metadata),
             hooks.TensorboardWriter(period=cfg.train.eval_period, save_dir=cfg.train.output_dir)
         ])
 

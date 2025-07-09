@@ -26,7 +26,10 @@ class MetrDataset(Dataset):
     adjacency = 'adj_mx_metr.pkl'
     geo_locations = 'graph_sensor_locations.csv'
     data_dim = 0
-    invalid_value = 0.0
+    data_null_value = 0.0
+    input_steps = 12
+    pred_steps = 12
+    num_nodes = 207
     
     def __init__(self, split='train', adj_type='doubletransition') -> None:
         super().__init__()
@@ -57,15 +60,18 @@ class MetrDataset(Dataset):
         # separately calculate the mean and std for each channel
         # although it doesn't make sense to do this for time, we can handle it later
         data_values = self.data_x[..., self.data_dim]
-        data_mean = torch.mean(data_values[data_values != self.invalid_value])
-        data_std  = torch.std(data_values[data_values != self.invalid_value])
+        data_mean = torch.mean(data_values[data_values != self.data_null_value])
+        data_std  = torch.std(data_values[data_values != self.data_null_value])
         geo_locations = self.get_geo_locations()
         return {'adjacency': adjacency_matrix, 
                 'mean': data_mean, 
                 'std': data_std, 
                 'data_dim': self.data_dim, 
                 'geo_loc':geo_locations,
-                'invalid_value': self.invalid_value
+                'data_null_value': self.data_null_value,
+                'input_steps': self.input_steps,
+                'pred_steps': self.pred_steps,
+                'num_nodes': self.num_nodes
         }
 
     @staticmethod

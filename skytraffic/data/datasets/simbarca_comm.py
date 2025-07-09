@@ -69,7 +69,13 @@ class SimBarcaSpeed(SimBarcaForecast):
         self.out_indexes = torch.from_numpy(self.out_indexes).to(torch.bool)
 
     def load_or_compute_metadata(self):
+        self.input_steps = self.input_window // self.step_size
+        self.pred_steps = self.pred_window // self.step_size
+        self.num_nodes = self.speed_data.shape[1]
         metadata = {
+            "input_steps": self.input_steps,
+            "pred_steps": self.pred_steps,
+            "num_nodes": self.num_nodes,
             "adjacency": torch.as_tensor(self.adjacency, dtype=torch.long),
             "edge_index": torch.as_tensor(self.edge_index, dtype=torch.long),
             "node_coordinates": torch.as_tensor(self.node_coordinates, dtype=torch.float32)

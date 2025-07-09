@@ -17,10 +17,22 @@ class BaseModel(nn.Module, ABC):
     Provides common interface and functionality that all models should implement,
     including data preprocessing, training/inference logic, and metadata handling.
     """
-    
-    def __init__(self) -> None:
+
+    def __init__(
+        self,
+        input_steps: int = None,
+        pred_steps: int = None,
+        num_nodes: int = None,
+        adjacency: torch.Tensor = None,
+        data_null_value: float = None,
+        metadata: dict = None,
+    ) -> None:
         super().__init__()
-        self.metadata = None
+        self.input_steps = input_steps if input_steps is not None else metadata["input_steps"]
+        self.pred_steps = pred_steps if pred_steps is not None else metadata["pred_steps"]
+        self.num_nodes = num_nodes if num_nodes is not None else metadata["num_nodes"]
+        self.adjacency = adjacency if adjacency is not None else metadata["adjacency"]
+        self.data_null_value = data_null_value if data_null_value is not None else metadata["data_null_value"]
 
     @property   
     def device(self):
@@ -92,14 +104,12 @@ class BaseModel(nn.Module, ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
     def adapt_to_metadata(self, metadata):
         """
-        Adapt the model to dataset-specific metadata.
-        
-        This method is called during training setup to configure the model
-        based on dataset characteristics like normalization parameters,
-        adjacency matrices, etc.
+        In traffic analysis tasks, the model often needs the adjacency matrix to describe
+        the graph structure, and it may also need the mean and std of the data to normalize them.
+        This method is a recommended wrapper function to be called when initializing the model,
+        it is not mandatory as one can explicitly write the codes in the __init__ function.
         
         Args:
             metadata: Dataset metadata dictionary
@@ -123,3 +133,13 @@ class BaseModel(nn.Module, ABC):
         Override if you saved additional state in state_dict().
         """
         return super().load_state_dict(state_dict, strict)
+    
+    def to(self, device: torch.device | str):
+        """
+        Move the required tensors to the specified device.
+        In addition to the model parameters, we usually need to move adjacency matrix, edge indexes or data scalars, etc.
+        But what to move eactly will depend on the specific model, and threfore is not implemented in the base class.
+        """
+        if isinstance(device, str):
+            device = torch.device(device)
+        return super().to(device)
