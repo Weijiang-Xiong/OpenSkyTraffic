@@ -174,3 +174,6 @@ scripts/debug.py
 
 # visualization files
 visualize/*/*.pdf
+
+# debug files
+tests/debug*.py

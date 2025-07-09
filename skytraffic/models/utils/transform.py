@@ -10,14 +10,13 @@ class TensorDataScaler:
 
     """
 
-    def __init__(self, mean: float, std: float, data_dim: int = 0, device: str = "cuda"):
+    def __init__(self, mean: float, std: float, data_dim: int = 0):
         """_summary_
 
         Args:
             mean (float): the mean of the data (should be a scalar or a tensor with 1 element)
             std (float): the standard deviation of the data (should be a scalar or a tensor with 1 element)
             data_dim (int, optional): the index of data sequences of concern (not auxiliary features). Defaults to 0.
-            device (str, optional): the device to . Defaults to "cuda".
         """
         self.data_dim = data_dim
         
@@ -33,7 +32,6 @@ class TensorDataScaler:
         self.mean = torch.tensor(mean, requires_grad=False)
         self.std = torch.tensor(std, requires_grad=False)
         self.inv_std = 1.0 / self.std
-        self.to(device)
 
     def transform(self, data, datadim_only: bool = True):
         """ Apply Z-score normalization to the data.
@@ -63,6 +61,7 @@ class TensorDataScaler:
         self.mean = self.mean.to(device)
         self.std = self.std.to(device)
         self.inv_std = self.inv_std.to(device)
+        return self
     
     @property
     def device(self):

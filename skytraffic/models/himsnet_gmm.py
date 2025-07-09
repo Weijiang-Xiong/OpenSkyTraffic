@@ -9,11 +9,14 @@ import numpy as np
 from typing import Dict, List, Tuple
 from einops import rearrange
 
-from ..data.transform import TensorDataScaler
-from .layers import LearnedPositionalEncoding, ValueEmbedding
+from .utils.transform import TensorDataScaler
 from .catalog import MODEL_CATALOG
-from .layers import MultiHeadAttention
-from .layers import GMMPredictionHead
+from .layers import (
+    LearnedPositionalEncoding, 
+    ValueEmbedding, 
+    MultiHeadAttention, 
+    GMMPredictionHead
+)
 
 logger = logging.getLogger("default")
 

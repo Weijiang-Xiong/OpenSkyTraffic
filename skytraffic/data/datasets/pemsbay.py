@@ -12,6 +12,7 @@ class PEMSBayDataset(MetrDataset):
     }
     adjacency     = 'adj_mx_bay.pkl'
     geo_locations = 'graph_sensor_locations_bay.csv'
+    num_nodes = 325
 
     def __init__(self, split, **args) -> None:
         super().__init__(split=split, **args)

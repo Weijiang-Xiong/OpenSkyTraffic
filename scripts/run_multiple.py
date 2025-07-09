@@ -142,47 +142,56 @@ def experiment_weight_factor(command_list):
 
     return command_list
 
-def experiment_emb_ablation_repeat(command_list):
+def experiment_emb_ablation(train_script, cfg_file, command_list, exp):
     # this part shows EMB has no significant impact on the performance
     for r in range(3):
         command_list.append(
-        f"{train_script} {cfg_default} model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop_r{r}"
+        f"{train_script} {cfg_file} model.adjacency_hop=5 train.output_dir=scratch/{exp}_r{r}"
         )
         # no emb
         command_list.append(
-        f"{train_script} {cfg_default} model.adjacency_hop=5 model.simple_fillna=True train.output_dir=scratch/himsnet_no_emb_5hop_r{r}"
-        )
-        # noisy and partial data 
-        command_list.append(
-        f"{train_script} {cfg_rndobsv} model.adjacency_hop=5 train.output_dir=scratch/himsnet_rnd_noise_fix_5hop_r{r} dataset.train.use_clean_data=False"
-        )
-        # noisy and partial data no emb
-        command_list.append(
-        f"{train_script} {cfg_rndobsv} model.adjacency_hop=5 model.simple_fillna=True train.output_dir=scratch/himsnet_rnd_no_emb_noise_fix_5hop_r{r} dataset.train.use_clean_data=False"
+        f"{train_script} {cfg_file} model.adjacency_hop=5 model.simple_fillna=True train.output_dir=scratch/{exp}_no_emb_r{r}"
         )
     
     return command_list
 
 
-def experiment_gmm_model(cfg_str, command_list, note="0"):
+def experiment_gmm_model(train_script, cfg_file, command_list, exp):
     command_list.append(
-    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=False train.output_dir=scratch/gmmpred_bayes_avg_{note} train.eval_train=False"
+    f"{train_script} --config-file {cfg_file} model.adjacency_hop=5 model.map_estimation=False train.output_dir=scratch/gmmpred_bayes_avg_{exp}"
     )
     command_list.append(
-    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=False model.use_drone=False train.output_dir=scratch/gmmpred_bayes_avg_no_drone_{note} train.eval_train=False"
+    f"{train_script} --config-file {cfg_file} model.adjacency_hop=5 model.map_estimation=False model.use_drone=False train.output_dir=scratch/gmmpred_bayes_avg_no_drone_{exp}"
     )
     command_list.append(
-    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=False model.use_ld=False train.output_dir=scratch/gmmpred_bayes_avg_no_ld_{note} train.eval_train=False"
+    f"{train_script} --config-file {cfg_file} model.adjacency_hop=5 model.map_estimation=False model.use_ld=False train.output_dir=scratch/gmmpred_bayes_avg_no_ld_{exp}"
     )
     command_list.append(
-    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=True train.output_dir=scratch/gmmpred_map_est_{note} train.eval_train=False"
+    f"{train_script} --config-file {cfg_file} model.adjacency_hop=5 model.map_estimation=True train.output_dir=scratch/gmmpred_map_est_{exp}"
     )
     command_list.append(
-    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=True model.use_drone=False train.output_dir=scratch/gmmpred_map_est_no_drone_{note} train.eval_train=False"
+    f"{train_script} --config-file {cfg_file} model.adjacency_hop=5 model.map_estimation=True model.use_drone=False train.output_dir=scratch/gmmpred_map_est_no_drone_{exp}"
     )
     command_list.append(
-    f"{train_script} {cfg_str} model.adjacency_hop=5 model.map_estimation=True model.use_ld=False train.output_dir=scratch/gmmpred_map_est_no_ld_{note} train.eval_train=False"
+    f"{train_script} --config-file {cfg_file} model.adjacency_hop=5 model.map_estimation=True model.use_ld=False train.output_dir=scratch/gmmpred_map_est_no_ld_{exp}"
     )
+
+def experiment_gmm_models(command_list, train_script, cfg_file, exp, overrides:dict=None):
+    command_list.append(
+    f"{train_script} --config-file config/{cfg_file}_GMMSingle.py model.norm_label_for_loss=True train.output_dir=scratch/{exp}_lgc_single"
+    )
+    command_list.append(
+    f"{train_script} --config-file config/{cfg_file}_GMM.py model.norm_label_for_loss=True train.output_dir=scratch/{exp}_lgc_gmm"
+    )
+    command_list.append(
+    f"{train_script} --config-file config/{cfg_file}.py model.norm_label_for_loss=True train.output_dir=scratch/{exp}_lgc"
+    )
+
+    if overrides is not None:
+        override_str = " ".join([f"{k}={v}" for k, v in overrides.items()])
+        command_list = [cmd_str + " " + override_str for cmd_str in command_list]
+
+    return command_list
 
 if __name__ == "__main__":
 
@@ -193,8 +202,8 @@ if __name__ == "__main__":
     
     mode = args.mode
     train_script = "python scripts/train.py"
-    cfg_default = "--config-file config/HiMSNet.py"
-    cfg_rndobsv = "--config-file config/HiMSNetRND.py"
+    cfg_default = "config/HiMSNet.py"
+    cfg_rndobsv = "config/HiMSNetRND.py"
 
     command_list = []
 
@@ -206,9 +215,17 @@ if __name__ == "__main__":
     # experiment_tf_glb(command_list)
     # experiment_penetration_rate(command_list)
     # experiment_weight_factor(command_list)
-    # experiment_emb_ablation_repeat(command_list)
-    experiment_gmm_model("--config-file config/GMMPredRND.py", command_list, note="rndobs")
-    experiment_gmm_model("--config-file config/GMMPredFull.py", command_list, note="fullinfo")
+    # experiment_emb_ablation(train_script, cfg_default, command_list, experiment_name="himsnet_5hop")
+    # experiment_emb_ablation(train_script, cfg_rndobsv, command_list, experiment_name="himsnet_rnd_noise_fix_5hop")
+    # experiment_gmm_model(train_script, cfg_rndobsv, command_list, experiment_name="rndobs")
+    # experiment_gmm_model(train_script, cfg_default, command_list, experiment_name="fullinfo")
+    experiment_gmm_models(command_list, train_script, "LSTMGCNConv", "metr")
+    experiment_gmm_models(command_list, train_script, "SimbarcaSpd_LSTMGCNConv", "barcaspd")
+    experiment_gmm_models(
+        command_list, train_script, "LSTMGCNConv", "pemsbay", 
+        overrides={"train": {"name": "pemsbay_train"}, "test": {"name": "pemsbay_test"}}
+    )
+
     
     eval_list = []
     for cmd_str in command_list:

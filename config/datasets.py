@@ -32,3 +32,8 @@ simbarcaspd = {
     "train": {"name": "simbarcaspd_train"},
     "test": {"name": "simbarcaspd_test"},
 }
+
+metrla = {
+    "train": {"name": "metrla_train"},
+    "test": {"name": "metrla_test"}
+}

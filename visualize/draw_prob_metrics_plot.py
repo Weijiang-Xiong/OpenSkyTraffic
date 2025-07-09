@@ -18,33 +18,47 @@ SIMBARCA_RESULTS = {
     "gmmpred_bayes_avg_rndobs": "Partial-Both",
     "gmmpred_bayes_avg_no_drone_rndobs": "Partial-LD",
     "gmmpred_bayes_avg_no_ld_rndobs": "Partial-Drone",
+    "barcaspd_lgc_gmm": "LGC-GMM (Low Res)",
+    "barcaspd_lgc_single": "LGC-Normal (Low Res)",
     }
 SIMBARCA_DET_RESULTS = {
-    
+    "barcaspd_lgc": "LGC (Low Res)",
 }
 
 METR_RESULTS = {
-    "naive_gmm_single": "LGC-Normal",
-    "naive_gmm": "LGC-GMM",
+    "metr_lgc_single": "LGC-Normal",
+    "metr_lgc_gmm": "LGC-GMM",
 }
 
 METR_DET_RESULTS = {
-    "lstmgcnconv": "LGC",
+    "metr_lgc": "LGC",
+}
+
+PEMSBAY_RESULTS = {
+    "pemsbay_lgc_single": "LGC-Normal",
+    "pemsbay_lgc_gmm": "LGC-GMM",
+}
+
+PEMSBAY_DET_RESULTS = {
+    "pemsbay_lgc": "LGC",
 }
 
 RESULT_GROUPS = {
     "simbarca": SIMBARCA_RESULTS,
     "metr": METR_RESULTS,
+    "pemsbay": PEMSBAY_RESULTS,
 }
 
 DET_RESULT_GROUPS = {
     "simbarca": SIMBARCA_DET_RESULTS,
     "metr": METR_DET_RESULTS,
+    "pemsbay": PEMSBAY_DET_RESULTS,
 }
 
 PRED_HORIZON = {
     "simbarca": 10,
     "metr": 12,
+    "pemsbay": 12,
 }
 
 def load_evaluation_results(result_group: dict):

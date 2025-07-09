@@ -1,5 +1,5 @@
 # Import customized classes and functions from loss.py
-from .loss import (
+from ..utils.loss import (
     GeneralizedProbRegLoss,
     masked_mse,
     masked_rmse,

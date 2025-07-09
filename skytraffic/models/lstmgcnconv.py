@@ -8,7 +8,7 @@ from .layers import masked_mae
 from typing import Dict, Tuple
 from einops import rearrange
 
-from ..data.transform import TensorDataScaler
+from .utils.transform import TensorDataScaler
 from .layers import MLP, LearnedPositionalEncoding, ValueEmbedding
 from .catalog import MODEL_CATALOG
 from .base import BaseModel
@@ -16,16 +16,21 @@ from .base import BaseModel
 class LSTMGCNConv(BaseModel):
     def __init__(
         self,
+        # arguments purely based on model
         use_global=True,
-        pred_steps: int = 12,
         d_model=64,
         global_downsample_factor: int = 1,
         layernorm=True,
         adjacency_hop: int = 1,
         dropout: float = 0.1,
-        data_null_value: float = 0.0,
-        loss_ignore_value = np.nan,
+        loss_ignore_value = float("nan"),
         norm_label_for_loss: bool = True,
+        # arguments related to dataset
+        input_steps: int = 12,
+        pred_steps: int = 12,
+        num_nodes: int = None,
+        data_null_value: float = 0.0,
+        metadata: dict = None,
     ):
         """
         Args:
@@ -37,16 +42,17 @@ class LSTMGCNConv(BaseModel):
             invalid_value: the invalid value in the label, will be replaced with NaN in order to be ignored in loss computation
             norm_label_for_loss: whether to compute the loss after the Z-normalization of label
         """
-        super().__init__()
+        super().__init__(input_steps=input_steps, pred_steps=pred_steps, num_nodes=num_nodes, data_null_value=data_null_value, metadata=metadata)
         self.use_global = use_global
-        self.data_null_value = data_null_value
         self.loss_ignore_value = loss_ignore_value
         self.adjacency_hop = adjacency_hop
         self.norm_label_for_loss = norm_label_for_loss
-        self.metadata: Dict[str, torch.Tensor] = None
-        self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570)
-        self.ld_embedding = ValueEmbedding(d_model=d_model, assume_clean_input = not np.isnan(data_null_value))
-        self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model)
+        self.edge_index: torch.Tensor
+        self.adapt_to_metadata(metadata)
+        
+        self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=self.num_nodes)
+        self.ld_embedding = ValueEmbedding(d_model=d_model, assume_clean_input=not np.isnan(data_null_value))
+        self.temporal_encoding_ld = LearnedPositionalEncoding(d_model=d_model, max_len=self.input_steps)
         self.ld_temporal = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=3, batch_first=True)
         self.ld_norm = nn.LayerNorm(d_model) if layernorm else nn.Identity()
 
@@ -129,10 +135,10 @@ class LSTMGCNConv(BaseModel):
         if self.use_global:
             x_global = self.channel_down_sample(torch.cat(all_mode_features, dim=-1))
             # graph convolution
-            x_inter = self.dropout(self.relu(self.global_norm1(self.gcn_1(x_global, self.metadata["edge_index"]))))
-            x_inter = self.dropout(self.relu(self.global_norm2(self.gcn_2(x_inter, self.metadata["edge_index"]))))
+            x_inter = self.dropout(self.relu(self.global_norm1(self.gcn_1(x_global, self.edge_index))))
+            x_inter = self.dropout(self.relu(self.global_norm2(self.gcn_2(x_inter, self.edge_index))))
             x_global = x_global + x_inter
-            x_global = self.gcn_3(x_global, self.metadata["edge_index"])
+            x_global = self.gcn_3(x_global, self.edge_index)
             x_global = self.channel_up_sample(x_global)
             all_mode_features.append(x_global)
 
@@ -142,10 +148,6 @@ class LSTMGCNConv(BaseModel):
     
 
     def adapt_to_metadata(self, metadata):
-        
-        assert self.training, "metadata should be loaded in training mode"
-        
-        self.metadata = dict()
         
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])
         # adjacency can be one or multiple adjacency matrices 
@@ -161,22 +163,12 @@ class LSTMGCNConv(BaseModel):
                 binary_adjacency = (binary_adjacency > 0)
                 
         edge_index = torch.nonzero(binary_adjacency, as_tuple=False).T
-        self.metadata['edge_index'] = edge_index.to(self.device)
-    
-    def state_dict(self):
-        """ we add datascalar and metadata to the state_dict, so that they will be saved to the checkpoint, 
-        and then can be loaded later.
-        """
-        state = dict()
-        state["model_params"] = super().state_dict()
-        state["metadata"] = self.metadata
-        state["datascaler"] = self.datascaler.state_dict()
-        return state
-    
-    def load_state_dict(self, state_dict, strict: bool = False):
-        self.datascaler = TensorDataScaler(**state_dict["datascaler"])
-        self.metadata = state_dict["metadata"]
-        super().load_state_dict(state_dict["model_params"], strict=strict)
+        self.edge_index = edge_index
+
+    def to(self, device: torch.device):
+        self.datascaler = self.datascaler.to(device)
+        self.edge_index = self.edge_index.to(device)
+        return super().to(device)
         
 if __name__.endswith("lstmgcnconv"):
     MODEL_CATALOG.register(LSTMGCNConv)

@@ -10,23 +10,25 @@ class LSTMGCNConv_GMM(LSTMGCNConv):
     def __init__(
         self,
         use_global=True,
+        input_steps: int = 12,
         pred_steps: int = 12,
+        num_nodes: int = None,
         d_model=64,
         global_downsample_factor: int = 1,
         layernorm=True,
         adjacency_hop: int = 1,
         dropout: float = 0.1,
         data_null_value: float = 0.0,
-        loss_ignore_value: float = float("nan"),
+        loss_ignore_value = float("nan"),
         norm_label_for_loss: bool = True,
         anchors: List[float] = [-2.0, -1.0, 0.0, 1.0, 2.0],
         sizes: List[float] = [1.0, 1.0, 1.0, 1.0, 1.0],
         zero_init=False,
         mcd_estimation=False,
+        metadata: dict = None,
     ):
         super().__init__(
             use_global=use_global,
-            pred_steps=pred_steps,
             d_model=d_model,
             global_downsample_factor=global_downsample_factor,
             layernorm=layernorm,
@@ -35,6 +37,10 @@ class LSTMGCNConv_GMM(LSTMGCNConv):
             data_null_value=data_null_value,
             loss_ignore_value=loss_ignore_value,
             norm_label_for_loss=norm_label_for_loss,
+            input_steps=input_steps,
+            pred_steps=pred_steps,
+            num_nodes=num_nodes,
+            metadata=metadata,
         )
         del self.prediction
         del self.loss

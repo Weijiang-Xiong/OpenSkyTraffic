@@ -19,7 +19,7 @@ from scipy.stats import rv_continuous, gennorm
 from einops import rearrange
 
 from .layers import GeneralizedProbRegLoss
-from ..data import TensorDataScaler
+from .utils.transform import TensorDataScaler
 from .layers import LearnedPositionalEncoding, PositionalEncoding
 from .catalog import MODEL_CATALOG
 
