@@ -27,6 +27,7 @@ dependencies = [
   "termcolor",
   "tqdm",
   "scipy",
+  "hydra-core",
 ]
 
 [project.optional-dependencies]

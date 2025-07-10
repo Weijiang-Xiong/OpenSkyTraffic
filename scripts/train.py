@@ -3,33 +3,28 @@ This script is the entry point for training and evaluation of the models.
 In the __main__ function, the argument parser requires a `--config-file` which specifies how to configure
 models and training pipeline, and other overrides to the config file can be passed as 
 
-    something.to.modify=new_value 
+    something.to.modify=new_value
 
 To run a training in the terminal, use the following command:
 
-    python scripts/train.py --config-file config/HiMSNet.py model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop
+    python scripts/train.py --config-file config/NAME_OF_CONFIG_FILE.py THE.OPTION.TO.MODIFY=NEW_VALUE
 
-wAfter the training, you can run evaluation on the trained model as follows (you don't need to pass config override again, just load the config file saved to the output directory).
+After the training, you can run evaluation on the trained model and enable visualization as follows.
+You don't need to pass config override again, just load the config file saved to the output directory.
 
-    python scripts/train.py --eval-only --config-file scratch/himsnet_5hop/config.py evaluation.visualize=True
+    python scripts/train.py --eval-only --config-file SAVE_FOLDER/config.yaml evaluation.visualize=True
 
-It is possible to override the checkpoint in case you want to evaluate another checkpoint rather than the finally saved one by adding `train.checkpoint=scratch/himsnet_5hop/model_final.pth`
+It is possible to override the checkpoint in case you want to evaluate another checkpoint rather than the finally saved one by adding `train.checkpoint=PATH_TO_CHECKPOINT/FILE_NAME.pth`
 
 You can also run debugging using VS Code. For example, to debug the evaluation of a trained HiMSNet model, put the following to parse_args(...). 
 
-    "--eval-only --config-file saved_folder/config.py evaluation.visualize=True".split()
+    "--eval-only --config-file SAVE_FOLDER/config.yaml evaluation.visualize=True".split()
 """
 
-import torch
-import numpy as np
 from pathlib import Path
 
-from skytraffic.config import default_argument_parser, default_setup, ConfigLoader
+from skytraffic.config import default_argument_parser, default_setup, LazyConfig, instantiate
 from skytraffic.engine import DefaultTrainer, hooks
-from skytraffic.models import build_model
-from skytraffic.data import build_train_loader, build_test_loader, build_dataset
-from skytraffic.evaluation import build_evaluator
-from skytraffic.solver import build_optimizer, build_scheduler
 
 def get_checkpoint_path(cfg, args) -> str:
     """
@@ -39,21 +34,28 @@ def get_checkpoint_path(cfg, args) -> str:
     if Path(cfg.train.checkpoint).is_file():
         return cfg.train.checkpoint
     else:
-        return "{}/model_final.pth".format(Path(args.config_file).parent)
+        return "{}/model_final.pth".format(cfg.train.output_dir)
 
 def main(args):
     
     # the config file will be loaded first and overrides will be applied after that
     # then, the logger and save folder will be setup
-    cfg = ConfigLoader.load_from_file(args.config_file)
-    cfg = ConfigLoader.apply_overrides(cfg, overrides=args.opts)
+    cfg = LazyConfig.load(args.config_file)
+    cfg = LazyConfig.apply_overrides(cfg, overrides=args.opts)
     default_setup(cfg, args)
 
     if args.eval_only:
-        test_set = build_dataset(cfg.dataset.test)
-        test_loader = build_test_loader(test_set, cfg.dataloader.test)
-        model = build_model(cfg.model, metadata=test_set.metadata)
-        evaluator = build_evaluator(**cfg.evaluation)
+
+        test_set = instantiate(cfg.dataset.test)
+
+        cfg.dataloader.test.dataset = test_set
+        cfg.dataloader.test.collate_fn = test_set.collate_fn
+        test_loader = instantiate(cfg.dataloader.test)
+
+        cfg.model.metadata = test_set.metadata
+        model = instantiate(cfg.model).to(cfg.train.device)
+
+        evaluator = instantiate(cfg.evaluator)
         # in evaluation mode, just load the checkpoint and call evaluation function
         state_dict = DefaultTrainer.load_file(ckpt_path=get_checkpoint_path(cfg, args))
         model.load_state_dict(state_dict['model'])
@@ -64,19 +66,32 @@ def main(args):
         )
         return eval_res
     else:
-        train_set = build_dataset(cfg.dataset.train)
-        test_set = build_dataset(cfg.dataset.test)
-        train_loader = build_train_loader(train_set, cfg.dataloader.train)
-        test_loader = build_test_loader(test_set, cfg.dataloader.test)
-        model = build_model(cfg.model, metadata=train_set.metadata)
+        train_set = instantiate(cfg.dataset.train)
+        test_set = instantiate(cfg.dataset.test)
+
+        cfg.dataloader.train.dataset, cfg.dataloader.train.collate_fn = train_set, train_set.collate_fn
+        cfg.dataloader.test.dataset, cfg.dataloader.test.collate_fn = test_set, test_set.collate_fn
+        train_loader, test_loader = instantiate(cfg.dataloader.train), instantiate(cfg.dataloader.test)
+        
+        cfg.model.metadata = train_set.metadata
+        model = instantiate(cfg.model).to(cfg.train.device)
+
         # build optimizer and scheduler using the corresponding configurations
-        optimizer = build_optimizer(model, cfg.optimizer)
-        scheduler = build_scheduler(optimizer, cfg.scheduler)
-        evaluator = build_evaluator(**cfg.evaluation)
+        cfg.optimizer.params = model.parameters()
+        optimizer = instantiate(cfg.optimizer)
+        cfg.scheduler.optimizer = optimizer
+        scheduler = instantiate(cfg.scheduler)
+        evaluator = instantiate(cfg.evaluator)
         
         # the trainer runs a training loop, which iterates the model through batches in 
         # the dataloader, compute loss and call optimizer to update model parameters
-        trainer = DefaultTrainer(cfg, model, train_loader, optimizer)
+        trainer = DefaultTrainer(
+            model=model, 
+            dataloader=train_loader, 
+            optimizer=optimizer, 
+            max_epoch=cfg.train.max_epoch, 
+            output_dir=cfg.train.output_dir
+        )
         # it is possible to load from a pretrained model or resume from previous training
         trainer.load_checkpoint(cfg.train.checkpoint, resume=args.resume)
         # the hooks have functions that are executed before/after each epoch/batch or the whole training, 
