@@ -16,7 +16,7 @@ class DefaultTrainer(TrainerBase):
     """ Implement checkpoint saving and loading
     """
 
-    def __init__(self, cfg, model: nn.Module, dataloader: DataLoader, optimizer: optim.Optimizer):
+    def __init__(self, model: nn.Module, dataloader: DataLoader, optimizer: optim.Optimizer, max_epoch: int = 30, output_dir: str = None):
         
         super().__init__() 
         
@@ -27,9 +27,9 @@ class DefaultTrainer(TrainerBase):
         self.optimizer = optimizer
         
         self.start_epoch = 0  # start epoch (may not be zero if resume from previous training)
-        self.max_epoch = cfg.train.max_epoch  # max training epoch
+        self.max_epoch = max_epoch  # max training epoch
         
-        self.save_dir = cfg.train.output_dir if getattr(cfg.train, 'output_dir', None) else "./checkpoint"
+        self.save_dir = output_dir if output_dir is not None else "./checkpoint"
 
     @staticmethod
     def load_file(ckpt_path:str) -> dict:
