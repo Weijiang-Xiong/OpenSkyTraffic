@@ -151,7 +151,7 @@ class LSTMGCNConv(BaseModel):
         
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])
         # adjacency can be one or multiple adjacency matrices 
-        if not isinstance(metadata['adjacency'], (list, tuple)):
+        if isinstance(metadata['adjacency'], torch.Tensor):
             metadata['adjacency'] = [metadata['adjacency']]
         adj_mtx = sum([s.detach() for s in metadata['adjacency']])
         binary_adjacency = (adj_mtx > 0)
