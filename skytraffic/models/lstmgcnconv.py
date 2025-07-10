@@ -151,7 +151,7 @@ class LSTMGCNConv(BaseModel):
         
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])
         # adjacency can be one or multiple adjacency matrices 
-        if not isinstance(metadata['adjacency'], (list, tuple)):
+        if isinstance(metadata['adjacency'], torch.Tensor):
             metadata['adjacency'] = [metadata['adjacency']]
         adj_mtx = sum([s.detach() for s in metadata['adjacency']])
         binary_adjacency = (adj_mtx > 0)
@@ -169,6 +169,21 @@ class LSTMGCNConv(BaseModel):
         self.datascaler = self.datascaler.to(device)
         self.edge_index = self.edge_index.to(device)
         return super().to(device)
-        
+    
+    def state_dict(self):
+        """ we add datascalar and metadata to the state_dict, so that they will be saved to the checkpoint, 
+        and then can be loaded later.
+        """
+        state = dict()
+        state["model_params"] = super().state_dict()
+        state["edge_index"] = self.edge_index
+        state["datascaler"] = self.datascaler.state_dict()
+        return state
+    
+    def load_state_dict(self, state_dict, strict: bool = False):
+        self.datascaler = TensorDataScaler(**state_dict["datascaler"])
+        self.edge_index = state_dict["edge_index"]
+        super().load_state_dict(state_dict["model_params"], strict=strict)
+
 if __name__.endswith("lstmgcnconv"):
     MODEL_CATALOG.register(LSTMGCNConv)

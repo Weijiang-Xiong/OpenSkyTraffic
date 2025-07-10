@@ -89,7 +89,7 @@ class TrainerBase:
         self.save_dir: str
         
         # these are related to logging within an epoch
-        self.batch_idx: int  # the index of current training batch (to compute progress)
+        self.batch_idx: int = 0  # the index of current training batch (to compute progress)
 
     @property
     def dataset_len(self):

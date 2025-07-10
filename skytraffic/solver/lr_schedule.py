@@ -18,7 +18,8 @@ class WarmupMultiStepScaler:
         
         self.start = start
         self.end = end
-        self.milestones = Counter(milestones)
+        _milestones = [start + (end - start) * m for m in milestones]
+        self.milestones = Counter(_milestones)
         self.gamma = gamma
         
         assert warmup is None or isinstance(warmup, (int, float))
@@ -59,8 +60,7 @@ def build_scheduler(optimizer, cfg: DictConfig):
         return WarmupMultiStepScaler(
             start=cfg.start, 
             end=cfg.end, 
-            milestones=[cfg.start + (cfg.end - cfg.start)*ms
-                        for ms in cfg.lr_milestone], 
+            milestones=cfg.lr_milestone, 
             gamma=cfg.lr_decrease, 
             warmup=cfg.warmup)
         
