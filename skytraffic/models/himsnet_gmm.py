@@ -10,7 +10,7 @@ from typing import Dict, List, Tuple
 from einops import rearrange
 
 from .utils.transform import TensorDataScaler
-from .catalog import MODEL_CATALOG
+
 from .layers import (
     LearnedPositionalEncoding, 
     ValueEmbedding, 
@@ -311,8 +311,4 @@ class HiMSNet_GMM(nn.Module):
         }
         super().load_state_dict(state_dict["model_params"])
 
-# one can write this as a decorator above the class definition, but that will lose the type hints 
-# because in general one can not know what the decorator will return, so the type of the defined 
-# model will be hinted as "Any", instead of the model class it belongs to
-if __name__.endswith("himsnet_gmm"):
-    MODEL_CATALOG.register(HiMSNet_GMM)
+

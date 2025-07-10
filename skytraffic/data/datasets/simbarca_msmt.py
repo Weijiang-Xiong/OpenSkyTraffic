@@ -19,7 +19,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 import skytraffic
-from ..catalog import DATASET_CATALOG
+
 from .simbarca_base import SimBarcaForecast
  
 sns.set_style("darkgrid")
@@ -487,9 +487,4 @@ class SimBarca(Dataset):
         return batch_data
         
 
-if __name__.endswith(".simbarca_msmt"):
-    """this happens when something is imported from this file
-    we can register the dataset here
-    """
-    DATASET_CATALOG['simbarca_msmt_train'] = lambda **args: SimBarcaMSMT(split='train', **args)
-    DATASET_CATALOG['simbarca_msmt_test'] = lambda **args: SimBarcaMSMT(split='test', **args)
+

@@ -10,7 +10,7 @@ from einops import rearrange
 
 from .utils.transform import TensorDataScaler
 from .layers import MLP, LearnedPositionalEncoding, ValueEmbedding
-from .catalog import MODEL_CATALOG
+
 from .base import BaseModel
 
 class LSTMGCNConv(BaseModel):
@@ -185,5 +185,3 @@ class LSTMGCNConv(BaseModel):
         self.edge_index = state_dict["edge_index"]
         super().load_state_dict(state_dict["model_params"], strict=strict)
 
-if __name__.endswith("lstmgcnconv"):
-    MODEL_CATALOG.register(LSTMGCNConv)

@@ -52,31 +52,3 @@ class WarmupMultiStepScaler:
             
         return lr_scale
 
-def build_scheduler(optimizer, cfg: DictConfig):
-    
-    cfg = cfg.copy()
-    
-    def get_scaler(cfg):
-        return WarmupMultiStepScaler(
-            start=cfg.start, 
-            end=cfg.end, 
-            milestones=cfg.lr_milestone, 
-            gamma=cfg.lr_decrease, 
-            warmup=cfg.warmup)
-        
-    config_groups = cfg.pop("groups", None)
-
-    if config_groups is not None:
-        # pop group-specific configs so the remainders are common configs
-        group_specific_config = {g:OmegaConf.to_container(cfg.pop(g)) for g in config_groups}
-        # override common config with group-specific configs
-        for g in config_groups:
-            group_specific_config[g] = OmegaConf.merge(cfg.copy(), group_specific_config[g])
-        # create a scaler for each of the group
-        scaler = [get_scaler(group_specific_config[g]) for g in config_groups]
-    else:
-        scaler = get_scaler(cfg)
-    
-    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=scaler)
-    
-    return scheduler

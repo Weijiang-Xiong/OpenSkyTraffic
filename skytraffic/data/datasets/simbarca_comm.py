@@ -3,7 +3,6 @@ import numpy as np
 from typing import Dict, List
 
 from .simbarca_base import SimBarcaForecast
-from ..catalog import DATASET_CATALOG
 
 class SimBarcaSpeed(SimBarcaForecast):
 
@@ -95,6 +94,3 @@ class SimBarcaSpeed(SimBarcaForecast):
             "metadata": self.metadata
         }
     
-if __name__.endswith('.simbarca_comm'):
-    DATASET_CATALOG['simbarcaspd_train'] = lambda **arg: SimBarcaSpeed(split='train', **arg)
-    DATASET_CATALOG['simbarcaspd_test'] = lambda **arg: SimBarcaSpeed(split='test', **arg)
