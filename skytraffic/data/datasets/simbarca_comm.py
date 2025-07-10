@@ -5,13 +5,17 @@ from typing import Dict, List
 from .simbarca_base import SimBarcaForecast
 
 class SimBarcaSpeed(SimBarcaForecast):
+    input_steps: int = 10
+    pred_steps: int = 10
+    num_nodes: int = 1570
+    data_null_value: float = float("nan")
 
-    def __init__(self, split="train", input_window=30, pred_window=30, step_size=3, sample_per_session=20):
-        super().__init__(split, input_window, pred_window, step_size, sample_per_session)
-        self.input_window: int 
-        self.pred_window: int 
-        self.step_size: int 
-        self.sample_per_session: int 
+    def __init__(self, split="train"):
+        super().__init__(split, input_window=30, pred_window=30, step_size=3, sample_per_session=20)
+        self.input_window: int
+        self.pred_window: int
+        self.step_size: int
+        self.sample_per_session: int
 
         self.time_in_day: torch.Tensor # shape (T)
         self.speed_data: torch.Tensor # shape (n_sessions, T, P)
@@ -68,9 +72,6 @@ class SimBarcaSpeed(SimBarcaForecast):
         self.out_indexes = torch.from_numpy(self.out_indexes).to(torch.bool)
 
     def load_or_compute_metadata(self):
-        self.input_steps = self.input_window // self.step_size
-        self.pred_steps = self.pred_window // self.step_size
-        self.num_nodes = self.speed_data.shape[1]
         metadata = {
             "input_steps": self.input_steps,
             "pred_steps": self.pred_steps,
