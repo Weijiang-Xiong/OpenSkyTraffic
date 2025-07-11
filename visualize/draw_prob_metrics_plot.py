@@ -18,11 +18,19 @@ SIMBARCA_RESULTS = {
     "gmmpred_bayes_avg_rndobs": "Partial-Both",
     "gmmpred_bayes_avg_no_drone_rndobs": "Partial-LD",
     "gmmpred_bayes_avg_no_ld_rndobs": "Partial-Drone",
-    "barcaspd_lgc_gmm": "LGC-GMM (Low Res)",
-    "barcaspd_lgc_single": "LGC-Normal (Low Res)",
+    "simbarcaspd_lgc_gmm": "LGC-GMM (Low Res)",
+    "simbarcaspd_lgc_single": "LGC-Normal (Low Res)",
     }
 SIMBARCA_DET_RESULTS = {
-    "barcaspd_lgc": "LGC (Low Res)",
+    "simbarcaspd_lgc": "LGC (Low Res)",
+}
+
+SIMBARCASPD_RESULTS = {
+    "simbarcaspd_lgc_gmm": "LGC-GMM",
+    "simbarcaspd_lgc_single": "LGC-Normal",
+    }
+SIMBARCASPD_DET_RESULTS = {
+    "barcaspd_lgc": "LGC",
 }
 
 METR_RESULTS = {
@@ -45,18 +53,21 @@ PEMSBAY_DET_RESULTS = {
 
 RESULT_GROUPS = {
     "simbarca": SIMBARCA_RESULTS,
+    "simbarcaspd": SIMBARCASPD_RESULTS,
     "metr": METR_RESULTS,
     "pemsbay": PEMSBAY_RESULTS,
 }
 
 DET_RESULT_GROUPS = {
     "simbarca": SIMBARCA_DET_RESULTS,
+    "simbarcaspd": SIMBARCASPD_DET_RESULTS,
     "metr": METR_DET_RESULTS,
     "pemsbay": PEMSBAY_DET_RESULTS,
 }
 
 PRED_HORIZON = {
     "simbarca": 10,
+    "simbarcaspd": 10,
     "metr": 12,
     "pemsbay": 12,
 }

@@ -1,31 +1,46 @@
-from .common_cfg import train, scheduler, evaluation
-from .common_cfg import adam as optimizer
-from .datasets import simbarca_msmt
+from omegaconf import OmegaConf
+from skytraffic.config import LazyCall as L
+from skytraffic.models import HiMSNet
+from torch.utils.data import DataLoader
 
-train.test_best_ckpt = False
+from .common.train import train
+from .common.data import simbarca_msmt as dataset
+from .common.evaluation import simbarca_evaluator as evaluator
+from .common.optim import Adam as optimizer
+from .common.schedule import scheduler
+
+# Override train settings
 train.output_dir = "scratch/himsnet"
-evaluation.evaluator_type = "simbarca"
-evaluation.mape_threshold = 1.0
-evaluation.ignore_value = float("nan")
 
-model = {
-    "name": "HiMSNet",
-    "device": "${train.device}",
-    "use_drone": True,
-    "use_ld": True,
-    "use_global": True,
-    "scale_output": True,
-    "normalize_input": True, # this will make the results more stable and better
-    "layernorm": True,
-    "d_model": 64,
-    "simple_fillna": False,
-    "global_downsample_factor": 1,
-    "adjacency_hop": 5,
-    "attn_agg": True,
-}
+dataloader = OmegaConf.create()
 
-dataset = simbarca_msmt
-dataloader = {
-    "train": {"batch_size": 8},
-    "test": {"batch_size": 8}
-}
+dataloader.train = L(DataLoader)(
+    dataset=dataset.train,
+    batch_size=8,
+    shuffle=True,
+    collate_fn=None
+)
+
+dataloader.test = L(DataLoader)(
+    dataset=dataset.test,
+    batch_size=8,
+    shuffle=False,
+    collate_fn=None
+)
+
+model = L(HiMSNet)(
+    # arguments purely based on model
+    use_drone=True,
+    use_ld=True,
+    use_global=True,
+    scale_output=True,
+    normalize_input=True,
+    layernorm=True,
+    d_model=64,
+    simple_fillna=False,
+    global_downsample_factor=1,
+    adjacency_hop=5,
+    attn_agg=True,
+    # arguments related to dataset/training
+    metadata=None,
+) 

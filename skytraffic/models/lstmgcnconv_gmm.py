@@ -2,7 +2,7 @@ import torch
 
 from typing import Dict, List, Any
 
-from .catalog import MODEL_CATALOG
+
 from .layers import GMMPredictionHead
 from .lstmgcnconv import LSTMGCNConv
 
@@ -121,5 +121,4 @@ class LSTMGCNConv_GMM(LSTMGCNConv):
         return prediction
 
         
-if __name__.endswith("lstmgcnconv_gmm"):
-    MODEL_CATALOG.register(LSTMGCNConv_GMM) 
+ 

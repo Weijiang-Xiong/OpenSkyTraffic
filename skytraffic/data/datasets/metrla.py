@@ -8,7 +8,6 @@ import numpy as np
 import torch 
 from torch.utils.data import Dataset
 
-from ..catalog import DATASET_CATALOG
 from .adjacency import calculate_scaled_laplacian, calculate_normalized_laplacian, sym_adj, asym_adj
 
 logger = logging.getLogger('default')
@@ -121,7 +120,3 @@ class MetrDataset(Dataset):
         
         return {"source": xs.contiguous(), "target": ys[..., 0].contiguous(), "metadata": self.metadata}
     
-if __name__.endswith('.metrla'):
-    DATASET_CATALOG['metrla_train'] = lambda **arg: MetrDataset(split='train', **arg)
-    DATASET_CATALOG['metrla_val'] = lambda **arg: MetrDataset(split='val', **arg)
-    DATASET_CATALOG['metrla_test'] = lambda **arg: MetrDataset(split='test', **arg)

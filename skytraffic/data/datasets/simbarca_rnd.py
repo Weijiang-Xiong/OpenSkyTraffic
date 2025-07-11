@@ -9,7 +9,6 @@ import seaborn as sns
 
 import torch
 
-from ..catalog import DATASET_CATALOG
 from .simbarca_msmt import SimBarcaMSMT, SimBarca
 
 sns.set_style("darkgrid")
@@ -455,9 +454,4 @@ class SimBarcaRandomObservationLegacy(SimBarca):
         return data_dict
     
 
-if __name__.endswith(".simbarca_rnd"):
-    """this happens when something is imported from this file
-    we can register the dataset here
-    """
-    DATASET_CATALOG['simbarca_rnd_train'] = lambda **args: SimBarcaRandomObservation(split='train', **args)
-    DATASET_CATALOG['simbarca_rnd_test'] = lambda **args: SimBarcaRandomObservation(split='test', **args)
+

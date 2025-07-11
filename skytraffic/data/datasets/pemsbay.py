@@ -1,5 +1,5 @@
 import pandas as pd
-from ..catalog import DATASET_CATALOG
+
 from .metrla import MetrDataset
 
 class PEMSBayDataset(MetrDataset):
@@ -21,7 +21,3 @@ class PEMSBayDataset(MetrDataset):
         return pd.read_csv("{}/{}".format(self.data_root, self.geo_locations), header=None)[[2,1]].to_numpy()
     
 
-if __name__.endswith(".pemsbay"):
-    DATASET_CATALOG['pemsbay_train'] = lambda **arg: PEMSBayDataset(split='train', **arg)
-    DATASET_CATALOG['pemsbay_val'] = lambda **arg: PEMSBayDataset(split='val', **arg)
-    DATASET_CATALOG['pemsbay_test'] = lambda **arg: PEMSBayDataset(split='test', **arg)

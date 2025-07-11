@@ -77,6 +77,13 @@ def crps_from_cdf(
     ) -> torch.Tensor:
     """
     Compute CRPS between two distributions.
+
+    Computing the CRPS requires the CDFs, which we obtain by a cumsum of the PDF. 
+    Storing the GMM density for the whole dataset will cost N * T * P * X * 4 Byte.
+    For the Simbarca test set and density evaluated at 1000 points, that means 30 GB. 
+    If we store the density per GMM component, the cost will be multiplied by the number of components, e.g., K=5. 
+    Looping over the spatial locations and doing evaluation separately for them is correct but not efficient.
+    So here we implement a batch-wise evaluation, where we split the tensors along the spatial location dimension to get chunks with size sp_size.
     
     Args:
         tensors: List of tensor inputs needed for composing the CDFs

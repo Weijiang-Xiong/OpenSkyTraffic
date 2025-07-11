@@ -12,7 +12,7 @@ from einops import rearrange
 from .layers import GeneralizedProbRegLoss
 from .utils.transform import TensorDataScaler
 from .layers import MLP, LearnedPositionalEncoding, ValueEmbedding
-from .catalog import MODEL_CATALOG
+
 from .layers import MultiHeadAttention, TransformerEncoderLayer
 
 logger = logging.getLogger("default")
@@ -301,10 +301,3 @@ class HiMSNet(nn.Module):
             for name, state in state_dict["data_scalers"].items()
         }
         super().load_state_dict(state_dict["model_params"])
-
-
-# one can write this as a decorator above the class definition, but that will lose the type hints 
-# because in general one can not know what the decorator will return, so the type of the defined 
-# model will be hinted as "Any", instead of the model class it belongs to
-if __name__.endswith("himsnet"):
-    MODEL_CATALOG.register(HiMSNet)

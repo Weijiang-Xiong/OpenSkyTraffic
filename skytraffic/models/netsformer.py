@@ -21,7 +21,6 @@ from einops import rearrange
 from .layers import GeneralizedProbRegLoss
 from .utils.transform import TensorDataScaler
 from .layers import LearnedPositionalEncoding, PositionalEncoding
-from .catalog import MODEL_CATALOG
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -144,7 +143,6 @@ def get_trivial_forward() -> Callable:
     
     return copy.deepcopy(trivial_forward)
 
-@MODEL_CATALOG.register()
 class NeTSFormer(nn.Module):
 
     """ Networked Time Series Prediction with Transformer
