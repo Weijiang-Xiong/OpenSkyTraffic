@@ -223,11 +223,11 @@ class GMMPredictionHead(nn.Module):
         x_is_in_interval = torch.gather(in_interval, dim=-1, index=inv_index)
         # add a False at the beginning and end to cover the edge cases where the edge values are True. 
         # (T, T, F, F, T, T) => (F, T, T, F, F, T, T, F)
-        x_is_in_interval_pad = torch.cat([torch.zeros_like(x_is_in_interval[..., :1]).bool(), 
+        x_is_in_interval = torch.cat([torch.zeros_like(x_is_in_interval[..., :1]).bool(), 
                                       x_is_in_interval, 
                                       torch.zeros_like(x_is_in_interval[..., :1]).bool()], dim=-1)
         
-        diff = torch.diff(x_is_in_interval_pad.int(), dim=-1)
+        diff = torch.diff(x_is_in_interval.int(), dim=-1)
         index_range = torch.arange(diff.size(-1), device=xs.device)
         # x_is_in_interval: (F, T, T, F, F, T, T, F); diff: [1, 0, -1, 0, 1, 0, -1], one element less.
         # the index of 1 in diff (0, 4) is the same as the lower bound index in x_is_in_interval (0, 4)
