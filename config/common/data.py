@@ -38,22 +38,8 @@ pemsbay.test = L(PEMSBayDataset)(
 )
 
 simbarcaspd = OmegaConf.create()
-
-simbarcaspd.train = L(SimBarcaSpeed)(
-    split="train",
-    input_window=30,
-    pred_window=30,
-    step_size=3,
-    sample_per_session=20
-)
-
-simbarcaspd.test = L(SimBarcaSpeed)(
-    split="val",
-    input_window=30,
-    pred_window=30,
-    step_size=3,
-    sample_per_session=20
-)
+simbarcaspd.train = L(SimBarcaSpeed)(split="train")
+simbarcaspd.test = L(SimBarcaSpeed)(split="test")
 
 simbarca_msmt = OmegaConf.create()
 
@@ -66,7 +52,7 @@ simbarca_msmt.train = L(SimBarcaMSMT)(
 )
 
 simbarca_msmt.test = L(SimBarcaMSMT)(
-    split="val", 
+    split="test", 
     input_window=30, 
     pred_window=30, 
     step_size=3, 
@@ -92,7 +78,7 @@ simbarca_rnd.train = L(SimBarcaRandomObservation)(
 )
 
 simbarca_rnd.test = L(SimBarcaRandomObservation)(
-    split="val", 
+    split="test", 
     ld_cvg=0.1, 
     drone_cvg=0.1,
     reinit_pos=False,

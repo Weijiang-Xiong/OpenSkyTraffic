@@ -5,12 +5,11 @@ from torch.utils.data import DataLoader
 
 from .common.train import train
 from .common.data import simbarca_msmt as dataset
-from .common.evaluaiton import simbarca_evaluator as evaluator
+from .common.evaluation import simbarca_evaluator as evaluator
 from .common.optim import Adam as optimizer
 from .common.schedule import scheduler
 
 # Override train settings
-train.test_best_ckpt = False
 train.output_dir = "scratch/himsnet"
 
 dataloader = OmegaConf.create()

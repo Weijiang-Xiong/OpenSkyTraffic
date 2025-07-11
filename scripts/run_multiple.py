@@ -24,7 +24,7 @@ def experiment_adjacency_hops(command_list):
     
     for hop in [1, 3, 5, 7, 9]:
         command_list.append(
-        f"{train_script} {cfg_default} model.adjacency_hop={hop} train.output_dir=scratch/himsnet_{hop}hop"
+        f"{train_script} --config-file {cfg_default} model.adjacency_hop={hop} train.output_dir=scratch/himsnet_{hop}hop"
         )
     
     return command_list
@@ -177,20 +177,22 @@ def experiment_gmm_model(train_script, cfg_file, command_list, exp):
     )
 
 def experiment_gmm_models(command_list, train_script, cfg_file, exp, overrides:dict=None):
-    command_list.append(
-    f"{train_script} --config-file config/{cfg_file}_GMMSingle.py model.norm_label_for_loss=True train.output_dir=scratch/{exp}_lgc_single"
+    experiments = []
+    experiments.append(
+    f"{train_script} --config-file config/{cfg_file}_GMMSingle.py train.output_dir=scratch/{exp}_lgc_single"
     )
-    command_list.append(
-    f"{train_script} --config-file config/{cfg_file}_GMM.py model.norm_label_for_loss=True train.output_dir=scratch/{exp}_lgc_gmm"
+    experiments.append(
+    f"{train_script} --config-file config/{cfg_file}_GMM.py train.output_dir=scratch/{exp}_lgc_gmm"
     )
-    command_list.append(
-    f"{train_script} --config-file config/{cfg_file}.py model.norm_label_for_loss=True train.output_dir=scratch/{exp}_lgc"
+    experiments.append(
+    f"{train_script} --config-file config/{cfg_file}.py train.output_dir=scratch/{exp}_lgc"
     )
 
     if overrides is not None:
         override_str = " ".join([f"{k}={v}" for k, v in overrides.items()])
-        command_list = [cmd_str + " " + override_str for cmd_str in command_list]
+        experiments = [cmd_str + " " + override_str for cmd_str in experiments]
 
+    command_list.extend(experiments)
     return command_list
 
 if __name__ == "__main__":
@@ -219,12 +221,10 @@ if __name__ == "__main__":
     # experiment_emb_ablation(train_script, cfg_rndobsv, command_list, experiment_name="himsnet_rnd_noise_fix_5hop")
     # experiment_gmm_model(train_script, cfg_rndobsv, command_list, experiment_name="rndobs")
     # experiment_gmm_model(train_script, cfg_default, command_list, experiment_name="fullinfo")
-    experiment_gmm_models(command_list, train_script, "LSTMGCNConv", "metr")
-    experiment_gmm_models(command_list, train_script, "SimbarcaSpd_LSTMGCNConv", "barcaspd")
-    experiment_gmm_models(
-        command_list, train_script, "LSTMGCNConv", "pemsbay", 
-        overrides={"train": {"name": "pemsbay_train"}, "test": {"name": "pemsbay_test"}}
-    )
+    
+    experiment_gmm_models(command_list, train_script, "LSTMGCNConv", "metr") # overrides={"train.max_epoch": 1} # for debugging 
+    experiment_gmm_models(command_list, train_script, "SimbarcaSpd_LSTMGCNConv", "simbarcaspd") # overrides={"train.max_epoch": 1} 
+    experiment_gmm_models(command_list, train_script, "PEMSBAY_LSTMGCNConv", "pemsbay") # overrides={"train.max_epoch": 1} 
 
     
     eval_list = []
@@ -233,7 +233,7 @@ if __name__ == "__main__":
         output_dir = find_output_dir(eval_cmd)
         eval_cmd = eval_cmd.replace("train.py", "train.py --eval-only")
         eval_cmd = eval_cmd + " " + "train.checkpoint={}/model_final.pth".format(output_dir)
-        eval_cmd = eval_cmd + " " + "evaluation.visualize=True"
+        eval_cmd = eval_cmd + " " + "evaluator.visualize=True"
         eval_list.append(eval_cmd)
 
     if mode == "vis":

@@ -2,13 +2,12 @@ from skytraffic.config import LazyCall as L
 from skytraffic.models import HiMSNet_GMM
 
 from .common.train import train
-from .common.evaluaiton import simbarca_gmm_evaluator as evaluator
+from .common.evaluation import simbarca_gmm_evaluator as evaluator
 from .common.optim import Adam as optimizer
 from .common.schedule import scheduler
 from .HiMSNet_RND import dataset, dataloader
 
 # Override train settings
-train.test_best_ckpt = False
 train.output_dir = "scratch/gmmpred_rndobsv"
 
 # Override evaluator settings for additional output sequences

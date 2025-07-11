@@ -1,13 +1,16 @@
 from omegaconf import OmegaConf
 from skytraffic.config import LazyCall as L
 from skytraffic.models import LSTMGCNConv
+from skytraffic.data.datasets import MetrDataset
 from torch.utils.data import DataLoader
 
 from .common.train import train
 from .common.data import metrla as dataset
-from .common.evaluaiton import metr_evaluator as evaluator
+from .common.evaluation import metr_evaluator as evaluator
 from .common.optim import AdamW as optimizer
 from .common.schedule import scheduler
+
+train.output_dir = "scratch/metr_lgc"
 
 dataloader = OmegaConf.create()
 
@@ -36,9 +39,9 @@ model = L(LSTMGCNConv)(
     loss_ignore_value = float("nan"),
     norm_label_for_loss=True,
     # arguments related to dataset
-    input_steps=12,
-    pred_steps=12,
-    num_nodes=207,
-    data_null_value=0.0,
+    input_steps=MetrDataset.input_steps,
+    pred_steps=MetrDataset.pred_steps,
+    num_nodes=MetrDataset.num_nodes,
+    data_null_value=MetrDataset.data_null_value,
     metadata=None,
 )
