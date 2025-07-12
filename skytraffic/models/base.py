@@ -3,7 +3,7 @@
 """
 import logging 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Mapping
 
 import torch 
 import torch.nn as nn 
@@ -45,7 +45,7 @@ class BaseModel(nn.Module, ABC):
         self.input_steps = input_steps if input_steps is not None else metadata["input_steps"]
         self.pred_steps = pred_steps if pred_steps is not None else metadata["pred_steps"]
         self.num_nodes = num_nodes if num_nodes is not None else metadata["num_nodes"]
-        self.adjacency = metadata.get("adjacency", None) if isinstance(metadata, dict) else None
+        self.adjacency = metadata.get("adjacency", None) if isinstance(metadata, Mapping) else None
         self.data_null_value = data_null_value if data_null_value is not None else metadata["data_null_value"]
 
     @property   

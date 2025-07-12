@@ -13,7 +13,7 @@ class SimBarcaSpeed(SimBarcaForecast):
 
     Args:
         split (str, optional): train or test. Defaults to "train".
-        nan_to_global_avg (bool, optional): if True, replace the nan values with the global average. Defaults to True.
+        input_nan_to_global_avg (bool, optional): if True, replace the nan values with the global average. Defaults to True.
     """
     input_steps: int = 10
     pred_steps: int = 10

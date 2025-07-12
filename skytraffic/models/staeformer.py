@@ -293,7 +293,7 @@ class STAEformer(BaseModel):
     def inference(self, source: torch.Tensor) -> Dict[str, torch.Tensor]:
         pred = self.make_predictions(source)
         pred = self.datascaler.inverse_transform(pred)
-        return {"pred": pred}
+        return {"pred": pred.squeeze()}
 
     def adapt_to_metadata(self, metadata):
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])
