@@ -16,6 +16,21 @@ class BaseModel(nn.Module, ABC):
     
     Provides common interface and functionality that all models should implement,
     including data preprocessing, training/inference logic, and metadata handling.
+    
+    The input tensor is assumed to have shape (N, T, P, C), where:
+        N: number of samples
+        T: number of time steps
+        P: number of nodes
+        C: number of features (e.g., 2 for the input, if the speed value is augmented with time in day)
+    
+    Args:
+        input_steps: the number of input time steps
+        pred_steps: the number of prediction time steps
+        num_nodes: the number of nodes in the graph, commonly required for encoding
+        adjacency: the adjacency matrix of the graph, commonly required for graph-based models
+        data_null_value: the null value in the data, which indicates missing values
+        metadata: the metadata of the dataset, allows more customizations, e.g., constructing a different adjacency matrix
+        
     """
 
     def __init__(
@@ -23,7 +38,6 @@ class BaseModel(nn.Module, ABC):
         input_steps: int = None,
         pred_steps: int = None,
         num_nodes: int = None,
-        adjacency: torch.Tensor = None,
         data_null_value: float = None,
         metadata: dict = None,
     ) -> None:
@@ -31,13 +45,13 @@ class BaseModel(nn.Module, ABC):
         self.input_steps = input_steps if input_steps is not None else metadata["input_steps"]
         self.pred_steps = pred_steps if pred_steps is not None else metadata["pred_steps"]
         self.num_nodes = num_nodes if num_nodes is not None else metadata["num_nodes"]
-        self.adjacency = adjacency if adjacency is not None else metadata["adjacency"]
+        self.adjacency = metadata.get("adjacency", None) if isinstance(metadata, dict) else None
         self.data_null_value = data_null_value if data_null_value is not None else metadata["data_null_value"]
 
     @property   
     def device(self):
         """Get the device of the model parameters"""
-        return list(self.parameters())[0].device
+        return list(self.parameters())[0].device if len(list(self.parameters())) > 0 else torch.device("cpu")
     
     @property
     def num_params(self):
