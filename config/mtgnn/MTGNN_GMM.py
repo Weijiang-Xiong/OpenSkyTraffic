@@ -1,34 +1,17 @@
-from omegaconf import OmegaConf
 from skytraffic.config import LazyCall as L
-from skytraffic.models import MTGNN
+from skytraffic.models import MTGNN_GMM
 from skytraffic.data.datasets import MetrDataset
-from torch.utils.data import DataLoader
 
 from ..common.train import train
-from ..common.data import metrla as dataset
-from ..common.evaluation import metr_evaluator as evaluator
+from ..common.evaluation import metr_gmm_evaluator as evaluator
 from ..common.optim import AdamW as optimizer
 from ..common.schedule import scheduler
+from .MTGNN import dataset, dataloader
 
-train.output_dir = "scratch/metr_mtgnn"
+# Override train settings
+train.output_dir = "scratch/metr_mtgnn_gmm"
 
-dataloader = OmegaConf.create()
-
-dataloader.train = L(DataLoader)(
-    dataset=dataset.train,
-    batch_size=32,
-    shuffle=True,
-    collate_fn=None
-)
-
-dataloader.test = L(DataLoader)(
-    dataset=dataset.test,
-    batch_size="${..train.batch_size}",
-    shuffle=False,
-    collate_fn=None
-)
-
-model = L(MTGNN)(
+model = L(MTGNN_GMM)(
     # arguments purely based on model
     gcn_true=True,
     buildA_true=True,
@@ -52,6 +35,11 @@ model = L(MTGNN)(
     output_dim=1,
     loss_ignore_value = float("nan"),
     norm_label_for_loss=True,
+    # GMM-specific parameters
+    anchors=[-2.0, -1.0, 0.0, 1.0, 2.0],
+    sizes=[1.0, 1.0, 1.0, 1.0, 1.0],
+    zero_init=True,
+    mcd_estimation=False,
     # arguments related to dataset
     input_steps=MetrDataset.input_steps,
     pred_steps=MetrDataset.pred_steps,
