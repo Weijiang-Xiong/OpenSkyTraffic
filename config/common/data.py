@@ -38,8 +38,8 @@ pemsbay.test = L(PEMSBayDataset)(
 )
 
 simbarcaspd = OmegaConf.create()
-simbarcaspd.train = L(SimBarcaSpeed)(split="train")
-simbarcaspd.test = L(SimBarcaSpeed)(split="test")
+simbarcaspd.train = L(SimBarcaSpeed)(split="train", input_nan_to_global_avg=True)
+simbarcaspd.test = L(SimBarcaSpeed)(split="test", input_nan_to_global_avg=True)
 
 simbarca_msmt = OmegaConf.create()
 

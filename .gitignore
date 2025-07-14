@@ -169,11 +169,7 @@ scratch
 datasets/*
 # allow git to manage readme and preprocessing scripts
 !datasets/README.md
-__NO_GIT*
-scripts/debug.py
+scripts/debug*.py
 
 # visualization files
-visualize/*/*.pdf
-
-# debug files
-tests/debug*.py
+visualize/**/*.pdf

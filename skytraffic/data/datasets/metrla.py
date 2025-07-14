@@ -118,5 +118,5 @@ class MetrDataset(Dataset):
         
         xs, ys = torch.cat(xs, dim=0), torch.cat(ys, dim=0)
         
-        return {"source": xs.contiguous(), "target": ys[..., 0].contiguous(), "metadata": self.metadata}
+        return {"source": xs.contiguous(), "target": ys[..., 0].contiguous()}
     

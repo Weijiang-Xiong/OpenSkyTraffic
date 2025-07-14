@@ -6,7 +6,7 @@ from .LSTMGCNConv_GMMSingle import (
     dataloader,
     evaluator
 )
-from .common.data import pemsbay as dataset
+from ..common.data import pemsbay as dataset
 from skytraffic.data.datasets import PEMSBayDataset
 
 train.output_dir = "scratch/pemsbay_lgc_gmm_single"

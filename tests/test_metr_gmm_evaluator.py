@@ -45,7 +45,7 @@ class DummyDataset(Dataset):
         
         xs, ys = torch.cat(xs, dim=0), torch.cat(ys, dim=0)
         
-        return {"source": xs.contiguous(), "target": ys.contiguous(), "metadata": self.metadata}
+        return {"source": xs.contiguous(), "target": ys.contiguous()}
 
 def dummy_dataloader(batch_size=16, num_nodes=207, input_steps=12, pred_steps=12, num_samples=64):
     """Create a DataLoader with dummy data"""

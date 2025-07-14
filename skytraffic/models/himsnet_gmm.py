@@ -37,7 +37,7 @@ class HiMSNet_GMM(nn.Module):
                 reg_loss_weight:float=1.0, 
                 simple_fillna =False, # replace NaN values with mean at the begeinning
                 rescale_anchors:bool=False,
-                zero_init=False,
+                zero_init=True,
                 map_estimation=False
         ):
         super().__init__()

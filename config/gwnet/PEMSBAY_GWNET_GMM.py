@@ -2,7 +2,7 @@
     with very minor changes.
     We only need to change the dataset, output path and number of nodes of the model. 
 """
-from .LSTMGCNConv_GMM import (
+from .GWNET_GMM import (
     train, 
     model,
     optimizer,
@@ -10,9 +10,9 @@ from .LSTMGCNConv_GMM import (
     dataloader,
     evaluator
 )
-from .common.data import pemsbay as dataset
+from ..common.data import pemsbay as dataset
 from skytraffic.data.datasets import PEMSBayDataset
 
-train.output_dir = "scratch/pemsbay_lgc_gmm"
+train.output_dir = "scratch/pemsbay_gwnet_gmm"
 model.num_nodes = PEMSBayDataset.num_nodes
-evaluator.sp_size = 3 # reduce memory usage for GMM evaluation
+evaluator.sp_size = 3 # reduce memory usage for GMM evaluation 

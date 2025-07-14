@@ -34,7 +34,7 @@ class GMMPredictionHead(nn.Module):
         pred_steps: int = 10,
         loss_ignore_value: float = float("nan"),
         dropout=0.1,
-        zero_init=False,
+        zero_init=True,
         mcd_estimation=False,
     ):
         super().__init__()

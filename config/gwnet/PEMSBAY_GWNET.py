@@ -2,7 +2,7 @@
     with very minor changes.
     We only need to change the dataset, output path and number of nodes of the model. 
 """
-from .LSTMGCNConv import (
+from .GWNET import (
     train, 
     model,
     optimizer,
@@ -10,8 +10,8 @@ from .LSTMGCNConv import (
     dataloader,
     evaluator
 )
-from .common.data import pemsbay as dataset
+from ..common.data import pemsbay as dataset
 from skytraffic.data.datasets import PEMSBayDataset
 
-train.output_dir = "scratch/pemsbay_lgc"
-model.num_nodes = PEMSBayDataset.num_nodes
+train.output_dir = "scratch/pemsbay_gwnet"
+model.num_nodes = PEMSBayDataset.num_nodes 
