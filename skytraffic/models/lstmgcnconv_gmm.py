@@ -23,7 +23,7 @@ class LSTMGCNConv_GMM(LSTMGCNConv):
         norm_label_for_loss: bool = True,
         anchors: List[float] = [-2.0, -1.0, 0.0, 1.0, 2.0],
         sizes: List[float] = [1.0, 1.0, 1.0, 1.0, 1.0],
-        zero_init=False,
+        zero_init=True,
         mcd_estimation=False,
         metadata: dict = None,
     ):

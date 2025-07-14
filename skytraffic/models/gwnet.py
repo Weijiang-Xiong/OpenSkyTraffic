@@ -78,6 +78,8 @@ class GWNET(BaseModel):
         apt_layer: bool = True,
         feature_dim: int = 2,
         output_dim: int = 1,
+        loss_ignore_value: float = float("nan"),
+        norm_label_for_loss: bool = True,
         # BaseModel parameters
         input_steps: int = 12,
         pred_steps: int = 12,
@@ -104,7 +106,9 @@ class GWNET(BaseModel):
         self.end_channels = end_channels or self.nhid * 16
         self.feature_dim = feature_dim
         self.output_dim = output_dim
-
+        self.loss_ignore_value = loss_ignore_value
+        self.norm_label_for_loss = norm_label_for_loss
+        
         self.apt_layer = apt_layer
         if self.apt_layer:
             self.layers = int(
@@ -199,11 +203,16 @@ class GWNET(BaseModel):
         self.receptive_field = receptive_field
         self._logger.info('receptive_field: ' + str(self.receptive_field))
 
-
     def make_predictions(self, source: torch.Tensor):
         """
         Original forward method renamed.
         """
+        x = self.feature_extraction(source)
+        x = self.end_conv_2(x)
+        # (batch_size, pred_steps, num_nodes, output_dim)
+        return x.squeeze()
+
+    def feature_extraction(self, source):
         inputs = source  # (batch_size, input_steps, num_nodes, feature_dim)
         inputs = inputs.transpose(1, 3)  # (batch_size, feature_dim, num_nodes, input_steps)
         inputs = nn.functional.pad(inputs, (1, 0, 0, 0))  # (batch_size, feature_dim, num_nodes, input_steps+1)
@@ -250,30 +259,41 @@ class GWNET(BaseModel):
             x = self.bn[i](x)
         x = F.relu(skip)
         x = F.relu(self.end_conv_1(x))
-        x = self.end_conv_2(x)
-        # (batch_size, pred_steps, num_nodes, output_dim)
         return x
 
     def preprocess(self, data: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         source = data["source"].to(self.device)  # (N, T, P, C)
         target = data["target"].to(self.device) # (N, T, P)
             
-        # Apply normalization to source
-        source = self.datascaler.transform(source)
+        # replace the label values with nan, so that they will be ignored in the loss after normalization
+        if np.isnan(self.data_null_value):
+            target[target.isnan()] = self.loss_ignore_value
+        else:
+            target[target == self.data_null_value] = self.loss_ignore_value
 
+        # normalize the data
+        source = self.datascaler.transform(source)
+        if self.norm_label_for_loss:
+            target = self.datascaler.transform(target, datadim_only=False)
+        
         return source, target
 
     def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> Dict[str, torch.Tensor]:
         # compute loss at original data scale
         pred = self.make_predictions(source)
-        pred = self.datascaler.inverse_transform(pred)
-        loss_val = masked_mae(pred.squeeze(), target, null_val=self.data_null_value)
+        # when label is scaled, we directly train the model to predict the scaled label
+        # otherwise, we scale back the prediction and then compute the loss
+        if self.norm_label_for_loss:
+            loss_val = masked_mae(pred, target, null_val=self.loss_ignore_value)
+        else:
+            pred = self.datascaler.inverse_transform(pred)
+            loss_val = masked_mae(pred, target, null_val=self.data_null_value)
         return {"loss": loss_val}
 
     def inference(self, source: torch.Tensor) -> Dict[str, torch.Tensor]:
         pred = self.make_predictions(source)
         pred = self.datascaler.inverse_transform(pred)
-        return {"pred": pred.squeeze()}
+        return {"pred": pred}
 
     def adapt_to_metadata(self, metadata):
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])

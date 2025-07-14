@@ -6,6 +6,7 @@ from logging import getLogger
 import torch
 import torch.nn as nn
 from typing import Dict, Tuple
+import numpy as np
 
 from .base import BaseModel
 from .layers import masked_mae
@@ -60,6 +61,8 @@ class STID(BaseModel):
         if_day_in_week: bool = False,
         feature_dim: int = 2,
         output_dim: int = 1,
+        loss_ignore_value: float = float("nan"),
+        norm_label_for_loss: bool = True,
         # BaseModel parameters
         input_steps: int = 12,
         pred_steps: int = 12,
@@ -81,6 +84,8 @@ class STID(BaseModel):
         self.if_spatial = if_spatial
         self.if_time_in_day = if_time_in_day
         self.if_day_in_week = if_day_in_week
+        self.loss_ignore_value = loss_ignore_value
+        self.norm_label_for_loss = norm_label_for_loss
 
         assert (24 * 60 * 60) % self.time_intervals == 0, "time_of_day_size should be Int"
         self.time_of_day_size = int((24 * 60 * 60) / self.time_intervals)
@@ -117,13 +122,16 @@ class STID(BaseModel):
         self.regression_layer = nn.Conv2d(
             in_channels=self.hidden_dim, out_channels=self.pred_steps, kernel_size=(1, 1), bias=True)
 
-
     def make_predictions(self, source):
         """
         Original forward method renamed.
         """
-        # prepare data
+        hidden = self.feature_extraction(source)
+        prediction = self.regression_layer(hidden)
 
+        return prediction.squeeze()
+
+    def feature_extraction(self, source):
         time_series = source[..., :1]
 
         if self.if_time_in_day:
@@ -156,30 +164,42 @@ class STID(BaseModel):
         hidden = torch.cat([time_series_emb] + node_emb + tem_emb, dim=1)  # concat all embeddings
 
         hidden = self.encoder(hidden)
-        prediction = self.regression_layer(hidden)
 
-        return prediction
+        return hidden
 
     def preprocess(self, data: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         source = data["source"].to(self.device)  # (N, T, P, C)
         target = data["target"].to(self.device) # (N, T, P)
-            
-        # Apply normalization to source
+        
+        # replace the label values with nan, so that they will be ignored in the loss after normalization
+        if np.isnan(self.data_null_value):
+            target[target.isnan()] = self.loss_ignore_value
+        else:
+            target[target == self.data_null_value] = self.loss_ignore_value
+
+        # normalize the data
         source = self.datascaler.transform(source)
+        if self.norm_label_for_loss:
+            target = self.datascaler.transform(target, datadim_only=False)
 
         return source, target
 
     def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> Dict[str, torch.Tensor]:
         # compute loss at original data scale
         pred = self.make_predictions(source)
-        pred = self.datascaler.inverse_transform(pred)
-        loss_val = masked_mae(pred.squeeze(), target, null_val=self.data_null_value)
+        # when label is scaled, we directly train the model to predict the scaled label
+        # otherwise, we scale back the prediction and then compute the loss
+        if self.norm_label_for_loss:
+            loss_val = masked_mae(pred, target, null_val=self.loss_ignore_value)
+        else:
+            pred = self.datascaler.inverse_transform(pred)
+            loss_val = masked_mae(pred, target, null_val=self.data_null_value)
         return {"loss": loss_val}
 
     def inference(self, source: torch.Tensor) -> Dict[str, torch.Tensor]:
         pred = self.make_predictions(source)
         pred = self.datascaler.inverse_transform(pred)
-        return {"pred": pred.squeeze()}
+        return {"pred": pred}
 
     def adapt_to_metadata(self, metadata):
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])

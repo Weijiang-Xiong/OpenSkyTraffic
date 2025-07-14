@@ -6,6 +6,7 @@ from logging import getLogger
 import torch.nn as nn
 import torch
 from typing import Dict, Tuple
+import numpy as np
 
 from .base import BaseModel
 from .layers import masked_mae
@@ -136,6 +137,8 @@ class STAEformer(BaseModel):
         use_mixed_proj: bool = True,
         add_time_in_day: bool = True,
         add_day_in_week: bool = False,
+        loss_ignore_value: float = float("nan"),
+        norm_label_for_loss: bool = True,
         # BaseModel parameters
         input_steps: int = 12,
         pred_steps: int = 12,
@@ -168,6 +171,8 @@ class STAEformer(BaseModel):
         self.use_mixed_proj = use_mixed_proj
         self.add_time_in_day = add_time_in_day
         self.add_day_in_week = add_day_in_week
+        self.loss_ignore_value = loss_ignore_value
+        self.norm_label_for_loss = norm_label_for_loss
 
         # Initialize scaler from metadata if available
         if metadata is not None:
@@ -209,11 +214,37 @@ class STAEformer(BaseModel):
                 for _ in range(num_layers)
             ]
         )
-
     def make_predictions(self, source):
         """
         Original forward method renamed.
         """
+        batch_size = source.shape[0]
+        
+        x = self.feature_extraction(source)
+
+        if self.use_mixed_proj:
+            out = x.transpose(1, 2)  # (batch_size, num_nodes, input_steps, model_dim)
+            out = out.reshape(
+                batch_size, self.num_nodes, self.input_steps * self.model_dim
+            )
+            out = self.output_proj(out).view(
+                batch_size, self.num_nodes, self.pred_steps, self.output_dim
+            )
+            out = out.transpose(1, 2)  # (batch_size, pred_steps, num_nodes, output_dim)
+        else:
+            out = x.transpose(1, 3)  # (batch_size, model_dim, num_nodes, input_steps)
+            out = self.temporal_proj(
+                out
+            )  # (batch_size, model_dim, num_nodes, pred_steps)
+            out = self.output_proj(
+                out.transpose(1, 3)
+            )  # (batch_size, pred_steps, num_nodes, output_dim)
+
+        return out.squeeze()
+    
+    
+    def feature_extraction(self, source):
+        
         # x: (batch_size, input_steps, num_nodes, input_dim+tod+dow=3)
         x = source
         batch_size = x.shape[0]
@@ -254,46 +285,42 @@ class STAEformer(BaseModel):
             x = attn(x, dim=2)
         # (batch_size, input_steps, num_nodes, model_dim)
 
-        if self.use_mixed_proj:
-            out = x.transpose(1, 2)  # (batch_size, num_nodes, input_steps, model_dim)
-            out = out.reshape(
-                batch_size, self.num_nodes, self.input_steps * self.model_dim
-            )
-            out = self.output_proj(out).view(
-                batch_size, self.num_nodes, self.pred_steps, self.output_dim
-            )
-            out = out.transpose(1, 2)  # (batch_size, pred_steps, num_nodes, output_dim)
-        else:
-            out = x.transpose(1, 3)  # (batch_size, model_dim, num_nodes, input_steps)
-            out = self.temporal_proj(
-                out
-            )  # (batch_size, model_dim, num_nodes, pred_steps)
-            out = self.output_proj(
-                out.transpose(1, 3)
-            )  # (batch_size, pred_steps, num_nodes, output_dim)
+        return x
 
-        return out
 
     def preprocess(self, data: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         source = data["source"].to(self.device)  # (N, T, P, C)
         target = data["target"].to(self.device) # (N, T, P)
-            
-        # Apply normalization to source
+        
+        # replace the label values with nan, so that they will be ignored in the loss after normalization
+        if np.isnan(self.data_null_value):
+            target[target.isnan()] = self.loss_ignore_value
+        else:
+            target[target == self.data_null_value] = self.loss_ignore_value
+
+        # normalize the data
         source = self.datascaler.transform(source)
+        if self.norm_label_for_loss:
+            target = self.datascaler.transform(target, datadim_only=False)
 
         return source, target
 
     def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> Dict[str, torch.Tensor]:
         # compute loss at original data scale
         pred = self.make_predictions(source)
-        pred = self.datascaler.inverse_transform(pred)
-        loss_val = masked_mae(pred.squeeze(), target, null_val=self.data_null_value)
+        # when label is scaled, we directly train the model to predict the scaled label
+        # otherwise, we scale back the prediction and then compute the loss
+        if self.norm_label_for_loss:
+            loss_val = masked_mae(pred, target, null_val=self.loss_ignore_value)
+        else:
+            pred = self.datascaler.inverse_transform(pred)
+            loss_val = masked_mae(pred, target, null_val=self.data_null_value)
         return {"loss": loss_val}
 
     def inference(self, source: torch.Tensor) -> Dict[str, torch.Tensor]:
         pred = self.make_predictions(source)
         pred = self.datascaler.inverse_transform(pred)
-        return {"pred": pred.squeeze()}
+        return {"pred": pred}
 
     def adapt_to_metadata(self, metadata):
         self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])

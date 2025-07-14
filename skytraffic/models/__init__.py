@@ -7,3 +7,7 @@ from .stid import STID
 from .gwnet import GWNET
 from .staeformer import STAEformer
 from .mtgnn import MTGNN
+from .stid_gmm import STID_GMM
+from .gwnet_gmm import GWNET_GMM
+from .staeformer_gmm import STAEformer_GMM
+from .mtgnn_gmm import MTGNN_GMM
