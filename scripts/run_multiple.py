@@ -11,7 +11,7 @@ To run the experiments locally on a computer, use the following command. The com
 However, since a slurm cluster run the jobs in parallel, we can't use `both` mode as a testing must be run after the training. 
     `python scripts/run_multiple.py --mode run`
 """
-
+import glob
 import copy
 import argparse
 import subprocess
@@ -179,13 +179,13 @@ def experiment_gmm_model(train_script, cfg_file, command_list, exp):
 def experiment_gmm_models(command_list, train_script, cfg_file, exp, overrides:dict=None):
     experiments = []
     experiments.append(
-    f"{train_script} --config-file config/{cfg_file}_GMMSingle.py train.output_dir=scratch/{exp}_lgc_single"
+    f"{train_script} --config-file {cfg_file}_GMMSingle.py train.output_dir=scratch/{exp}_lgc_single"
     )
     experiments.append(
-    f"{train_script} --config-file config/{cfg_file}_GMM.py train.output_dir=scratch/{exp}_lgc_gmm"
+    f"{train_script} --config-file {cfg_file}_GMM.py train.output_dir=scratch/{exp}_lgc_gmm"
     )
     experiments.append(
-    f"{train_script} --config-file config/{cfg_file}.py train.output_dir=scratch/{exp}_lgc"
+    f"{train_script} --config-file {cfg_file}.py train.output_dir=scratch/{exp}_lgc"
     )
 
     if overrides is not None:
@@ -193,6 +193,22 @@ def experiment_gmm_models(command_list, train_script, cfg_file, exp, overrides:d
         experiments = [cmd_str + " " + override_str for cmd_str in experiments]
 
     command_list.extend(experiments)
+    return command_list
+
+def experiment_adapted_models(command_list, train_script):
+    """ Run default settings as written in the config file, without any changes
+    """
+
+    # run the default settings
+    experiments = []
+    
+    for folder in ['lgc', 'stid', 'staeformer', 'mtgnn', 'gwnet']:
+        config_files = glob.glob(f"config/{folder}/*.py")
+        for config_file in config_files:
+            experiments.append(f"{train_script} --config-file {config_file}")
+    
+    command_list.extend(experiments)
+
     return command_list
 
 if __name__ == "__main__":
@@ -222,19 +238,24 @@ if __name__ == "__main__":
     # experiment_gmm_model(train_script, cfg_rndobsv, command_list, experiment_name="rndobs")
     # experiment_gmm_model(train_script, cfg_default, command_list, experiment_name="fullinfo")
     
-    experiment_gmm_models(command_list, train_script, "LSTMGCNConv", "metr") # overrides={"train.max_epoch": 1} # for debugging 
-    experiment_gmm_models(command_list, train_script, "SimbarcaSpd_LSTMGCNConv", "simbarcaspd") # overrides={"train.max_epoch": 1} 
-    experiment_gmm_models(command_list, train_script, "PEMSBAY_LSTMGCNConv", "pemsbay") # overrides={"train.max_epoch": 1} 
+    # experiment_gmm_models(command_list, train_script, "LSTMGCNConv", "metr")
+    # experiment_gmm_models(command_list, train_script, "config/lgc/SimbarcaSpd_LSTMGCNConv", "simbarcaspd") 
+    # experiment_gmm_models(command_list, train_script, "PEMSBAY_LSTMGCNConv", "pemsbay")
+    experiment_adapted_models(command_list, train_script)
 
-    
-    eval_list = []
-    for cmd_str in command_list:
-        eval_cmd = copy.deepcopy(cmd_str)
-        output_dir = find_output_dir(eval_cmd)
-        eval_cmd = eval_cmd.replace("train.py", "train.py --eval-only")
-        eval_cmd = eval_cmd + " " + "train.checkpoint={}/model_final.pth".format(output_dir)
-        eval_cmd = eval_cmd + " " + "evaluator.visualize=True"
-        eval_list.append(eval_cmd)
+
+    if mode in ["vis", "both"]:
+        eval_list = []
+        for cmd_str in command_list:
+            eval_cmd = copy.deepcopy(cmd_str)
+            eval_cmd = eval_cmd.replace("train.py", "train.py --eval-only")
+            try:
+                output_dir = find_output_dir(eval_cmd)
+                eval_cmd = eval_cmd + " " + "train.checkpoint={}/model_final.pth".format(output_dir)
+            except Exception:
+                print("Output directory not specified, relying on the default save dir for evaluation")
+            eval_cmd = eval_cmd + " " + "evaluator.visualize=True"
+            eval_list.append(eval_cmd)
 
     if mode == "vis":
         command_list = eval_list
