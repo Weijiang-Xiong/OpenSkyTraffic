@@ -13,6 +13,7 @@ from .STAEformer_GMM import (
 from ..common.data import pemsbay as dataset
 from skytraffic.data.datasets import PEMSBayDataset
 
+train.max_epoch = 20
 train.output_dir = "scratch/pemsbay_staeformer_gmm"
 model.num_nodes = PEMSBayDataset.num_nodes
 evaluator.sp_size = 3 # reduce memory usage for GMM evaluation 

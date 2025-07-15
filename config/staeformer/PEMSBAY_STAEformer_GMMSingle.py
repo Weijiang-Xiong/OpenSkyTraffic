@@ -13,6 +13,7 @@ from .PEMSBAY_STAEformer_GMM import (
 )
 
 # Override train settings
+train.max_epoch = 20
 train.output_dir = "scratch/pemsbay_staeformer_gmm_single"
 
 model.anchors = [0.0]
