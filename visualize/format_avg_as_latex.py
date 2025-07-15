@@ -1,3 +1,6 @@
+""" This script is used to format the average results into a latex tables.
+    One for deterministic metrics and one for probabilistic metrics.
+"""
 import pandas as pd
 from draw_prob_metrics_plot import load_evaluation_results
 

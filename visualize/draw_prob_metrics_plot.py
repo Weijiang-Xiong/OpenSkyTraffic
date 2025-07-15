@@ -1,3 +1,6 @@
+""" This script is used to draw the plots for the probabilistic metrics.
+    The plots are saved in the visualize/figures folder.
+"""
 import json
 import argparse
 import matplotlib.pyplot as plt

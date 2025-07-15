@@ -1,4 +1,6 @@
-
+""" This script is use to copy the evaluation results under the scratch folder to the results_backup folder.
+Only the json file with evaluation results will be copied, other files like checkpoints, logs, etc. will not be copied.
+"""
 import shutil
 import argparse
 from pathlib import Path
