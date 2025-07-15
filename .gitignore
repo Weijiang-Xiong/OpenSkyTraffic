@@ -173,4 +173,5 @@ scripts/debug*.py
 
 # visualization files
 visualize/**/*.pdf
-visualize/result_groups.json
+visualize/*.json
+visualize/*.tex
