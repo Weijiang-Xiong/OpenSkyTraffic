@@ -10,6 +10,7 @@ from .STAEformer import dataset, dataloader
 
 # Override train settings
 train.output_dir = "scratch/metr_staeformer_gmm"
+train.max_epoch = 20
 
 model = L(STAEformer_GMM)(
     # arguments purely based on model

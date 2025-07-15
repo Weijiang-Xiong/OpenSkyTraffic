@@ -7,6 +7,7 @@ from .STAEformer_GMM import model
 
 # Override train settings
 train.output_dir = "scratch/metr_staeformer_gmm_single"
+train.max_epoch = 20
 
 model.anchors = [0.0]
 model.sizes = [3.0] 

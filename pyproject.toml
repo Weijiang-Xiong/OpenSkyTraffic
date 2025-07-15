@@ -28,6 +28,7 @@ dependencies = [
   "tqdm",
   "scipy",
   "hydra-core",
+  "tensorboard",
 ]
 
 [project.optional-dependencies]

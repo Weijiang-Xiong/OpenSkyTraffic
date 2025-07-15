@@ -11,6 +11,7 @@ from ..common.optim import AdamW as optimizer
 from ..common.schedule import scheduler
 
 train.output_dir = "scratch/metr_staeformer"
+train.max_epoch = 20
 
 dataloader = OmegaConf.create()
 

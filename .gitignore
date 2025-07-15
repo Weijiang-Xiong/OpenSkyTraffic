@@ -173,3 +173,8 @@ scripts/debug*.py
 
 # visualization files
 visualize/**/*.pdf
+visualize/*.json
+visualize/*.tex
+
+# ignore the backup results
+results_backup/
