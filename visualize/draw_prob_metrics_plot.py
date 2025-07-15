@@ -1,7 +1,8 @@
 import json
 import argparse
-
 import matplotlib.pyplot as plt
+from matplotlib import colormaps 
+
 import numpy as np
 import seaborn as sns
 from pathlib import Path
@@ -10,14 +11,15 @@ from pathlib import Path
 sns.set_style("darkgrid")
 plt.rcParams['figure.dpi'] = 300
 plt.rcParams['font.size'] = 12
-
+COLORS = colormaps.get_cmap('tab10')
+LINE_STYLES = ['-', '--', '-.']
 
 def load_evaluation_results(dataset: str, res_group_file: str = "visualize/result_groups.json"):
     result_groups = json.load(open(res_group_file))
     dataset_results = result_groups.get(dataset, {})
 
     """Load evaluation results from all method folders."""
-    result_dir = Path("scratch")
+    result_dir = Path("scratch/result_collection")
     results = {}
     for method_dir, method_name in dataset_results.items():
         eval_file = result_dir / method_dir / "evaluation" / "final_evaluation_scores.json"
@@ -35,7 +37,7 @@ def plot_ci_coverage(results, save_note="dataset"):
     x_ref = np.linspace(0.5, 0.95, 100)
     plt.plot(x_ref, x_ref, 'k--', alpha=0.6, linewidth=1, label='Ideal Coverage')
 
-    for method, data in results.items():
+    for i, (method, data) in enumerate(results.items()):
         ci_keys = [k for k in data["average"].keys() if k.startswith("CI_COVER_")]
         confidence_levels = [float(k.split("_")[-1]) for k in ci_keys]
         coverage_values = [data["average"][k] for k in ci_keys]
@@ -44,7 +46,10 @@ def plot_ci_coverage(results, save_note="dataset"):
         # Sort by confidence level
         sorted_pairs = sorted(zip(confidence_levels, coverage_values))
         confidence_levels, coverage_values = zip(*sorted_pairs)
-        plt.plot(confidence_levels, coverage_values, marker='o', label=method, linewidth=2)
+        plt.plot(confidence_levels, coverage_values, 
+                 label=method, linewidth=2, marker='.',
+                 color=COLORS([i % len(COLORS.colors)]), 
+                 linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
 
     
     plt.xlabel('Confidence')
@@ -65,11 +70,14 @@ def plot_cce_horizon(results, save_note="dataset"):
     first_horizon_metric = list(first_method_data["horizon"].values())[0]
     pred_horizon = len(first_horizon_metric)
 
-    for method, data in results.items():
+    for i, (method, data) in enumerate(results.items()):
         if "mCCE" in data["horizon"]:
             horizons = list(range(1, pred_horizon + 1))
             cce_values = data["horizon"]["mCCE"]
-            plt.plot(horizons, cce_values, marker='o', label=method, linewidth=2)
+            plt.plot(horizons, cce_values, 
+                     label=method, linewidth=2, marker='.',
+                     color=COLORS([i % len(COLORS.colors)]), 
+                     linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('Confidence Calibration Error (CCE)')
@@ -90,11 +98,14 @@ def plot_aw_horizon(results, save_note="dataset"):
     first_horizon_metric = list(first_method_data["horizon"].values())[0]
     pred_horizon = len(first_horizon_metric)
 
-    for method, data in results.items():
+    for i, (method, data) in enumerate(results.items()):
         if "mAW" in data["horizon"]:
             horizons = list(range(1, pred_horizon + 1))
             aw_values = data["horizon"]["mAW"]
-            plt.plot(horizons, aw_values, marker='o', label=method, linewidth=2)
+            plt.plot(horizons, aw_values, 
+                     label=method, linewidth=2, marker='.',
+                     color=COLORS([i % len(COLORS.colors)]), 
+                     linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('Average Width (AW) of CI')
@@ -106,7 +117,7 @@ def plot_aw_horizon(results, save_note="dataset"):
     print(f"Saved figure to {save_path}")
     plt.show()
 
-def plot_crps_gt(results, save_note="dataset", det_results=None):
+def plot_crps_gt(results, save_note="dataset"):
     """Plot CRPS_GMM_GT values over prediction horizon."""
     plt.figure(figsize=(8, 6))
     
@@ -115,19 +126,25 @@ def plot_crps_gt(results, save_note="dataset", det_results=None):
     first_horizon_metric = list(first_method_data["horizon"].values())[0]
     pred_horizon = len(first_horizon_metric)
 
-    for method, data in results.items():
+    for i, (method, data) in enumerate(results.items()):
         # draw the CRPS values for probabilistic methods
         if "CRPS_GMM_GT" in data["horizon"]:
             horizons = list(range(1, pred_horizon + 1))
             crps_values = data["horizon"]["CRPS_GMM_GT"]
-            plt.plot(horizons, crps_values, marker='o', label=method, linewidth=2)
+            plt.plot(horizons, crps_values, 
+                     label=method, linewidth=2, marker='.',
+                     color=COLORS([i % len(COLORS.colors)]), 
+                     linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
         # if there is no CRPS, then the method is deterministic, we draw the MAE values,
         # MAE is a special case of CRPS where the prediction is a point estimate
         elif "mae" in data["horizon"]:
             pred_horizon = len(data["horizon"]["mae"])
             horizons = list(range(1, pred_horizon + 1))
             mae_values = data["horizon"]["mae"]
-            plt.plot(horizons, mae_values, marker='o', label=f"{method}-Det (MAE)", linewidth=2)
+            plt.plot(horizons, mae_values, 
+                     label=f"{method}-Det (MAE)", linewidth=2, marker='.',
+                     color=COLORS([i % len(COLORS.colors)]), 
+                     linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('CRPS')
@@ -149,11 +166,14 @@ def plot_crps_emp(results, save_note="dataset"):
     first_horizon_metric = list(first_method_data["horizon"].values())[0]
     pred_horizon = len(first_horizon_metric)
 
-    for method, data in results.items():
+    for i, (method, data) in enumerate(results.items()):
         if "CRPS_GMM_EMP" in data["horizon"]:
             horizons = list(range(1, pred_horizon + 1))
             crps_values = data["horizon"]["CRPS_GMM_EMP"]
-            plt.plot(horizons, crps_values, marker='o', label=method, linewidth=2)
+            plt.plot(horizons, crps_values, 
+                     label=method, linewidth=2, marker='.',
+                     color=COLORS([i % len(COLORS.colors)]), 
+                     linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('CRPS')
@@ -176,11 +196,14 @@ def plot_mae_mape_rmse_horizon(results, save_note="dataset"):
         first_horizon_metric = list(first_method_data["horizon"].values())[0]
         pred_horizon = len(first_horizon_metric)
 
-        for method, data in results.items():
+        for i, (method, data) in enumerate(results.items()):
             if metric in data["horizon"]:
                 horizons = list(range(1, pred_horizon + 1))
                 values = data["horizon"][metric]
-                ax.plot(horizons, values, marker='o', label=method, linewidth=2)
+                ax.plot(horizons, values, 
+                        label=method, linewidth=2, marker='.',
+                        color=COLORS([i % len(COLORS.colors)]), 
+                        linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
         
         ax.set_xlabel('Prediction Horizon')
         ax.set_ylabel(metric)
