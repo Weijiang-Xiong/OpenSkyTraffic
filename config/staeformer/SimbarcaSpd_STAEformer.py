@@ -17,6 +17,9 @@ from ..common.data import simbarcaspd as dataset
 from ..common.evaluation import simbarca_speed_evaluator as evaluator
 from skytraffic.data.datasets import SimBarcaSpeed
 
+dataloader.train.batch_size = 8
+dataloader.test.batch_size = 8
+train.max_epoch = 20
 train.output_dir = "scratch/simbarcaspd_staeformer"
 model.num_nodes = SimBarcaSpeed.num_nodes
 model.input_steps = SimBarcaSpeed.input_steps

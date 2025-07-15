@@ -13,5 +13,6 @@ from .STAEformer import (
 from ..common.data import pemsbay as dataset
 from skytraffic.data.datasets import PEMSBayDataset
 
+train.max_epoch = 20
 train.output_dir = "scratch/pemsbay_staeformer"
 model.num_nodes = PEMSBayDataset.num_nodes 
