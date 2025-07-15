@@ -14,12 +14,12 @@ plt.rcParams['font.size'] = 12
 COLORS = colormaps.get_cmap('tab10')
 LINE_STYLES = ['-', '--', '-.']
 
-def load_evaluation_results(dataset: str, res_group_file: str = "visualize/result_groups.json"):
+def load_evaluation_results(res_dir: str, dataset: str, res_group_file: str = "visualize/result_groups.json"):
     result_groups = json.load(open(res_group_file))
     dataset_results = result_groups.get(dataset, {})
 
     """Load evaluation results from all method folders."""
-    result_dir = Path("scratch/result_collection")
+    result_dir = Path(res_dir)
     results = {}
     for method_dir, method_name in dataset_results.items():
         eval_file = result_dir / method_dir / "evaluation" / "final_evaluation_scores.json"
@@ -216,11 +216,12 @@ def plot_mae_mape_rmse_horizon(results, save_note="dataset"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--res_dir", type=str, default="scratch")
     parser.add_argument("--dataset", type=str, default="metr")
     args = parser.parse_args()
 
     # Load results from all methods (probabilistic methods and deterministic methods)
-    results = load_evaluation_results(args.dataset)
+    results = load_evaluation_results(args.res_dir, args.dataset)
     
     if not results:
         print("No evaluation results found!")
