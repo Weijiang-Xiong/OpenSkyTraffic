@@ -215,7 +215,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mode", type=str, choices=["run", "vis", "both"], help="training or visualization")
-    parser.add_argument("--use_sbatch", action="store_true", help="whether to run as sbatch jobs")
+    parser.add_argument("--use-sbatch", action="store_true", help="whether to run as sbatch jobs")
     args = parser.parse_args()
     
     mode = args.mode

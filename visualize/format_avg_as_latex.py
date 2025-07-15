@@ -1,6 +1,7 @@
 """ This script is used to format the average results into a latex tables.
     One for deterministic metrics and one for probabilistic metrics.
 """
+import argparse
 import pandas as pd
 from draw_prob_metrics_plot import load_evaluation_results
 
@@ -46,6 +47,10 @@ def format_prob_metrics_latex_table(res_dir, groups):
     df.to_latex(buf="visualize/result_latex_table_prob.tex", index=True, float_format='{:.2f}'.format)
 
 if __name__ == "__main__":
-    format_det_metrics_latex_table(res_dir="scratch/result_collection", groups = ['metr', 'pemsbay', 'simbarcaspd'])
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--res-dir", type=str, default="./results_backup")
+    parser.add_argument("--groups", type=list, nargs="+", default=["metr", "pemsbay", "simbarcaspd"])
+    args = parser.parse_args()
+    format_det_metrics_latex_table(res_dir=args.res_dir, groups=args.groups)
     print("\n\n")
-    format_prob_metrics_latex_table(res_dir="scratch/result_collection", groups = ['metr', 'pemsbay', 'simbarcaspd'])
+    format_prob_metrics_latex_table(res_dir=args.res_dir, groups=args.groups)

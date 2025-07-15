@@ -17,9 +17,9 @@ def backup_eval_res(root_dir, target_filename, destination_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root_dir", type=str, default="scratch")
-    parser.add_argument("--target_filename", type=str, default="final_evaluation_scores.json")
-    parser.add_argument("--destination_dir", type=str, default="results_backup")
+    parser.add_argument("--root-dir", type=str, default="scratch")
+    parser.add_argument("--target-filename", type=str, default="final_evaluation_scores.json")
+    parser.add_argument("--destination-dir", type=str, default="results_backup")
     args = parser.parse_args()
     
     print(f"Copying evaluation results from the experiment folders under {args.root_dir} to {args.destination_dir}")

@@ -219,7 +219,7 @@ def plot_mae_mape_rmse_horizon(results, save_note="dataset"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--res_dir", type=str, default="scratch")
+    parser.add_argument("--res-dir", type=str, default="results_backup")
     parser.add_argument("--dataset", type=str, default="metr")
     args = parser.parse_args()
 
