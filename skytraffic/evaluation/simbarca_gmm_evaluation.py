@@ -322,24 +322,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             logger.info(f"Save scores by time step to {save_path}")
             plt.close(fig)  # Close figure to free memory
 
-    
-    def save_scores_to_json(self, file_name: str = "final_evaluation_scores.json"):
-        """
-        Save the scores to a JSON file.
-        The scores are saved in a dictionary with keys being the score types and values being the scores.
-        """
-
-        scalar_res = {k:float(v) for k, v in self.metrics_scalar.items()}
-        vector_res = {k:v for k, v in self.metrics_vector.items() if isinstance(v, list)}
-        res_to_save = {
-            "average": scalar_res,
-            "horizon": vector_res
-        }
-
-        save_path = f"{self.save_dir}/{file_name}"
-        with open(save_path, 'w') as f:
-            json.dump(res_to_save, f, indent=4)
-        logger.info(f"Saved scores to {save_path}")
 
     #########################################################################################
     ############### Functions for plotting time-series predictions        ###################
