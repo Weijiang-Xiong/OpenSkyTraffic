@@ -10,7 +10,7 @@ from ..common.optim import Adam as optimizer
 from ..common.schedule import scheduler
 
 # Override train settings
-train.output_dir = "scratch/himsnet"
+train.output_dir = "scratch/simbarca_himsnet"
 
 dataloader = OmegaConf.create()
 
