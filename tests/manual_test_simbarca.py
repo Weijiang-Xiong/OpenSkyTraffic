@@ -83,7 +83,7 @@ def plot_label_scatter(data_sequence:torch.Tensor, save_dir="./", section_num=10
 class TestSimBarca(unittest.TestCase):
 
     def test_full_data_loading(self):
-        test_set = SimBarcaMSMT(split="test", force_reload=False)
+        test_set = SimBarcaMSMT(split="test")
         batch = test_set.collate_fn([test_set[0], test_set[1]])
         test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
         for data_dict in test_loader:

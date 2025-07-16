@@ -21,25 +21,27 @@ from .layers import (
 logger = logging.getLogger("default")
 
 class HiMSNet_GMM(nn.Module):
-    """ basically copied from HiMSNet, and only change the output part.
-    """
-    def __init__(self, 
-                use_drone=True, # encoder settings 
-                use_ld=True, 
-                use_global=True, 
-                normalize_input=True, 
-                scale_output=True, 
-                d_model=64, 
-                dropout:float=0.1, 
-                global_downsample_factor:int=1, 
-                layernorm=True, 
-                adjacency_hop=3, 
-                reg_loss_weight:float=1.0, 
-                simple_fillna =False, # replace NaN values with mean at the begeinning
-                rescale_anchors:bool=False,
-                zero_init=True,
-                map_estimation=False
-        ):
+    """basically copied from HiMSNet, and only change the output part."""
+
+    def __init__(
+        self,
+        use_drone=True,  # encoder settings
+        use_ld=True,
+        use_global=True,
+        normalize_input=True,
+        scale_output=True,
+        d_model=64,
+        dropout: float = 0.1,
+        global_downsample_factor: int = 1,
+        layernorm=True,
+        adjacency_hop=3,
+        reg_loss_weight: float = 1.0,
+        simple_fillna=False,  # replace NaN values with mean at the begeinning
+        rescale_anchors: bool = False,
+        zero_init=True,
+        map_estimation=False,
+        metadata=None,
+    ):
         super().__init__()
         self.simple_fillna = simple_fillna
         self.adjacency_hop = adjacency_hop
@@ -120,6 +122,7 @@ class HiMSNet_GMM(nn.Module):
         self.rescale_anchors = rescale_anchors
         # weight for the regional task
         self.reg_loss_weight = reg_loss_weight
+        self.adapt_to_metadata(metadata)
 
     @property
     def device(self):
@@ -244,10 +247,10 @@ class HiMSNet_GMM(nn.Module):
         if self.use_global:
             x_global = self.msg_enc(torch.cat(all_mode_features, dim=-1))
             # graph convolution
-            x_inter = self.dropout_glb(self.relu(self.global_norm1(self.gcn_1(x_global, self.metadata["edge_index"]))))
-            x_inter = self.dropout_glb(self.relu(self.global_norm2(self.gcn_2(x_inter, self.metadata["edge_index"]))))
+            x_inter = self.dropout_glb(self.relu(self.global_norm1(self.gcn_1(x_global, self.edge_index))))
+            x_inter = self.dropout_glb(self.relu(self.global_norm2(self.gcn_2(x_inter, self.edge_index))))
             x_global = x_global + x_inter
-            x_global = self.gcn_3(x_global, self.metadata["edge_index"])
+            x_global = self.gcn_3(x_global, self.edge_index)
             x_global = self.msg_dec(x_global)
             all_mode_features.append(x_global)
 
@@ -261,54 +264,50 @@ class HiMSNet_GMM(nn.Module):
     def adapt_to_metadata(self, metadata):
         
         assert self.training, "metadata should be loaded in training mode"
-        if self.metadata is not None:
-            logger.info("metadata already exists, a checkpoint was probably loaded, do not load again")
-            return
-            
-        self.metadata = dict()
         
         # keep the tensors and arrays on the same device as the model
-        for key, value in metadata.items():
-            if isinstance(value, np.ndarray):
-                self.metadata[key] = torch.as_tensor(value).to(self.device)
-            elif isinstance(value, torch.Tensor):
-                self.metadata[key] = value.to(self.device)
-                
         self.data_scalers = {
             name: TensorDataScaler(
                 mean=metadata["mean_and_std"][name][0], 
                 std=metadata["mean_and_std"][name][1],
                 data_dim=0,
-                device=self.device
             ) for name in metadata["input_seqs"] + metadata["output_seqs"]
         }
-        self.metadata["input_seqs"] = metadata["input_seqs"]
-        self.metadata["output_seqs"] = metadata["output_seqs"]
-        
+        self.cluster_id = torch.as_tensor(metadata["cluster_id"])
         # use K-hop adjacency matrix for graph convolution
         if isinstance(self.adjacency_hop, int) and self.adjacency_hop > 1:
-            adj_init = self.metadata['adjacency']
-            adj_iter = adj_init.detach().clone()
+            adj_iter = metadata['adjacency']
+            adj_init = adj_iter.detach().clone()
             # do a loop instead of calling matrix power to avoid numerical problem
             for _ in range(self.adjacency_hop - 1):
                 adj_iter = torch.mm(adj_iter.float(), adj_init.float())
                 adj_iter = (adj_iter > 0)
-            self.metadata['edge_index'] = torch.nonzero(adj_iter, as_tuple=False).T
-            logger.info("Number of edges in the graph: {}".format(self.metadata['edge_index'].shape[1]))
+            self.edge_index = torch.nonzero(adj_iter, as_tuple=False).T
+            logger.info("Number of edges in the graph: {}".format(self.edge_index.shape))
     
     def state_dict(self):
         state = dict()
         state["model_params"] = super().state_dict()
-        state["metadata"] = self.metadata
+        state["cluster_id"] = self.cluster_id
+        state["edge_index"] = self.edge_index
         state["data_scalers"] = {name: scaler.state_dict() for name, scaler in self.data_scalers.items()}
         return state
 
     def load_state_dict(self, state_dict):
-        self.metadata = state_dict["metadata"]
+        self.cluster_id = state_dict["cluster_id"]
+        self.edge_index = state_dict["edge_index"]
         self.data_scalers = {
             name: TensorDataScaler(**state)
             for name, state in state_dict["data_scalers"].items()
         }
         super().load_state_dict(state_dict["model_params"])
+
+    def to(self, device: torch.device | str):
+        if isinstance(device, str):
+            device = torch.device(device)
+        self.data_scalers = {name: scaler.to(device) for name, scaler in self.data_scalers.items()}
+        self.cluster_id = self.cluster_id.to(device)
+        self.edge_index = self.edge_index.to(device)
+        return super().to(device)
 
 
