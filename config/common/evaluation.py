@@ -39,7 +39,6 @@ simbarca_gmm_evaluator = L(SimBarcaGMMEvaluator)(
     ignore_value=float("nan"),
     mape_threshold=1.0,
     save_dir="${train.output_dir}/evaluation",
-    save_note="",
     visualize=False,
     add_output_seq=None
 )

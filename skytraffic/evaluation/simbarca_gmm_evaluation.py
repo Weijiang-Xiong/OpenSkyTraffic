@@ -61,11 +61,10 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         ignore_value=float("nan"),
         mape_threshold=1.0,
         save_dir: str = None,
-        save_note="",
         visualize=False,
         add_output_seq: list = None,
     ) -> None:
-        super().__init__(ignore_value, mape_threshold, save_dir, save_note, visualize)
+        super().__init__(ignore_value, mape_threshold, save_dir, visualize)
         if add_output_seq is not None:  # overwrite the default if provided
             self.add_output_seq = add_output_seq
         self.sp_size = 20  # the size of the chunks to split the tensors space dimension, default 10
