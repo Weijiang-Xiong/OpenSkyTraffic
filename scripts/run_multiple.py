@@ -82,7 +82,7 @@ if __name__ == "__main__":
 
     # experiment_adapted_gmm_models(command_list, TRAIN_SCRIPT)
     experiment_simbarca_gmm_model_data_modality(TRAIN_SCRIPT, "config/himsnet/HiMSNet_GMM_RND.py", command_list, "simbarca_rnd")
-    experiment_simbarca_gmm_model_data_modality(TRAIN_SCRIPT, "config/himsnet/HiMSNet_GMM_FULL.py", command_list, "simbarca_full")
+    experiment_simbarca_gmm_model_data_modality(TRAIN_SCRIPT, "config/himsnet/HiMSNet_GMM_Full.py", command_list, "simbarca_full")
     for cfg in ["HiMSNet", "HiMSNet_RND"]:
         run_as_config(TRAIN_SCRIPT, f"config/himsnet/{cfg}.py", command_list)
 
