@@ -4,21 +4,40 @@ import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
 
-import numpy as np
-
 from typing import Dict, Tuple
 from einops import rearrange
 
-from .layers import GeneralizedProbRegLoss
+from .layers import (
+    MLP,
+    GeneralizedProbRegLoss,
+    LearnedPositionalEncoding,
+    ValueEmbedding,
+    MultiHeadAttention,
+    TransformerEncoderLayer,
+)
 from .utils.transform import TensorDataScaler
-from .layers import MLP, LearnedPositionalEncoding, ValueEmbedding
-
-from .layers import MultiHeadAttention, TransformerEncoderLayer
 
 logger = logging.getLogger("default")
 
 class HiMSNet(nn.Module):
-    def __init__(self, use_drone=True, use_ld=True, use_global=True, normalize_input=True, scale_output=True, d_model=64, global_downsample_factor:int=1, layernorm=True, simple_fillna =False, adjacency_hop=5, reg_loss_weight:float=1.0, dropout=0.1, attn_agg=True, tf_glb=False):
+    def __init__(
+        self,
+        use_drone=True,
+        use_ld=True,
+        use_global=True,
+        normalize_input=True,
+        scale_output=True,
+        d_model=64,
+        global_downsample_factor: int = 1,
+        layernorm=True,
+        simple_fillna=False,
+        adjacency_hop=5,
+        reg_loss_weight: float = 1.0,
+        dropout=0.1,
+        attn_agg=True,
+        tf_glb=False,
+        metadata=None,
+    ):
         super().__init__()
         
         self.simple_fillna = simple_fillna
@@ -36,7 +55,8 @@ class HiMSNet(nn.Module):
         self.global_downsample_factor = global_downsample_factor
         
         self.ignore_value = -1.0
-        self.metadata: Dict[str, torch.Tensor] = None
+        self.edge_index: torch.Tensor = None
+        self.cluster_id: torch.Tensor = None
         self.data_scalers: Dict[str, TensorDataScaler] = None
 
         self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=1570, dropout=dropout)
@@ -92,7 +112,8 @@ class HiMSNet(nn.Module):
         self.loss = GeneralizedProbRegLoss(aleatoric=False, exponent=1, ignore_value=self.ignore_value)
         # weight for the regional task
         self.reg_loss_weight = reg_loss_weight
-
+        self.adapt_to_metadata(metadata)
+        
     @property
     def device(self):
         return list(self.parameters())[0].device
@@ -208,10 +229,10 @@ class HiMSNet(nn.Module):
             else:
                 x_global = self.channel_down_sample(torch.cat(all_mode_features, dim=-1))
                 # graph convolution
-                x_inter = self.dropout_glb(self.relu(self.global_norm1(self.gcn_1(x_global, self.metadata["edge_index"]))))
-                x_inter = self.dropout_glb(self.relu(self.global_norm2(self.gcn_2(x_inter, self.metadata["edge_index"]))))
+                x_inter = self.dropout_glb(self.relu(self.global_norm1(self.gcn_1(x_global, self.edge_index))))
+                x_inter = self.dropout_glb(self.relu(self.global_norm2(self.gcn_2(x_inter, self.edge_index))))
                 x_global = x_global + x_inter
-                x_global = self.gcn_3(x_global, self.metadata["edge_index"])
+                x_global = self.gcn_3(x_global, self.edge_index)
                 x_global = self.channel_up_sample(x_global)
                 all_mode_features.append(x_global)
 
@@ -229,8 +250,8 @@ class HiMSNet(nn.Module):
         else:
             regional_feature = torch.cat(
                 [
-                    torch.mean(fused_features[:, self.metadata["cluster_id"] == region_id, :], dim=1).unsqueeze(1)
-                    for region_id in self.metadata["cluster_id"].unique()
+                    torch.mean(fused_features[:, self.cluster_id == region_id, :], dim=1).unsqueeze(1)
+                    for region_id in self.cluster_id.unique()
                 ],
                 dim=1,
             )
@@ -256,48 +277,47 @@ class HiMSNet(nn.Module):
         
         assert self.training, "metadata should be loaded in training mode"
         
-        self.metadata = dict()
-        
         # keep the tensors and arrays on the same device as the model
-        for key, value in metadata.items():
-            if isinstance(value, np.ndarray):
-                self.metadata[key] = torch.as_tensor(value).to(self.device)
-            elif isinstance(value, torch.Tensor):
-                self.metadata[key] = value.to(self.device)
-                
         self.data_scalers = {
             name: TensorDataScaler(
                 mean=metadata["mean_and_std"][name][0], 
                 std=metadata["mean_and_std"][name][1],
                 data_dim=0,
-                device=self.device
             ) for name in metadata["input_seqs"] + metadata["output_seqs"]
         }
-        self.metadata["input_seqs"] = metadata["input_seqs"]
-        self.metadata["output_seqs"] = metadata["output_seqs"]
-        
+        self.cluster_id = torch.as_tensor(metadata["cluster_id"])
         # use K-hop adjacency matrix for graph convolution
         if isinstance(self.adjacency_hop, int) and self.adjacency_hop > 1:
-            adj_iter = self.metadata['adjacency']
+            adj_iter = metadata['adjacency']
             adj_init = adj_iter.detach().clone()
             # do a loop instead of calling matrix power to avoid numerical problem
             for _ in range(self.adjacency_hop - 1):
                 adj_iter = torch.mm(adj_iter.float(), adj_init.float())
                 adj_iter = (adj_iter > 0)
-            self.metadata['edge_index'] = torch.nonzero(adj_iter, as_tuple=False).T
-            logger.info("Number of edges in the graph: {}".format(self.metadata['edge_index'].shape))
+            self.edge_index = torch.nonzero(adj_iter, as_tuple=False).T
+            logger.info("Number of edges in the graph: {}".format(self.edge_index.shape))
     
     def state_dict(self):
         state = dict()
         state["model_params"] = super().state_dict()
-        state["metadata"] = self.metadata
+        state["cluster_id"] = self.cluster_id
+        state["edge_index"] = self.edge_index
         state["data_scalers"] = {name: scaler.state_dict() for name, scaler in self.data_scalers.items()}
         return state
 
     def load_state_dict(self, state_dict):
-        self.metadata = state_dict["metadata"]
+        self.cluster_id = state_dict["cluster_id"]
+        self.edge_index = state_dict["edge_index"]
         self.data_scalers = {
             name: TensorDataScaler(**state)
             for name, state in state_dict["data_scalers"].items()
         }
         super().load_state_dict(state_dict["model_params"])
+
+    def to(self, device: torch.device | str):
+        if isinstance(device, str):
+            device = torch.device(device)
+        self.data_scalers = {name: scaler.to(device) for name, scaler in self.data_scalers.items()}
+        self.cluster_id = self.cluster_id.to(device)
+        self.edge_index = self.edge_index.to(device)
+        return super().to(device)

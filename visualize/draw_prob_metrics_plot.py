@@ -100,10 +100,9 @@ def plot_aw_horizon(results, save_note="dataset"):
     first_method_data = list(results.values())[0]
     first_horizon_metric = list(first_method_data["horizon"].values())[0]
     pred_horizon = len(first_horizon_metric)
-
+    horizons = list(range(1, pred_horizon + 1))
     for i, (method, data) in enumerate(results.items()):
         if "mAW" in data["horizon"]:
-            horizons = list(range(1, pred_horizon + 1))
             aw_values = data["horizon"]["mAW"]
             plt.plot(horizons, aw_values, 
                      label=method, linewidth=2, marker='.',
@@ -128,26 +127,23 @@ def plot_crps_gt(results, save_note="dataset"):
     first_method_data = list(results.values())[0]
     first_horizon_metric = list(first_method_data["horizon"].values())[0]
     pred_horizon = len(first_horizon_metric)
+    horizons = list(range(1, pred_horizon + 1))
 
     for i, (method, data) in enumerate(results.items()):
         # draw the CRPS values for probabilistic methods
         if "CRPS_GMM_GT" in data["horizon"]:
-            horizons = list(range(1, pred_horizon + 1))
-            crps_values = data["horizon"]["CRPS_GMM_GT"]
-            plt.plot(horizons, crps_values, 
-                     label=method, linewidth=2, marker='.',
-                     color=COLORS([i % len(COLORS.colors)]), 
-                     linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
+            metric_values = data["horizon"]["CRPS_GMM_GT"]
         # if there is no CRPS, then the method is deterministic, we draw the MAE values,
         # MAE is a special case of CRPS where the prediction is a point estimate
         elif "mae" in data["horizon"]:
-            pred_horizon = len(data["horizon"]["mae"])
-            horizons = list(range(1, pred_horizon + 1))
-            mae_values = data["horizon"]["mae"]
-            plt.plot(horizons, mae_values, 
-                     label=f"{method}-Det (MAE)", linewidth=2, marker='.',
-                     color=COLORS([i % len(COLORS.colors)]), 
-                     linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
+            metric_values = data["horizon"]["mae"]
+        # for the segment-level task of simbarca
+        elif "pred_speed_mae" in data["horizon"]: 
+            metric_values = data["horizon"]["pred_speed_mae"]
+        plt.plot(horizons, metric_values, 
+                    label=f"{method}", linewidth=2, marker='.',
+                    color=COLORS([i % len(COLORS.colors)]), 
+                    linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('CRPS')
@@ -200,13 +196,15 @@ def plot_mae_mape_rmse_horizon(results, save_note="dataset"):
         pred_horizon = len(first_horizon_metric)
 
         for i, (method, data) in enumerate(results.items()):
+            horizons = list(range(1, pred_horizon + 1))
             if metric in data["horizon"]:
-                horizons = list(range(1, pred_horizon + 1))
                 values = data["horizon"][metric]
-                ax.plot(horizons, values, 
-                        label=method, linewidth=2, marker='.',
-                        color=COLORS([i % len(COLORS.colors)]), 
-                        linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
+            elif f"pred_speed_{metric}" in data["horizon"]:
+                values = data["horizon"][f"pred_speed_{metric}"]
+            ax.plot(horizons, values, 
+                    label=method, linewidth=2, marker='.',
+                    color=COLORS([i % len(COLORS.colors)]), 
+                    linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
         
         ax.set_xlabel('Prediction Horizon')
         ax.set_ylabel(metric)

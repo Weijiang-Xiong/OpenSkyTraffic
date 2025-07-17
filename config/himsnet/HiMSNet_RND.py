@@ -3,14 +3,14 @@ from skytraffic.config import LazyCall as L
 from skytraffic.models import HiMSNet
 from torch.utils.data import DataLoader
 
-from .common.train import train
-from .common.data import simbarca_msmt as dataset
-from .common.evaluation import simbarca_evaluator as evaluator
-from .common.optim import Adam as optimizer
-from .common.schedule import scheduler
+from ..common.train import train
+from ..common.data import simbarca_rnd as dataset
+from ..common.evaluation import simbarca_evaluator as evaluator
+from ..common.optim import Adam as optimizer
+from ..common.schedule import scheduler
 
 # Override train settings
-train.output_dir = "scratch/himsnet"
+train.output_dir = "scratch/simbarca_rnd_himsnet"
 
 dataloader = OmegaConf.create()
 

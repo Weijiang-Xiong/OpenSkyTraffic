@@ -1,10 +1,10 @@
 from skytraffic.config import LazyCall as L
 from skytraffic.models import HiMSNet_GMM
 
-from .common.train import train
-from .common.evaluation import simbarca_gmm_evaluator as evaluator
-from .common.optim import Adam as optimizer
-from .common.schedule import scheduler
+from ..common.train import train
+from ..common.evaluation import simbarca_gmm_evaluator as evaluator
+from ..common.optim import Adam as optimizer
+from ..common.schedule import scheduler
 from .HiMSNet_RND import dataset, dataloader
 
 # Override train settings
