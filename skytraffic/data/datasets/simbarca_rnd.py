@@ -154,17 +154,6 @@ class SimBarcaRandomObservation(SimBarcaMSMT):
         vdist_5s = torch.as_tensor(self._vdist_5s, dtype=torch.float32).clone()
         vtime_5s = torch.as_tensor(self._vtime_5s, dtype=torch.float32).clone()
 
-        if not self.use_clean_data:
-            logger.info("Adding noise to raw data sequences using random seed {}".format(self.noise_seed))
-            self.rnd_generator = torch.Generator()
-            self.rnd_generator.manual_seed(self.noise_seed)
-            # we train on corrupted data to make the model more robust
-            ld_speed_3min = add_gaussian_noise(self.rnd_generator, ld_speed_3min, std=self.ld_noise)
-            vdist_5s = add_gaussian_noise(self.rnd_generator, vdist_5s, std=self.drone_noise)
-            vtime_5s = add_gaussian_noise(self.rnd_generator, vtime_5s, std=self.drone_noise)
-            vdist_3min = add_gaussian_noise(self.rnd_generator, vdist_3min, std=self.drone_noise)
-            vtime_3min = add_gaussian_noise(self.rnd_generator, vtime_3min, std=self.drone_noise)
-
         # load and apply loop detector mask and drone flight masks
         self.load_or_init_ld_mask()
         # we assume the drones to change location every 3 minutes, and this happens instantly
@@ -189,23 +178,53 @@ class SimBarcaRandomObservation(SimBarcaMSMT):
         self.ld_speed = ld_speed_3min
         self.drone_speed = vdist_5s / vtime_5s
 
+        # we need to add noise to the input for both training and testing
+        if not self.use_clean_data:
+            logger.info("Adding noise to input speed data using random seed {}".format(self.noise_seed))
+            self.rnd_generator = torch.Generator()
+            self.rnd_generator.manual_seed(self.noise_seed)
+            self.drone_speed = torch.clamp(
+                add_gaussian_noise(self.rnd_generator, self.drone_speed, std=self.drone_noise), 
+                min=0, max=14.0
+                )
+            self.ld_speed = torch.clamp(
+                add_gaussian_noise(self.rnd_generator, self.ld_speed, std=self.ld_noise), 
+                min=0, max=14.0
+                )
+
+        # for labels, we only add noise to the training set, and use the clean data for evaluation
+        # this is to evaluate the model's ability to infer the complete traffic state even if it is given only
+        # partial and noisy data
         if self.split == "train":
-            # corrupted data for training, but we add a sanity check that the speed can not be negative and can't exceed the limit
+            logger.info("Using partially observable data for training")
             pred_speed = vdist_3min / vtime_3min
-            self.pred_speed = torch.clamp(pred_speed, min=0, max=14.0)
+            # clip the speed to be positive and less than 14 m/s
             pred_speed_regional = torch.as_tensor(
                 self.regional_speed_from_segment_numpy(vdist_3min.numpy(), vtime_3min.numpy()), 
                 dtype=torch.float32
                 )
-            self.pred_speed_regional = torch.clamp(pred_speed_regional, min=0, max=14.0)
+            # Noisy data, but we add a sanity check that the speed can not be negative and can't exceed the limit
+            if not self.use_clean_data:
+                logger.info("Adding noise to labels using random seed {}".format(self.noise_seed))
+                pred_speed = torch.clamp(
+                    add_gaussian_noise(self.rnd_generator, pred_speed, std=self.drone_noise), 
+                    min=0, max=14.0
+                    )
+                pred_speed_regional = torch.clamp(
+                    add_gaussian_noise(self.rnd_generator, pred_speed_regional, std=self.drone_noise), 
+                    min=0, max=14.0
+                    )
+
         elif self.split == "test":
             # clean data for evaluation (before masking)
-            self.pred_speed = torch.as_tensor(self._vdist_3min / self._vtime_3min, dtype=torch.float32)
-            self.pred_speed_regional = torch.as_tensor(
+            logger.info("Using clean, noise-free, full-information labels for evaluation")
+            pred_speed = torch.as_tensor(self._vdist_3min / self._vtime_3min, dtype=torch.float32)
+            pred_speed_regional = torch.as_tensor(
                 self.regional_speed_from_segment_numpy(self._vdist_3min, self._vtime_3min), 
                 dtype=torch.float32
                 )
-        
+        self.pred_speed = pred_speed
+        self.pred_speed_regional = pred_speed_regional
 
     def __getitem__(self, index) -> Dict[str, torch.Tensor]:
         """ 
