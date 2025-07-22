@@ -177,4 +177,4 @@ visualize/*.json
 visualize/*.tex
 
 # ignore the backup results
-results_backup/
+results_backup*/
