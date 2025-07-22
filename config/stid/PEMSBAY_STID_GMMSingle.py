@@ -14,6 +14,7 @@ from .PEMSBAY_STID_GMM import (
 
 # Override train settings
 train.output_dir = "scratch/pemsbay_stid_gmm_single"
+evaluator.data_max = 85.0 # the max speed of PEMS-Bay dataset is 85
 
 model.anchors = [0.0]
 model.sizes = [3.0] 
