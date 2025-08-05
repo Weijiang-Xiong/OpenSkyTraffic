@@ -8,6 +8,10 @@ import seaborn as sns
 from skytraffic.models.layers import GMMPredictionHead
 
 sns.set_style('darkgrid')
+plt.rcParams['font.size'] = 12
+plt.rcParams['axes.labelsize'] = 12
+plt.rcParams['axes.titlesize'] = 12
+plt.rcParams['legend.fontsize'] = 12
 
 def gaussian_pdf(mean, var, x):
     return torch.exp(-0.5 * ((x - mean) ** 2) / var) / torch.sqrt(2 * torch.pi * var)
@@ -45,17 +49,22 @@ for confidence, color in zip([0.3, 0.5, 0.7, 0.9], ['darkred', 'orange', 'darkgr
                                                        means.reshape(1,1,1,-1), 
                                                        torch.log(variances.reshape(1,1,1,-1)), 
                                                        xs, confidence)
-    
+    valid_boundaries = torch.cat([lb[lb<ub], ub[lb<ub]], dim=-1)
+    density_threshold = mixture_density[(torch.isin(xs, valid_boundaries))].mean().item()
+    # plot a horizontal line for the density threshold
+    plt.axhline(density_threshold, linestyle='--', label='Density Threshold', color='gray', alpha=0.5)
+
     for vl, vu in zip(lb.squeeze().tolist(), ub.squeeze().tolist()):
         if vl == vu:
             continue
         xs_in_interval = xs[(xs >= vl) & (xs <= vu)]
+        
         plt.fill_between(xs_in_interval, 0, mixture_density[(xs >= vl) & (xs <= vu)], alpha=0.3, color=color)
         plt.axvline(vl, linestyle='-.', color=color, label='{}%_interval'.format(int(confidence*100)))
         plt.axvline(vu, linestyle='-.', color=color, label='{}%_interval'.format(int(confidence*100)))
 
-    plt.title('1D Gaussian Mixture Model Density')
-    plt.xlabel('x')
+    # plt.title('1D Gaussian Mixture Model Density')
+    plt.xlabel('Data Value')
     plt.ylabel('Probability Density')
 
     # display legends, but remove duplicates
