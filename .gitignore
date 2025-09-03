@@ -177,3 +177,5 @@ visualize/*.tex
 
 # ignore the backup results
 results_backup*/
+# ignore claude user prompt
+CLAUDE.md

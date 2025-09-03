@@ -1,17 +1,19 @@
-## skytraffic: Networked Time Series Analysis for Urban Transportation
+## SkyTraffic: Urban Traffic Monitoring From the Sky
 
-In a modern transporation network, various sensors can be installed on roads and vehicles to collect traffic information of a specific location, whose record will be a time series. Meanwhile, different locations are connected via the network, which results in spatial relations among the time series. We coin this data representation as Networked Time Series (NeTS), and his package aims to provide a framework for training deep learning models for Networked Time Series Analysis in the domain of Urban Transportation.
+This repo aims to present a solution for drone-based urban traffic monitoring.
 
 ### Installation and dataset preparation
 
 We assume there is a conda environment called `pytorch` with [PyTorch](https://pytorch.org/get-started/locally/) correctly installed.
 
 ```bash
-git clone https://github.com/Weijiang-Xiong/SkyTraffic.git
+git clone https://github.com/Weijiang-Xiong/OpenSkyTraffic.git
 python -m pip install -e .
 ```
 
-For the preprocessing and usage of datasets, please follow the [readme file](datasets/README.md) in `datasets` folder.
+For the preprocessing of METR-LA and PEMS-Bay dataset, please refer to this [README.md](preprocess/metr-style/README.md).
+
+For the preprocessing of SimBarca dataset, follow this [README.md](preprocess/simbarca/README.md)
 
 ### Basic Usage
 
@@ -20,16 +22,18 @@ The main entrance scripts are placed under `scripts`.
 * `train.py` provides the training pipeline and evaluation
 * `run_multiple.py` is a script to format and run multiple commands in sequence using `subprocess.run`
 
-For example, the following command will train a model using the specifications in `config/HiMSNet.py` , and override the output dir to `scratch/himsnet_5hop`.
+For example, the following command will train a model using the specifications in `config/HiMSNet.py`, and override the output folder to `scratch/SAVE_DIR`.
+
+The configuration files can be found as python files under the [config](./config) folder. 
 
 ```
-python scripts/train.py --config-file config/HiMSNet.py model.adjacency_hop=5 train.output_dir=scratch/himsnet_5hop
+python scripts/train.py --config-file PATH/TO/CFG/FILE.py train.output_dir=scratch/SAVE_DIR
 ```
 
 After training, the results can be visualized using the following command
 
 ```
-python scripts/train.py --eval-only --config-file scratch/himsnet_5hop/config.py evaluation.visualize=True
+python scripts/train.py --eval-only --config-file scratch/SAVE_DIR/config.py evaluation.visualize=True
 ```
 
 For a complete walk through of the training and visualization workflow, please look at the comments in the scripts.
@@ -44,10 +48,10 @@ project_root
 │   ├── config : configuration management
 │   ├── data : dataset loading and transform
 │   ├── engine : training loop
-│   ├── evaluation
-│   ├── models
-│   ├── solver
-│   └── utils
+│   ├── evaluation: evaluation codes
+│   ├── models : neural network models
+│   ├── solver: optimizer and scheduler
+│   └── utils: utility functions
 ├── preprocess : data preprocessing (before training)
 ├── scratch : training results
 ├── scripts : train scripts

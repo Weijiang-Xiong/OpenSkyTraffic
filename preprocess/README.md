@@ -1,1 +1,0 @@
-Please go to the README files in the folder for each dataset for the details.
