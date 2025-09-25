@@ -179,3 +179,4 @@ visualize/*.tex
 results_backup*/
 # ignore claude user prompt
 CLAUDE.md
+AGENTS.md
