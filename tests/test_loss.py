@@ -1,7 +1,7 @@
 import unittest
 
 import torch
-from netsanut.loss import GeneralizedProbRegLoss
+from skytraffic.models.layers import GeneralizedProbRegLoss
 
 class TestLoss(unittest.TestCase):
 

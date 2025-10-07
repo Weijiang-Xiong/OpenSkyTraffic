@@ -3,7 +3,7 @@ import unittest
 import torch 
 import torch.nn as nn
 
-from netsanut.models import NeTSFormer
+from skytraffic.models import NeTSFormer
 
 # from https://gist.github.com/airalcorn2/50ec06517ce96ecc143503e21fa6cb91
 def patch_attention(m):
@@ -40,8 +40,8 @@ class TestForwardHook(unittest.TestCase):
 
         model = NeTSFormer().to(device)
         model.adapt_to_metadata({'adjacency': [torch.randint(0, 5, size=(M, M)) for _ in range(2)],
-                                'mean': torch.tensor([0.0, 0.0]),
-                                'std': torch.tensor([1.0, 0.0])})
+                                'mean': torch.tensor([0.0]),
+                                'std': torch.tensor([1.0])})
 
 
         attention_layers = {

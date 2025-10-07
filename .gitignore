@@ -159,15 +159,24 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-*.npz
-*.h5
-*.pkl
-*.pth
-scratch
+# ignore the files and folders solely for development
 .vscode
-.cursor
+todo/*
+scripts/debug*.py
+tests/*.pkl
+
+# intermediate files and datasets
+scratch/*
 datasets/*
-# allow git to manage readme and preprocessing scripts
-!datasets/README.md
-__NO_GIT*
-scripts/debug.py
+
+
+# visualization files
+visualize/**/*.pdf
+visualize/*.json
+visualize/*.tex
+
+# ignore the backup results
+results_backup*/
+# ignore claude user prompt
+CLAUDE.md
+AGENTS.md

@@ -1,0 +1,123 @@
+""" This script generates and runs the command to simulate the vehicle trajectories in Aimsun.
+    Before using this script, you need to generate the simulation settings using gen_exp_settings.py, 
+    and add the Aimsun_API.py in the API tab of Aimsun's scenario settings.
+    
+    This script is supposed to be executed from under the root folder of the project, i.e.,
+        python preprocess/simbarca/sim_vehicle_traj.py
+"""
+import os
+import glob
+import shutil
+import subprocess
+import multiprocessing as mp 
+
+from argparse import ArgumentParser
+
+from choose_train_test import check_errors
+
+def _process_folder(folder, executable, project, rep_id, 
+                   run_sim=True, extract_stats=True, agg_stats=True, cleanup=True):
+    
+    log_file = open("{}/processing_log.log".format(folder), "w")
+    log_file.write("Processing folder: {}\n".format(folder))
+    log_file.write("Processing steps: run_sim {}, extract_stats {}, agg_stats {}, cleanup {}\n".format(
+        run_sim, extract_stats, agg_stats, cleanup))
+    log_file.flush()
+    ######################################################
+    # 1. Run simulation in Aimsun
+    ######################################################
+    if run_sim:
+        project_copy_path = "{}/{}".format(folder, "project_copy.ang")
+        # copy the original file to a new one, because Aimsun will lock the file upon execution
+        shutil.copyfile(project, project_copy_path)
+        command = "cd {} && {} --project {} --command execute --target {} --force_number_of_threads 16 --log_file {}/aimsun_log.log".format(
+            folder, executable, project_copy_path, rep_id, folder)
+        print("Cleaning up the files from previous simulation (if any)")
+        for f in glob.glob("{}/trajectory/*.json.gz".format(folder)):
+            os.remove(f)
+        print("Process {} is executing command \n {}".format(os.getpid(), command))
+        subprocess.run(command, shell=True, stdout=log_file, stderr=log_file)
+    
+    ######################################################
+    # 2. Extract traffic statistics per time step 
+    ######################################################
+    if extract_stats:
+        stats_cmd = "python preprocess/simbarca/time_series_from_traj.py --metadata-folder datasets/simbarca/metadata --session-folder {}".format(folder)
+        print("Executing command: \n {}".format(stats_cmd))
+        subprocess.run(stats_cmd, shell=True, stdout=log_file, stderr=log_file)
+    
+    ######################################################
+    # 3. Aggregate raw statistics into different intervals
+    ######################################################
+    if agg_stats:
+        sample_cmd = "python preprocess/simbarca/extract_samples.py --session {}".format(folder)
+        print("Executing command: \n{}".format(sample_cmd))
+        subprocess.run(sample_cmd, shell=True, stdout=log_file, stderr=log_file)
+    
+    ######################################################
+    # 4. delete the raw simulation files, keep processed
+    ######################################################
+    if cleanup: # set cleanup to False if you want to keep the raw trajectory files
+        clear_cmd = "rm {}/trajectory/*.*".format(folder)
+        print("Executing command: \n {}".format(clear_cmd))
+        subprocess.run(clear_cmd, shell=True, stdout=log_file, stderr=log_file)
+    
+    log_file.write("Processing completed!")
+    log_file.close()
+
+def process_folder(*args, **kwargs):
+    try:
+        _process_folder(*args, **kwargs)
+    except Exception as e:
+        print("Error in folder: {}".format(kwargs["folder"]))
+        print(e)
+
+if __name__ == '__main__':
+    
+    parser = ArgumentParser()
+    parser.add_argument("--executable", type=str, default="/opt/Aimsun_Next_22/aconsole", help="Path to the aimsun console executable")
+    parser.add_argument("--project", type=str, default="/home/weijiang/Downloads/Eixample_BASE_v7.ang", help="The Aimsun network model")
+    parser.add_argument("--rep-id", type=str, default="10607425", help="The replication id to execute")
+    parser.add_argument("--sessions-folder", type=str, default="datasets/simbarca/simulation_sessions", help="The folders where all simulation folders are stored")
+    parser.add_argument("--cleanup", action='store_true', help="Delete the raw trajectory files after processing")
+    parser.add_argument("--run-sim", action='store_true', help="Run the simulation in Aimsun")
+    parser.add_argument("--extract-stats", action='store_true', help="Extract traffic statistics from the raw trajectory files")
+    parser.add_argument("--agg-stats", action='store_true', help="Aggregate the raw statistics into different intervals")
+    parser.add_argument("--num-proc", type=int, default=8, help="Number of processes to run in parallel")
+    parser.add_argument("--fix-errors", action='store_true', help="Only rerun the folders with errors")
+    args = parser.parse_args()
+
+    # the folders generated by gen_exp_settings.py
+    folder_pattern = "{}/session_*".format(args.sessions_folder)
+    all_folders = [os.path.abspath(x) for x in sorted(glob.glob(folder_pattern))]
+
+    def arg_wrapper(folder):
+            process_folder(
+                folder,
+                executable=args.executable,
+                project=args.project,
+                rep_id=args.rep_id,
+                run_sim=args.run_sim,
+                extract_stats=args.extract_stats,
+                agg_stats=args.agg_stats,
+                cleanup=args.cleanup,
+            )
+
+    if args.fix_errors:
+        print("Checking the log files for any errors...")
+        folders_with_errors = []
+        for folder in all_folders:
+            errors = check_errors(folder)
+            if len(errors) > 0:
+                print("Folder {} has errors: {}".format(folder, errors))
+                folders_with_errors.append(folder)
+        
+        if len(folders_with_errors) > 0:
+            print("Retrying the folders with errors")
+            with mp.Pool(processes=min(args.num_proc, len(folders_with_errors))) as pool:
+                pool.map(arg_wrapper, folders_with_errors)
+            print("Retrying completed!")
+    else:
+        with mp.Pool(processes=args.num_proc) as pool:
+            pool.map(arg_wrapper, all_folders)
+        print("All simulations are done!")

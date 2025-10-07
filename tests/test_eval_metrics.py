@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from netsanut.evaluation import prediction_metrics, masked_prediction_metrics
+from skytraffic.evaluation.metrics import common_metrics
 
 class TestLoss(unittest.TestCase):
 
@@ -14,12 +14,12 @@ class TestLoss(unittest.TestCase):
         """
         pred = torch.tensor([1, 2, 3, 4, 5, 1.0])
         real = torch.tensor([1, torch.nan, 3, torch.nan, 5, 0.5])
-        res = prediction_metrics(pred, real, ignore_value=torch.nan, mape_threshold=0.7)
+        res = common_metrics(pred, real, ignore_value=torch.nan, mape_threshold=0.7)
         self.assertAlmostEqual(res['mae'], 0.125)
         self.assertAlmostEqual(res['mape'], 0) # MAPE is ignored for label < 1
         self.assertAlmostEqual(res['rmse'], 0.25)
         
-        res = prediction_metrics(pred, real, ignore_value=torch.nan, mape_threshold=0.1)
+        res = common_metrics(pred, real, ignore_value=torch.nan, mape_threshold=0.1)
         self.assertAlmostEqual(res['mae'], 0.125)
         self.assertAlmostEqual(res['mape'], 0.25)
         self.assertAlmostEqual(res['rmse'], 0.25)
@@ -27,7 +27,7 @@ class TestLoss(unittest.TestCase):
     def test_masked_error_values(self):
         pred = torch.tensor([1, 2, 3, 4, 5, 1.0])
         real = torch.tensor([1, torch.nan, 3, torch.nan, 5, 0.5])
-        res = masked_prediction_metrics(pred, real, ignore_value=torch.nan)
+        res = common_metrics(pred, real, ignore_value=torch.nan)
         self.assertAlmostEqual(res['mae'], 0.125)
         self.assertAlmostEqual(res['mape'], 0.25)
         self.assertAlmostEqual(res['rmse'], 0.25)

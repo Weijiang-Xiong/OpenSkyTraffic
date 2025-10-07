@@ -1,7 +1,8 @@
 import unittest
-
+import pickle
 import torch
-from netsanut.models import HiMSNet, ValueEmbedding
+from skytraffic.models import HiMSNet
+from skytraffic.models.layers import ValueEmbedding
 
 class TestHimsNetForward(unittest.TestCase):
     
@@ -30,45 +31,21 @@ class TestHimsNetForward(unittest.TestCase):
         
     
     def test_forward(self):
-        adjacency = torch.randint(low=0, high=2, size=(1570, 1570)).cuda()
-        edge_index = adjacency.nonzero().t().contiguous()
-        fake_data_dict = {
-            "drone_speed": torch.rand(size=(2, 360, 1570, 2)).cuda(),
-            "ld_speed": torch.rand(size=(2, 10, 1570, 2)).cuda(),
-            "pred_speed": torch.rand(size=(2, 10, 1570)).cuda(),
-            "pred_speed_regional": torch.rand(size=(2, 10, 4)).cuda(),
-        }
-        metadata = {
-            "adjacency": adjacency,
-            "edge_index": edge_index,
-            "cluster_id": torch.randint(low=0, high=4, size=(1570,)).cuda(),
-            "grid_id": torch.randint(low=0, high=150, size=(1570,)).cuda(),
-            "mean_and_std": {
-                "drone_speed": (0.0, 1.0),
-                "ld_speed": (0.0, 1.0),
-                "pred_speed": (0.0, 1.0),
-                "pred_speed_regional": (0.0, 1.0),
-            },
-            "input_seqs": ["drone_speed", "ld_speed"],
-            "output_seqs": ["pred_speed", "pred_speed_regional"],
-        }
-        empty_mask = torch.rand_like(fake_data_dict['drone_speed'][:,:,:,0]) < 0.1
-        monitor_mask = torch.rand_like(fake_data_dict['drone_speed'][:,:,:,0]) > 0.9
-        fake_data_dict['drone_speed'][:,:,:,0][torch.logical_or(empty_mask, ~monitor_mask)] = torch.nan
-        ld_mask = torch.rand(2, 1570) < 0.1
-        fake_data_dict['ld_speed'][:, :, :, 0][ld_mask.unsqueeze(1).tile((1, 10, 1))] = torch.nan
-        fake_data_dict['drone_mask'] = monitor_mask
-        fake_data_dict['ld_mask']  = ld_mask
-        
-        model = HiMSNet().cuda()
-        model.adapt_to_metadata(metadata)
+        with open("tests/simbarca_batch.pkl", "rb") as f:
+            batch = pickle.load(f)
+
+        model = HiMSNet(adjacency_hop=5, tf_glb=True).cuda()
         model.train()
-        loss_dict = model(fake_data_dict)
+        model.adapt_to_metadata(batch["metadata"])
+        loss_dict = model(batch)
+        print(loss_dict.keys())
         loss = sum(loss_dict.values())
         loss.backward()
 
         model.eval()
-        res = model(fake_data_dict)
+        res = model(batch)
+        self.assertTrue("pred_speed" in res.keys())
+        self.assertTrue("pred_speed_regional" in res.keys())
         
     def test_state_dict(self):
         
