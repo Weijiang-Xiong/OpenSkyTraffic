@@ -4,7 +4,7 @@ This repo aims to present a solution for drone-based urban traffic monitoring.
 
 ### Installation and dataset preparation
 
-We assume there is a conda environment called `pytorch` with [PyTorch](https://pytorch.org/get-started/locally/) correctly installed.
+We assume there is a python environment called `pytorch` with [PyTorch](https://pytorch.org/get-started/locally/) correctly installed.
 
 ```bash
 git clone https://github.com/Weijiang-Xiong/OpenSkyTraffic.git
@@ -13,8 +13,8 @@ python -m pip install -e .
 
 To prepare METR-LA and PEMS-Bay dataset, please refer to this [README.md](preprocess/metr-style/README.md).
 
-To prepare SimBarca dataset, follow this [README.md](preprocess/simbarca/README.md)
-For using the SimBarca dataset, one can simply download the processed version from [Zenodo](https://zenodo.org/records/17159241) and skip the preparations. 
+Preparing the SimBarca dataset from trajectory simulation can be very complicated, the workflow of the authors is described at [README.md](preprocess/simbarca/README.md).
+For using the SimBarca dataset, users can simply download the processed version from [Zenodo](https://zenodo.org/records/17159241) and skip the preparations. 
 
 The file structure should look like
 ```
@@ -72,3 +72,7 @@ project_root
 ├── tests : unit tests
 └── visualize : visualization for data and models
 ```
+
+### Publications
+
+W. Xiong, R. Fonod, A. Alahi and N. Geroliminis, "Multi-Source Urban Traffic Flow Forecasting With Drone and Loop Detector Data," in IEEE Transactions on Intelligent Transportation Systems, doi: 10.1109/TITS.2025.3605014. [[Paper](https://ieeexplore.ieee.org/document/11174070)] [[Preprint](https://arxiv.org/abs/2501.03492)] [[Exp. Config](./config/himsnet)]
