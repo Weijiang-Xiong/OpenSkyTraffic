@@ -291,3 +291,5 @@ class SimBarcaForecast(SimbarcaBase):
         # convert to numpy arrays and return
         return np.array(in_indexes), np.array(out_indexes)
 
+    def compute_time_in_day(self, timestamp):
+        return (timestamp - timestamp[0].astype('datetime64[D]')) / np.timedelta64(24, "h")
