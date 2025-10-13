@@ -9,11 +9,13 @@
 """
 import logging
 from enum import Enum
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
+import matplotlib.pyplot as plt
+from matplotlib import animation
 
 import torch
 import torch.nn as nn
@@ -43,55 +45,75 @@ class DroneAction(Enum):
     # DOWN_RIGHT = 12
 
 
-class TrafficPredictor:
+class WindowedPredictor:
 
-    def __init__(self, input_steps, output_steps, data_channels, data_stats):
-        self.input_steps = input_steps
-        self.output_steps = output_steps
-        self.history_buffer = []
+    def __init__(self, in_steps, in_channels, out_steps, out_channels, channel_names, data_stats):
+        self.in_steps = in_steps
+        self.in_channels = in_channels
+        self.output_steps = out_steps
+        self.out_channels = out_channels
+        self.channel_names = channel_names
+        self.data_stats = data_stats
+        self.history = None
         self.prediction_network: nn.Module = None
         self._rng = torch.Generator()
     
-    def predict(self, new_data: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        future = new_data.get("future_traffic")
-        if future is None:
-            raise ValueError("Sample must include 'future' tensor for prediction shape.")
+    def predict(self, new_data: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        input_tensors = self.pack_history(new_data)
         predictions = torch.rand(
-            future.shape,
-            dtype=future.dtype,
-            device=future.device,
+            (self.output_steps, 1570, self.out_channels),
+            dtype=torch.float32,
+            device=torch.device("cpu"),
             generator=self._rng,
         )
-        return {"future": predictions}
+        return predictions
     
-    def pack_history(self, new_data: List[Dict[str, torch.Tensor]]) -> None:
+    def pack_history(self, observation: List[Dict[str, torch.Tensor]]) -> None:
         """
         Pack the data history into the tensor input required by the neural network
         The history includes:
             observation masks for the traffic states. 
-            clean traffic states with the traffic states of all road segments
+            masked traffic states with the traffic states of all road segments
 
         The running mask starts fully observed because the dataset pads the historical window with
         mean values. As new coverage arrives we roll the mask forward, filling the most recent
         timestep with the latest coverage booleans so unobserved locations are flagged as False.
         """
-        pass 
+        if self.history is None:
+            self.history = {
+                "observed_traffic": torch.zeros(
+                    (self.in_steps, observation['observed_traffic'].shape[1], self.in_channels),
+                    dtype=torch.float32,
+                ),
+                "coverage_mask": torch.zeros(
+                    (self.in_steps, observation['coverage_mask'].shape[0]),
+                    dtype=torch.int8,
+                )
+            }
+
+    def clear_history(self) -> None:
+        self.history = None
+
+    def __call__(self, new_data: Dict):
+        return self.predict(new_data)
 
 
 class RewardCalculator:
 
     def __init__(self):
+        # the agent is rewarded for outperforming a baseline policy
+        self.baseline_policy: nn.Module = None
         self._rng = np.random.default_rng()
     
-    def compute(self, data: Dict) -> float:
+    def compute(self, observation:Dict, pred: Dict, label:torch.Tensor) -> float:
         """
         Compute reward based on predictor + newly collected data.
         Could be uncertainty reduction, entropy drop, etc.
         """
         return float(self._rng.random())
     
-    def __call__(self, data):
-        return self.compute(data)
+    def __call__(self, observation:Dict, pred: Dict, label:torch.Tensor) -> float:
+        return self.compute(observation, pred, label)
 
 
 class MonitoringAgent:
@@ -100,25 +122,28 @@ class MonitoringAgent:
         self.num_drones = int(num_drones)
         self._rng = np.random.default_rng()
         self.positions: List[Tuple[int, int]] = None
+        self.action_space: gym.Space = None
 
-        self.action_space = spaces.MultiDiscrete([len(DroneAction)] * self.num_drones)
+    def bind_action_space(self, action_space: spaces.Space) -> None:
+        """Call once to provide the environment's action space."""
+        self.action_space = action_space
 
     def select_action(self, obs: Dict) -> List[DroneAction]:
         """Choose next drone actions given observation for all drones."""
-        return [DroneAction(x.item()) for x in self.action_space.sample()]
+        sampled = self.action_space.sample()
+        return [DroneAction(int(x)) for x in sampled]
 
-    
     def update(self, experiences: List[Tuple]) -> None:
         """Update policy from collected experience (RL training)."""
         return None
 
 
 
-class DroneTrafficEnv(gym.Env):
+class UrbanTrafficEnv(gym.Env):
     """ Design principles for the environment: 
         - **🎯 Agent Skill**: Collect traffic data in a grid map
-        - **👀 Information**: Predicted traffic states, agent position, map states
-        - **🎮 Actions**: Move up, down, left or right by 2 steps; Move diagonally by 1 step; Don't move
+        - **👀 Information**: Predicted traffic states, agent position, map structure
+        - **🎮 Actions**: Move up, down, left or right by 1 or 2 steps; Move diagonally by 1 step; Don't move
         - **🏆 Success**: the predictor has a smaller error compared to a naive flight plan
         - **⏰ End**: A simulation session ends.
     """
@@ -127,14 +152,12 @@ class DroneTrafficEnv(gym.Env):
     def __init__(
         self,
         dataset: SimBarcaExplore,
-        agent: MonitoringAgent,
-        predictor: TrafficPredictor,
+        predictor: WindowedPredictor,
         reward: RewardCalculator,
-        
+        num_drones: int,
     ):
         super().__init__()
         self.dataset = dataset
-        self.agent = agent
         self.predictor = predictor
         self.reward_fn = reward
 
@@ -166,7 +189,7 @@ class DroneTrafficEnv(gym.Env):
             # DroneAction.DOWN_RIGHT.value: (1, -1), # --- IGNORE ---
         }
 
-        self.num_drones = agent.num_drones
+        self.num_drones = int(num_drones)
         self.action_space = spaces.MultiDiscrete([len(DroneAction)] * self.num_drones)
         self.observation_space = spaces.Dict(
             {
@@ -176,8 +199,8 @@ class DroneTrafficEnv(gym.Env):
                     shape=(self.in_steps, self.num_locations, self.feature_dim),
                     dtype=np.float32,
                 ),
-                "coverage_mask": spaces.MultiBinary(self.num_locations),
-                "step_index": spaces.Discrete(self.max_steps + 1),
+                "coverage_mask": spaces.MultiBinary(n=self.num_locations),
+                "empty_mask": spaces.MultiBinary(n=[self.in_steps, self.num_locations]),
             }
         )
 
@@ -200,7 +223,7 @@ class DroneTrafficEnv(gym.Env):
         assert self.step_index == 0, "Step index should start from 0 after reset."
 
         self.positions = self.init_agent_positions()
-        self.positions_history.append(self.positions)
+        self.positions_history.append(list(self.positions))
 
         observation = self.build_observation(self.positions)
         info = {
@@ -214,15 +237,18 @@ class DroneTrafficEnv(gym.Env):
         """ 
         """
 
-        self.step_index, self.data_sample = next(self.data_iterator)
+        try:
+            self.step_index, self.data_sample = next(self.data_iterator)
+        except StopIteration: # indicate the end of the episode
+            return dict(), 0.0, True, False, {}
 
-        self.positions = self.apply_actions(actions)
+        self.positions = self.update_positions(actions)
 
         observation = self.build_observation(self.positions)
 
-        pred = self.predictor.predict(observation)
+        pred = self.predictor(observation)
 
-        reward_value = float(self.reward_fn(pred))
+        reward_value = float(self.reward_fn(observation, pred, self.data_sample['future']))
 
         self.positions_history.append(list(self.positions))
 
@@ -252,7 +278,6 @@ class DroneTrafficEnv(gym.Env):
         """Initialize drone positions at start of episode."""
         indices = self._rng.choice(len(self.available_positions), size=self.num_drones, replace=False)
         positions = [self.available_positions[idx] for idx in indices]
-        self.agent.positions = positions
         return positions
 
 
@@ -265,29 +290,38 @@ class DroneTrafficEnv(gym.Env):
         # If a location is covered by at least one drone, it is considered covered.
         mask = sum([self.dataset.grid_id==self.dataset.grid_xy_to_id[(x,y)] for x, y in positions])
 
-        return mask
+        return (mask > 0).astype(np.int8)
     
     def build_observation(self, positions: List[Tuple[int, int]]) -> Dict[str, np.ndarray]:
 
+        observed_traffic = self.data_sample["past"].cpu().numpy() # shape (in_steps, num_locations, feature_dim)
+        coverage_mask = self._compute_coverage_mask(positions) # shape (num_locations,)
+        empty_mask = np.isnan(observed_traffic).any(axis=-1).astype(np.int8)
+        # one can check the nans only exists in the speed measurements ... 
+        # np.allclose(np.isnan(observed_traffic[:,:,2]), empty_mask)
+
+        # now we modify the nan values to be 0 to align with the observation space definition
+        observed_traffic = np.nan_to_num(observed_traffic, nan=0.0)
+        # set the unobserved locations to be 0.0 as well, but don't touch the last feature dimension for time-in-day
+        observed_traffic[:, coverage_mask==0, :-1] = 0.0
+
         observation = {
-            "observed_traffic": self.data_sample["past"],
-            "future_traffic": self.data_sample["future"],
-            "coverage_mask": self._compute_coverage_mask(positions),
-            "step_index": self.step_index,
+            "observed_traffic": observed_traffic,
+            "coverage_mask": coverage_mask,
+            "empty_mask": empty_mask,
         }
+
         return observation
     
-    def apply_actions(self, actions: List[DroneAction]) -> List[Tuple[int, int]]:
-        action_list = actions.tolist() if isinstance(actions, np.ndarray) else list(actions)
+    def update_positions(self, actions: List[DroneAction]) -> List[Tuple[int, int]]:
         new_positions: List[Tuple[int, int]] = []
         occupied = set()
-        for idx, action in enumerate(action_list):
-            pos = self._get_new_position(action, self.positions[idx])
+        for idx, action in enumerate(actions):
+            pos = self._get_new_position(DroneAction(action), self.positions[idx])
             if pos in occupied: # stay if the new position is already occupied
                 pos = self.positions[idx]
             new_positions.append(pos)
             occupied.add(pos)
-        self.agent.positions = new_positions
         return new_positions
 
     def _get_new_position(self, action: DroneAction, old_pos: Tuple[int, int]) -> Tuple[int, int]:
@@ -298,12 +332,12 @@ class DroneTrafficEnv(gym.Env):
             new_pos = old_pos
         return new_pos
 
-
     def render(self):
-        """Visualize drone paths with matplotlib in terminal mode."""
+        pass 
 
-        import matplotlib.pyplot as plt
-        from matplotlib import animation
+
+    def render_episode(self):
+        """Visualize drone paths with matplotlib in terminal mode."""
 
         if not self.positions_history:
             return None
@@ -384,22 +418,38 @@ class DroneTrafficEnv(gym.Env):
         return animation_obj
 
 
-
-
 if __name__ == "__main__":
-
-    dataset = SimBarcaExplore(split="train", input_window=3, pred_window=30, step_size=3, allow_shorter_input=False, pad_input=False)
+    dataset = SimBarcaExplore(
+        split="train",
+        input_window=30,
+        pred_window=30,
+        step_size=3,
+        num_unpadded_samples=20,
+        allow_shorter_input=True,
+        pad_input=True,
+    )
     dataset.active_session = 0
-    predictor = TrafficPredictor(
-        input_steps=dataset.metadata["input_size"][0],
-        output_steps=dataset.metadata["output_size"][0],
-        data_channels=dataset.metadata["data_channels"],
-        data_stats=dataset.metadata["data_stats"],
+    predictor = WindowedPredictor(
+        in_steps=dataset.metadata['input_size'][0],
+        in_channels=dataset.metadata['input_size'][2],
+        out_steps=dataset.metadata['output_size'][0],
+        out_channels=dataset.metadata['output_size'][2],
+        channel_names=dataset.metadata['data_channels'],
+        data_stats=dataset.metadata['data_stats'],
     )
     reward_calculator = RewardCalculator()
-    agent = MonitoringAgent(num_drones=10)
+    num_drones = 10
+    env = UrbanTrafficEnv(
+        dataset=dataset,
+        predictor=predictor,
+        reward=reward_calculator,
+        num_drones=num_drones,
+    )
+    from stable_baselines3.common.env_checker import check_env
+    check_env(env, warn=True)
 
-    env = DroneTrafficEnv(dataset=dataset, predictor=predictor, agent=agent, reward=reward_calculator)
+    agent = MonitoringAgent(num_drones=num_drones)
+    agent.bind_action_space(env.action_space)
 
     observation, info = env.reset()
     print("Initial observation keys:", observation.keys())
@@ -408,16 +458,15 @@ if __name__ == "__main__":
     done = False
     episode_reward = 0.0
     step_count = 0
-    while not done and step_count < 5:
+    while not done:
         actions = agent.select_action(observation)
         observation, reward, done, _, step_info = env.step(actions)
         episode_reward += reward
         step_count += 1
         print(f"Step {step_count}: reward={reward:.3f}, done={done}, coverage={observation['coverage_mask'].mean():.3f}")
 
-    from matplotlib import animation as mpl_animation
-    anim = env.render()
-    writer = mpl_animation.PillowWriter(fps=1)
+    anim = env.render_episode()
+    writer = animation.PillowWriter(fps=1)
     anim.save("drone_paths.gif", writer=writer, dpi=120)
     print("Saved animation to drone_paths.gif at 5 fps")
 
