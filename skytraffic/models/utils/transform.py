@@ -5,13 +5,13 @@ class TensorDataScaler:
     """
     normalize the data, a simplified version of sklearn.preprocessing.StandardScaler
     assume the data to have shape
-        1. (N, T, P, C) where the 0 in the C dimension is the data, and the rest may be time in day, day in week
-        2. (N, T, P) just data, no time appended.
+        1. (N, T, P, C) where the data sequences in the C dimension are specified by `data_dim`, and the rest may be time in day, day in week
+        2. (N, T, P) just data, nothing else appended.
 
     """
 
-    def __init__(self, mean: float, std: float, data_dim: int = 0):
-        """_summary_
+    def __init__(self, mean: float | List[float], std: float | List[float], data_dim: int | List[int] = 0):
+        """ Initialize the scaler with mean and std, the mean, std and data_dim can be scalars or lists of the same length. 
 
         Args:
             mean (float): the mean of the data (should be a scalar or a tensor with 1 element)
@@ -20,14 +20,14 @@ class TensorDataScaler:
         """
         self.data_dim = data_dim
         
-        if isinstance(mean, torch.Tensor):
-            # this will throw an error if the tensor has more than one element
-            # it is better to signal the user that the input can be problematic
-            mean = mean.item() 
-        if isinstance(std, torch.Tensor):
-            std = std.item() 
-        assert isinstance(mean, (int, float)), "mean should be a scalar"
-        assert isinstance(std, (int, float)), "std should be a scalar"
+        # if isinstance(mean, torch.Tensor):
+        #     # this will throw an error if the tensor has more than one element
+        #     # it is better to signal the user that the input can be problematic
+        #     mean = mean.item() 
+        # if isinstance(std, torch.Tensor):
+        #     std = std.item() 
+        # assert isinstance(mean, (int, float)), "mean should be a scalar"
+        # assert isinstance(std, (int, float)), "std should be a scalar"
         
         self.mean = torch.tensor(mean, requires_grad=False)
         self.std = torch.tensor(std, requires_grad=False)
