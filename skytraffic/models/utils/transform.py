@@ -68,4 +68,7 @@ class TensorDataScaler:
         return self.mean.device.type
     
     def state_dict(self):
-        return {"mean": self.mean.item(), "std": self.std.item(), "data_dim": self.data_dim}
+        if self.mean.numel() == 1:
+            return {"mean": self.mean.item(), "std": self.std.item(), "data_dim": self.data_dim}
+        else:
+            return {"mean": self.mean.cpu().numpy().tolist(), "std": self.std.cpu().numpy().tolist(), "data_dim": self.data_dim}
