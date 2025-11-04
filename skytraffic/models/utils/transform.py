@@ -14,11 +14,11 @@ class TensorDataScaler:
         """ Initialize the scaler with mean and std, the mean, std and data_dim can be scalars or lists of the same length. 
 
         Args:
-            mean (float): the mean of the data (should be a scalar or a tensor with 1 element)
-            std (float): the standard deviation of the data (should be a scalar or a tensor with 1 element)
-            data_dim (int, optional): the index of data sequences of concern (not auxiliary features). Defaults to 0.
+            mean (float | List[float]): the mean of the data (should be a scalar or a tensor with 1 element)
+            std (float | List[float]): the standard deviation of the data (should be a scalar or a tensor with 1 element)
+            data_dim (int | List[int]): the index of data sequences of concern (not auxiliary features). Defaults to 0.
         """
-        self.data_dim = data_dim
+        self.data_dim: torch.Tensor = torch.tensor(data_dim).type(torch.long)
         
         # if isinstance(mean, torch.Tensor):
         #     # this will throw an error if the tensor has more than one element
@@ -29,9 +29,9 @@ class TensorDataScaler:
         # assert isinstance(mean, (int, float)), "mean should be a scalar"
         # assert isinstance(std, (int, float)), "std should be a scalar"
         
-        self.mean = torch.tensor(mean, requires_grad=False)
-        self.std = torch.tensor(std, requires_grad=False)
-        self.inv_std = 1.0 / self.std
+        self.mean: torch.Tensor = torch.tensor(mean, requires_grad=False)
+        self.std: torch.Tensor = torch.tensor(std, requires_grad=False)
+        self.inv_std: torch.Tensor = 1.0 / self.std
 
     def transform(self, data, datadim_only: bool = True):
         """ Apply Z-score normalization to the data.
@@ -69,6 +69,6 @@ class TensorDataScaler:
     
     def state_dict(self):
         if self.mean.numel() == 1:
-            return {"mean": self.mean.item(), "std": self.std.item(), "data_dim": self.data_dim}
+            return {"mean": self.mean.item(), "std": self.std.item(), "data_dim": self.data_dim.item()}
         else:
             return {"mean": self.mean.cpu().numpy().tolist(), "std": self.std.cpu().numpy().tolist(), "data_dim": self.data_dim}

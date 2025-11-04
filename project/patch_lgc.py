@@ -1,26 +1,26 @@
+from typing import Dict, Tuple
+
 import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
 
 import numpy as np
-
-from ..skytraffic.models.layers import masked_mae
-from typing import Dict, Tuple
 from einops import rearrange
 
-from ..skytraffic.models.utils.transform import TensorDataScaler
-from ..skytraffic.models.layers import MLP, LearnedPositionalEncoding
+from skytraffic.models.utils.transform import TensorDataScaler
+from skytraffic.models.layers import MLP, LearnedPositionalEncoding, masked_mae
+from skytraffic.models.base import BaseModel
 
-from ..skytraffic.models.base import BaseModel
-
-class LSTMGCNConvPatched(BaseModel):
+class PatchedMVLSTMGCNConv(BaseModel):
+    """ LSTM GCN model with temporal patching for multivariate time series forecasting (traffic speed and flow).
+    """
     def __init__(
         self,
         # arguments purely based on model
         use_global=True,
-        feature_dim: int = 2,
+        feature_dim: int = 3,
         d_model=64,
-        temp_patching: int = None,
+        temp_patching: int = 3,
         global_downsample_factor: int = 1,
         layernorm=True,
         adjacency_hop: int = 1,
@@ -28,9 +28,10 @@ class LSTMGCNConvPatched(BaseModel):
         loss_ignore_value = float("nan"),
         norm_label_for_loss: bool = True,
         # arguments related to dataset
-        input_steps: int = 12,
-        pred_steps: int = 12,
-        num_nodes: int = None,
+        input_steps: int = 10,
+        pred_steps: int = 10,
+        pred_feat : int = 2,
+        num_nodes: int = 1570,
         data_null_value: float = 0.0,
         metadata: dict = None,
     ):
@@ -54,6 +55,7 @@ class LSTMGCNConvPatched(BaseModel):
         self.temp_patching = temp_patching
         self.edge_index: torch.Tensor
         self.adapt_to_metadata(metadata)
+        self.pred_feat = pred_feat
         
         self.patching = nn.Conv2d(in_channels=feature_dim * temp_patching, out_channels=d_model, kernel_size=(temp_patching, 1), stride=(temp_patching, 1))
         self.spatial_pos_enc = LearnedPositionalEncoding(d_model=d_model, max_len=self.num_nodes)
@@ -77,7 +79,8 @@ class LSTMGCNConvPatched(BaseModel):
 
             self.channel_up_sample = nn.Linear(in_features=global_dim, out_features=d_model)
             
-        self.prediction = MLP(in_dim=d_model * int(1 + self.use_global), hid_dim=int(d_model * 2), out_dim=pred_steps, dropout=dropout)
+        self.prediction = MLP(in_dim=d_model * int(1 + self.use_global), hid_dim=int(d_model * 2), out_dim=pred_steps*pred_feat, dropout=dropout)
+
         self.loss = masked_mae
 
     def preprocess(self, data: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -103,12 +106,12 @@ class LSTMGCNConvPatched(BaseModel):
 
     def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         pred_res = self.make_prediction(source)
-        # when label is scaled, we directly train the model to predict the scaled label
+        # when label is normalized, we directly train the model to predict the normalized label
         # otherwise, we scale back the prediction and then compute the loss
-        if self.norm_label_for_loss:
-            loss = self.loss(pred_res["pred"], target, null_val=self.loss_ignore_value)
-        else:
-            loss = self.loss(self.post_process(pred_res)["pred"], target, null_val=self.loss_ignore_value)
+        if not self.norm_label_for_loss:
+            pred_res = self.post_process(pred_res)
+        
+        loss = self.loss(pred_res['pred'], target, null_val=self.loss_ignore_value)
 
         return {"loss": loss}
 
@@ -118,17 +121,18 @@ class LSTMGCNConvPatched(BaseModel):
     def make_prediction(self, source: dict[str, torch.Tensor]) -> torch.Tensor:
         fused_features = self.feature_extraction(source)
         pred = self.prediction(fused_features)
-        return {
-            "pred": rearrange(pred, "N P T -> N T P"),
-        }
+        pred = rearrange(pred, "N P (T C) -> N T P C", C=self.pred_feat)
+
+        return {"pred": pred}
 
     def feature_extraction(self, x: torch.Tensor) -> torch.Tensor:
-        N, _, P, C = x.shape 
+        N, T, P, C = x.shape 
 
         all_mode_features = [] # store the features of all modalities
         
-        x = self.embedding(x)
-        x = rearrange(x, "N T P C -> (N T) P C")
+        x = rearrange(x, "N (k t) P C -> N (k C) t P", k=self.temp_patching)
+        x = self.patching(x)
+        x = rearrange(x, "N C t P -> (N t) P C")
         x = self.spatial_pos_enc(x)
         x = rearrange(x, "(N T) P C -> (N P) T C", N=N)
         x = self.temporal_pos_enc(x)
@@ -154,8 +158,16 @@ class LSTMGCNConvPatched(BaseModel):
 
     def adapt_to_metadata(self, metadata):
         
-        self.in_datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])
-        self.out_datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])
+        self.in_datascaler = TensorDataScaler(
+            mean=[stats['mean'] for _, stats in metadata['data_stats']['source'].items()], 
+            std=[stats['std'] for _, stats in metadata['data_stats']['source'].items()], 
+            data_dim=metadata['data_dim']
+        )
+        self.out_datascaler = TensorDataScaler(
+            mean=[stats['mean'] for _, stats in metadata['data_stats']['target'].items()],
+            std=[stats['std'] for _, stats in metadata['data_stats']['target'].items()],
+            data_dim=metadata['data_dim']
+        )
         # adjacency can be one or multiple adjacency matrices 
         if isinstance(metadata['adjacency'], torch.Tensor):
             metadata['adjacency'] = [metadata['adjacency']]
@@ -193,4 +205,3 @@ class LSTMGCNConvPatched(BaseModel):
         self.out_datascaler = TensorDataScaler(**state_dict["out_datascaler"])
         self.edge_index = state_dict["edge_index"]
         super().load_state_dict(state_dict["model_params"], strict=strict)
-

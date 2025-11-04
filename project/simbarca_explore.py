@@ -1,11 +1,14 @@
 import os
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import torch
 import numpy as np
 from einops import repeat
 
 from skytraffic.data.datasets.simbarca_base import SimBarcaForecast
+
+def _tuple_keys_to_str(d: Dict[Tuple[int, int], int]) -> Dict[str, int]:
+    return {f"{k[0]}_{k[1]}": v for k, v in d.items()}
 
 class SimBarcaExplore(SimBarcaForecast):
     """
@@ -49,10 +52,12 @@ class SimBarcaExplore(SimBarcaForecast):
         },
     }
     data_channels = {
-        "source": ["flow", "density", "time"], # "speed",
+        "source": ["flow", "density", "time"],  # "speed",
         "target": ["flow", "density"],  # "speed"
     }
-
+    # data dimensions in the input (excluding auxiliary features like time in day)
+    data_dim = [0, 1]
+    num_nodes = 1570
 
     def __init__(
         self,
@@ -64,6 +69,7 @@ class SimBarcaExplore(SimBarcaForecast):
         grid_size=220,
         allow_shorter_input=True,
         pad_input=True,
+        augmentations: List = None,
     ):
         """
         Args:
@@ -75,6 +81,7 @@ class SimBarcaExplore(SimBarcaForecast):
             num_unpadded_samples: the number of unpadded samples to extract from the parent class.
             allow_shorter_input: if True, allow the input window to be `1*step_size` at the beginning of each session, and increase by step_size each step until reaching input_window size. False means the input window is always input_window size.
             pad_input: if both `allow_shorter_input` and `pad_input` are True, the input will be padded with global average values to reach the `input_window` size. If `allow_shorter_input` is True but `pad_input` is False, the input will be of variable length.
+            augmentations" : a list of data augmentation modules to apply during data loading, for supervised training only.
         """
         super().__init__(split, input_window, pred_window, step_size, num_unpadded_samples)
         self._active_session = None  # Current session data
@@ -86,11 +93,18 @@ class SimBarcaExplore(SimBarcaForecast):
             assert input_window // step_size >= 2, (
                 f"input_window ({input_window}) should be at least twice of step_size ({step_size}) to allow shorter input."
             )
-        
 
         self.prepare_data_sequences()
         self.load_or_compute_metadata()
         self.clean_up_raw_sequences()
+
+        self.augmentations = []
+        if augmentations is not None:
+            if not isinstance(augmentations, list): # single augmentation
+                augmentations = [augmentations]
+            for aug in augmentations:
+                aug.set_grid(self.grid_xy_to_id, self.grid_id)
+                self.augmentations.append(aug)
 
     @property
     def metadata_file(self) -> str:
@@ -98,99 +112,122 @@ class SimBarcaExplore(SimBarcaForecast):
 
     def __len__(self):
         return self.num_sessions * self.sample_per_session
-    
-    def __getitem__(self, idx) -> Dict[str, torch.Tensor]:
-        """ Get the idx-th pair of (past, future) data sample from the active session. 
-        """
 
-        active_session = self.active_session if self.active_session is not None else (idx // self.sample_per_session)
+    def __getitem__(self, idx) -> Dict[str, torch.Tensor]:
+        """Get the idx-th pair of (past, future) data sample from the active session."""
+
+        active_session = (
+            self.active_session if self.active_session is not None else (idx // self.sample_per_session)
+        )
         sample_idx = idx % self.sample_per_session
         if (self.active_session is not None) and (idx >= self.sample_per_session):
             print("WARNING: idx >= sample_per_session when active_session is set.")
 
         time_in_day_5s = repeat(
-            self.time_in_day_5s[self.in_index[sample_idx]], 
+            self.time_in_day_5s[self.in_index[sample_idx]],
             "t -> t n",
             n=self.veh_flow_5s.shape[-1],
         )
         # stack channels along the last dim
         # past: 5s resolution [Tin, N, 4] => (flow, density, speed, time_in_day), without speed, the feature dimension becomes 3
-        source = torch.stack([
-            self.veh_flow_5s[active_session, self.in_index[sample_idx]],
-            self.veh_density_5s[active_session, self.in_index[sample_idx]],
-            # self.veh_speed_5s[active_session, self.in_index[sample_idx]],
-            time_in_day_5s,
-        ], dim=-1)
+        source = torch.stack(
+            [
+                self.veh_flow_5s[active_session, self.in_index[sample_idx]],
+                self.veh_density_5s[active_session, self.in_index[sample_idx]],
+                # self.veh_speed_5s[active_session, self.in_index[sample_idx]],
+                time_in_day_5s,
+            ],
+            dim=-1,
+        )
 
         # future: low-frequency resolution [Tout, N, 3] => (flow, density, speed)
-        target = torch.stack([
-            self.veh_flow_3min[active_session, self.out_index[sample_idx]],
-            self.veh_density_3min[active_session, self.out_index[sample_idx]],
-            # self.veh_speed_3min[active_session, self.out_index[sample_idx]],
-        ], dim=-1)
+        target = torch.stack(
+            [
+                self.veh_flow_3min[active_session, self.out_index[sample_idx]],
+                self.veh_density_3min[active_session, self.out_index[sample_idx]],
+                # self.veh_speed_3min[active_session, self.out_index[sample_idx]],
+            ],
+            dim=-1,
+        )
 
         # if the observation window is smaller than input_window, pad it with mean values
-        # this happens at the session begeinning because the drone just start to collect traffic data. 
+        # this happens at the session begeinning because the drone just start to collect traffic data.
         if self.pad_input and source.shape[0] < self.metadata["input_size"][0]:
             pad_len = self.metadata["input_size"][0] - source.shape[0]
             pad_data = torch.ones((pad_len, source.shape[1], source.shape[2] - 1)) * (
-                torch.tensor([
-                    self.data_stats['5s']['flow']['mean'],
-                    self.data_stats['5s']['density']['mean'],
-                    # self.data_stats['5s']['speed']['mean'],
-                ]).reshape(1, 1, -1)
+                torch.tensor(
+                    [
+                        self.data_stats["5s"]["flow"]["mean"],
+                        self.data_stats["5s"]["density"]["mean"],
+                        # self.data_stats['5s']['speed']['mean'],
+                    ]
+                ).reshape(1, 1, -1)
             )
             # count back 5s per step until the input window is reached
-            count_back_seconds = torch.arange(0, pad_len*5, step=5) - pad_len*5 #  -pad_len*5, ... -10 ,-5
-            pad_time = count_back_seconds / (24*60*60.0)  # seconds in a day
-            pad_time = time_in_day_5s[0,0] - repeat(pad_time, "t -> t n", n=source.shape[1])
-            pad = torch.cat([pad_data, pad_time.unsqueeze(-1)], dim=-1)
+            count_back_time = (
+                torch.arange(0, pad_len * 5, step=5) - pad_len * 5
+            )  #  -pad_len*5, ... -10 ,-5
+            count_back_time = count_back_time / (24 * 60 * 60.0)  # seconds in a day
+            # count back from the first time step in the input data
+            count_back_time = time_in_day_5s[0, 0] + repeat(count_back_time, "t -> t n", n=source.shape[1])
+            pad = torch.cat([pad_data, count_back_time.unsqueeze(-1)], dim=-1)
 
+            temporal_padding_mask = torch.cat(tensors=[torch.zeros(pad_len), torch.ones(source.shape[0])], dim=0).bool()
             source = torch.cat([pad, source], dim=0)
+        else:
+            # no padding applied, all time steps have valid observations (though not all locations are observed)
+            temporal_padding_mask = torch.ones(source.shape[0]).bool()
 
-        return {"source": source, "target": target}
-    
+        data_dict = {"source": source, "target": target}
+        if self.pad_input:
+            data_dict["temporal_padding_mask"] = temporal_padding_mask
+
+        return data_dict
+
     def collate_fn(self, list_of_data_dicts: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
-        return {
-            "source": torch.stack([data_dict["source"] for data_dict in list_of_data_dicts], dim=0),
-            "target": torch.stack([data_dict["target"] for data_dict in list_of_data_dicts], dim=0),
+        batch_data_dict = {
+            key: torch.stack([data_dict[key] for data_dict in list_of_data_dicts], dim=0)
+            for key in list_of_data_dicts[0].keys()
         }
-    
+
+        for augmentor in self.augmentations:
+            batch_data_dict = augmentor(batch_data_dict)
+
+        return batch_data_dict
+
     @property
     def active_session(self):
         """Return current active session data."""
         return self._active_session
-    
+
     @active_session.setter
     def active_session(self, idx):
         """Set current active session by index."""
         self._active_session = idx % self.num_sessions
-    
+
     def iterate_active_session(self):
-        """ Iterate within the current active session.
-        """
+        """Iterate within the current active session."""
         if self._active_session is None:
             raise ValueError("Active session not set.")
         for i in range(self.sample_per_session):
             yield i, self.__getitem__(i)
-        
-    def prepare_data_sequences(self):
 
+    def prepare_data_sequences(self):
         def shift_left(arr, by):
-            # shift an 1d array to left by `by` steps, fill in False 
+            # shift an 1d array to left by `by` steps, fill in False
             return np.concatenate([arr[by:], np.full(by, False)])
-    
+
         self.time_in_day_3min = self.compute_time_in_day(self._timestamp_3min)
         self.time_in_day_5s = self.compute_time_in_day(self._timestamp_5s)
 
         # normalize by spatial length and time window; unit: veh/m for flow, veh/m for density
-        self.veh_flow_3min = self._vdist_3min / (self.segment_lengths * 180) 
+        self.veh_flow_3min = self._vdist_3min / (self.segment_lengths * 180)
         self.veh_density_3min = self._vtime_3min / (self.segment_lengths * 180)
         # self.veh_speed_3min = np.divide(self._vdist_3min, self._vtime_3min)
-        # in the raw sequences, the NaN values means there is no vehicle in the road segment during the 
+        # in the raw sequences, the NaN values means there is no vehicle in the road segment during the
         # time interval. This happens more frequently for the per-5s stats. We can safely replace the NaNs
-        # in vehicle flow and density with 0s, as we are not changing the meaning. But we shouldn't do it 
-        # for speed, as a 0 speed means vehicles are stopped, not 'no vehicle here'. 
+        # in vehicle flow and density with 0s, as we are not changing the meaning. But we shouldn't do it
+        # for speed, as a 0 speed means vehicles are stopped, not 'no vehicle here'.
         self.veh_flow_3min = np.nan_to_num(self.veh_flow_3min, nan=0.0)
         self.veh_density_3min = np.nan_to_num(self.veh_density_3min, nan=0.0)
 
@@ -206,7 +243,7 @@ class SimBarcaExplore(SimBarcaForecast):
 
         if self.allow_shorter_input:
             shifted_out_index = [
-                shift_left(out_index[0, :].copy(), x) 
+                shift_left(out_index[0, :].copy(), x)
                 for x in reversed(range(1, self.input_window // self.step_size))
             ]
             out_index = np.concatenate([np.stack(shifted_out_index, axis=0), out_index], axis=0)
@@ -243,9 +280,18 @@ class SimBarcaExplore(SimBarcaForecast):
         self.in_index = torch.from_numpy(self.in_index.astype(np.bool_)).to(torch.bool)
         self.out_index = torch.from_numpy(self.out_index.astype(np.bool_)).to(torch.bool)
 
+    def _compute_coverage_mask(self, positions: List[Tuple[int, int]]) -> np.ndarray:
+        """
+        compute a boolean mask of shape (num_locations,) indicating which locations are covered
+        at the drones at current `positions`
+        """
+        # simply add up the per-drone coverage masks.
+        # If a location is covered by at least one drone, it is considered covered.
+        mask = sum([self.grid_id == self.grid_xy_to_id[(x, y)] for x, y in positions])
+
+        return (mask > 0).astype(np.int8)
 
     def load_or_compute_metadata(self):
-
         def safe_stats(array: np.ndarray) -> Dict[str, float]:
             values = np.asarray(array, dtype=np.float64)
             finite_mask = np.isfinite(values)
@@ -256,19 +302,17 @@ class SimBarcaExplore(SimBarcaForecast):
                 "mean": round(float(finite_values.mean()), 3),
                 "std": round(float(finite_values.std()), 3),
             }
-        
+
         # coarse grid assignment for spatial abstraction used by the RL agents
         grid_xy = np.floor_divide(self.node_coordinates, self.grid_size).astype(int)
         grid_xy = grid_xy - grid_xy.min(axis=0, keepdims=True)
         self.grid_xy = grid_xy
         grid_width = int(grid_xy[:, 0].max() + 1)
         grid_height = int(grid_xy[:, 1].max() + 1)
-        
+
         grid_id = grid_xy[:, 1] * grid_width + grid_xy[:, 0]
         self.grid_id = grid_id
-        grid_xy_to_id_np = np.unique(
-            np.concatenate([grid_xy, grid_id[:, None]], axis=1), axis=0
-        )
+        grid_xy_to_id_np = np.unique(np.concatenate([grid_xy, grid_id[:, None]], axis=1), axis=0)
         self.grid_xy_to_id = {(int(x), int(y)): int(gid) for x, y, gid in grid_xy_to_id_np}
 
         # self.visualzie_grid_ids(grid_width, grid_height, grid_xy, grid_ids)
@@ -279,23 +323,38 @@ class SimBarcaExplore(SimBarcaForecast):
             "node_coordinates": torch.as_tensor(self.node_coordinates, dtype=torch.float32),
             "segment_lengths": torch.as_tensor(self.segment_lengths, dtype=torch.float32),
             "cluster_id": torch.as_tensor(self.cluster_id, dtype=torch.long),
-            "grid_id": torch.as_tensor(self.grid_id, dtype=torch.long), # the grid ID of each road segment
-            "grid_xy": torch.as_tensor(grid_xy, dtype=torch.long), # the grid (x, y) coordinate of each road segment
-            "grid_xy_to_id": self.grid_xy_to_id, # mapping from grid (x, y) coordinate to grid ID
+            # the grid ID of each road segment
+            "grid_id": torch.as_tensor(self.grid_id, dtype=torch.long),  
+            # the grid (x, y) coordinate of each road segment
+            "grid_xy": torch.as_tensor(
+                grid_xy, dtype=torch.long
+            ),
+            # mapping from grid (x, y) coordinate to grid ID
+            # converted to string keys for omegaconf compatibility
+            "grid_xy_to_id": _tuple_keys_to_str(self.grid_xy_to_id),  
             "num_lanes": torch.as_tensor(self.num_lanes, dtype=torch.long),
             "data_stats": {
-                "source": self.data_stats['5s'],
-                "target": self.data_stats['3min'],
+                "source": self.data_stats["5s"],
+                "target": self.data_stats["3min"],
             },
+            "data_channels": self.data_channels,
+            "data_dim": self.data_dim,
             "data_null_value": self.data_null_value,
-            "input_size": (self.input_window * 12, self.adjacency.shape[0], len(self.data_channels['source'])),  # 5s resolution
-            "output_size": (self.pred_window // self.step_size, self.adjacency.shape[0], len(self.data_channels['target'])),  # 3min resolution
+            "input_size": (
+                self.input_window * 12,
+                self.adjacency.shape[0],
+                len(self.data_channels["source"]),
+            ),  # 5s resolution
+            "output_size": (
+                self.pred_window // self.step_size,
+                self.adjacency.shape[0],
+                len(self.data_channels["target"]),
+            ),  # 3min resolution
         }
 
         self.metadata = metadata
 
         return metadata
-
 
     @staticmethod
     def visualzie_grid_ids(grid_width, grid_height, grid_xy, grid_ids):
@@ -315,23 +374,66 @@ class SimBarcaExplore(SimBarcaForecast):
 
         # Add grid lines
         for x in range(grid_width):
-            plt.axvline(x - 0.5, color='gray', linewidth=0.5)
+            plt.axvline(x - 0.5, color="gray", linewidth=0.5)
         for y in range(grid_height):
-            plt.axhline(y - 0.5, color='gray', linewidth=0.5)
+            plt.axhline(y - 0.5, color="gray", linewidth=0.5)
 
-        plt.title('Grid IDs Visualization')
-        plt.xlabel('Grid X')
-        plt.ylabel('Grid Y')
+        plt.title("Grid IDs Visualization")
+        plt.xlabel("Grid X")
+        plt.ylabel("Grid Y")
 
         # Add text annotations for grid IDs
         for y in range(grid_height):
             for x in range(grid_width):
                 if grid_map[y, x] != -1:
-                    plt.text(x, y, str(grid_map[y, x]), ha='center', va='center',fontsize=10, color='black')
+                    plt.text(
+                        x,
+                        y,
+                        str(grid_map[y, x]),
+                        ha="center",
+                        va="center",
+                        fontsize=10,
+                        color="black",
+                    )
 
         plt.tight_layout()
-        plt.savefig('SimBarcaExplore_grid_ids.pdf', bbox_inches='tight')
+        plt.savefig("SimBarcaExplore_grid_ids.pdf", bbox_inches="tight")
         plt.close()
+
+    def summarize(self):
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        # Use seaborn darkgrid style
+        sns.set_theme(style="darkgrid")
+
+        # Draw a histogram for the 3 min flow and density values separately,
+        # and a scatter plot for flow vs density
+        flow_values = self.veh_flow_3min.numpy().flatten()
+        density_values = self.veh_density_3min.numpy().flatten()
+
+        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+
+        axes[0].hist(flow_values, bins=50, color='blue', alpha=0.7)
+        axes[0].set_title('3-min Flow Distribution')
+        axes[0].set_xlabel('Flow (veh/s)')
+        axes[0].set_ylabel('Data point count')
+
+        axes[1].hist(density_values, bins=50, color='green', alpha=0.7)
+        axes[1].set_title('3-min Density Distribution')
+        axes[1].set_xlabel('Density (veh/m)')
+        axes[1].set_ylabel('Data point count')
+
+        axes[2].scatter(np.average(self.veh_density_3min.numpy(), weights=self.segment_lengths, axis=-1).flatten(),
+                        np.average(self.veh_flow_3min.numpy(), weights=self.segment_lengths, axis=-1).flatten(),
+                        alpha=0.5) 
+        axes[2].set_title('Regional Avg Flow vs Density')
+        axes[2].set_xlabel('Density (veh/m)')
+        axes[2].set_ylabel('Flow (veh/s)')
+
+        fig.tight_layout()
+        fig.savefig('SimBarcaExplore_{}set_summary.pdf'.format(self.split))
+        plt.close(fig)
 
 if __name__ == "__main__":
     dataset = SimBarcaExplore(
@@ -343,6 +445,8 @@ if __name__ == "__main__":
         allow_shorter_input=True,
         pad_input=True,
     )
+    dataset.summarize()
+
     # supervised training data loading
     for k, v in dataset.metadata.items():
         if isinstance(v, (torch.Tensor, np.ndarray)):
