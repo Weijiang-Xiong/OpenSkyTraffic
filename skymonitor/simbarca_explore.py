@@ -241,6 +241,8 @@ class SimBarcaExplore(SimBarcaForecast):
         in_index, _ = self.get_sample_in_out_index(self._timestamp_5s)
         _, out_index = self.get_sample_in_out_index(self._timestamp_3min)
 
+        # shift the boolean mask to the left to allow shorter input windows at the beginning of each session
+        # e.g., if input_window=30min, step_size=3min, then we allow input windows of size 3,6,9,...,27 min
         if self.allow_shorter_input:
             shifted_out_index = [
                 shift_left(out_index[0, :].copy(), x)
@@ -248,12 +250,20 @@ class SimBarcaExplore(SimBarcaForecast):
             ]
             out_index = np.concatenate([np.stack(shifted_out_index, axis=0), out_index], axis=0)
 
-            steps_per_shift = (self.step_size * 60) // 5  # minutes→5 s ticks
+            steps_per_shift = int((self.step_size * 60) // 5)  # minutes→5 s ticks
             shifted_in_index = [
                 shift_left(in_index[0, :], steps_per_shift * x)
                 for x in reversed(range(1, self.input_window // self.step_size))
             ]
             in_index = np.concatenate([np.stack(shifted_in_index, axis=0), in_index], axis=0)
+
+            # check the time alignment between input and output indexes
+            # the input have higher frequency than output, so we need to scale the input index
+            # by the steps_per_shift factor
+            # for sii, soi in zip(in_index, out_index):
+            #     last_in = np.nonzero(sii)[0][-1]
+            #     first_out = np.nonzero(soi)[0][0]
+            #     assert (last_in // steps_per_shift + 1) == first_out, "Input index last True should be before output index first True."
 
         self.in_index = in_index
         self.out_index = out_index

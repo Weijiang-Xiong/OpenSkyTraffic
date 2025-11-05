@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skytraffic"
-version = "0.5.0"
+version = "0.6.0"
 description = "Your package description here"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,7 +39,7 @@ vis = [
 
 [tool.setuptools]
 # If you have one top-level package
-packages = ["skytraffic"]
+packages = ["skytraffic", "skymonitor"]
 
 [tool.ruff]
 target-version = "py311"

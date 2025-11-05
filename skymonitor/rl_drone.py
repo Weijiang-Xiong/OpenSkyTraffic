@@ -10,6 +10,7 @@
 import logging
 from enum import Enum
 from typing import Dict, List, Tuple, Optional
+from collections import deque
 
 import numpy as np
 import gymnasium as gym
@@ -20,9 +21,10 @@ from matplotlib import animation
 import torch
 import torch.nn as nn
 
-from simbarca_explore import SimBarcaExplore
+from skytraffic.utils.event_logger import setup_logger
+from skymonitor.simbarca_explore import SimBarcaExplore
 
-logger = logging.getLogger("default")
+logger = setup_logger(name="default", log_file="./project/rl_drone.log", level=logging.INFO)
 
 class DroneAction(Enum):
     """ A drone can stay, move up/down/left/right by at most 2 steps, or move diagonally by 1 step.
@@ -45,58 +47,29 @@ class DroneAction(Enum):
     # DOWN_RIGHT = 12
 
 
-class WindowedPredictor:
+class TrafficPredictor:
+    """ Basically a wrapper class for the neural network, the RL environment gives observation per-time-step (3 mins),
+        but the predictor will need a context window (e.g., 30 mins) to make predictions.
+        This class aims to handle the padding of input data.
+    """
 
-    def __init__(self, in_steps, in_channels, out_steps, out_channels, channel_names, data_stats):
+    def __init__(self, in_steps: int, in_channels: int, out_steps: int, out_channels: int):
         self.in_steps = in_steps
         self.in_channels = in_channels
         self.output_steps = out_steps
         self.out_channels = out_channels
-        self.channel_names = channel_names
-        self.data_stats = data_stats
-        self.history = None
+        self.coverage_mask = None
         self.prediction_network: nn.Module = None
-        self._rng = torch.Generator()
     
-    def predict(self, new_data: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
-        input_tensors = self.pack_history(new_data)
-        predictions = torch.rand(
-            (self.output_steps, 1570, self.out_channels),
-            dtype=torch.float32,
-            device=torch.device("cpu"),
-            generator=self._rng,
-        )
+    def predict(self, data_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+
+        predictions = {}
+
         return predictions
-    
-    def pack_history(self, observation: List[Dict[str, torch.Tensor]]) -> None:
-        """
-        Pack the data history into the tensor input required by the neural network
-        The history includes:
-            observation masks for the traffic states. 
-            masked traffic states with the traffic states of all road segments
-
-        The running mask starts fully observed because the dataset pads the historical window with
-        mean values. As new coverage arrives we roll the mask forward, filling the most recent
-        timestep with the latest coverage booleans so unobserved locations are flagged as False.
-        """
-        if self.history is None:
-            self.history = {
-                "observed_traffic": torch.zeros(
-                    (self.in_steps, observation['observed_traffic'].shape[1], self.in_channels),
-                    dtype=torch.float32,
-                ),
-                "coverage_mask": torch.zeros(
-                    (self.in_steps, observation['coverage_mask'].shape[0]),
-                    dtype=torch.int8,
-                )
-            }
-
-    def clear_history(self) -> None:
-        self.history = None
 
     def __call__(self, new_data: Dict):
         return self.predict(new_data)
-
+    
 
 class RewardCalculator:
 
@@ -116,7 +89,7 @@ class RewardCalculator:
         return self.compute(observation, pred, label)
 
 
-class MonitoringAgent:
+class CentralizedMonitoringAgent:
     def __init__(self, num_drones: int):
         self.policy_net: nn.Module = None
         self.num_drones = int(num_drones)
@@ -139,7 +112,7 @@ class MonitoringAgent:
 
 
 
-class UrbanTrafficEnv(gym.Env):
+class TrafficMonitorEnv(gym.Env):
     """ Design principles for the environment: 
         - **🎯 Agent Skill**: Collect traffic data in a grid map
         - **👀 Information**: Predicted traffic states, agent position, map structure
@@ -152,7 +125,7 @@ class UrbanTrafficEnv(gym.Env):
     def __init__(
         self,
         dataset: SimBarcaExplore,
-        predictor: WindowedPredictor,
+        predictor: TrafficPredictor,
         reward: RewardCalculator,
         num_drones: int,
     ):
@@ -167,7 +140,7 @@ class UrbanTrafficEnv(gym.Env):
         self.feature_dim = int(feature_dim)
 
         self.future_horizon = int(self.predictor.output_steps)
-        self.max_steps = self.dataset.sample_per_session
+        self.max_steps_per_session = self.dataset.sample_per_session
 
         self.grid_ids:np.ndarray = self.dataset.grid_id
         self.grid_xy_to_id: Dict[Tuple[int, int], int] = self.dataset.grid_xy_to_id
@@ -179,14 +152,6 @@ class UrbanTrafficEnv(gym.Env):
             DroneAction.DOWN: (0, -1),
             DroneAction.LEFT: (-1, 0),
             DroneAction.RIGHT: (1, 0),
-            # DroneAction.UP_UP.value: (0, 2), # --- IGNORE ---
-            # DroneAction.DOWN_DOWN.value: (0, -2), # --- IGNORE ---
-            # DroneAction.LEFT_LEFT.value: (-2, 0), # --- IGNORE ---
-            # DroneAction.RIGHT_RIGHT.value: (2, 0), # --- IGNORE ---
-            # DroneAction.UP_LEFT.value: (-1, 1), # --- IGNORE ---
-            # DroneAction.UP_RIGHT.value: (1, 1), # --- IGNORE ---
-            # DroneAction.DOWN_LEFT.value: (-1, -1), # --- IGNORE ---
-            # DroneAction.DOWN_RIGHT.value: (1, -1), # --- IGNORE ---
         }
 
         self.num_drones = int(num_drones)
@@ -203,6 +168,11 @@ class UrbanTrafficEnv(gym.Env):
                 "empty_mask": spaces.MultiBinary(n=[self.in_steps, self.num_locations]),
             }
         )
+        self.step_index: int = 0
+        self.data_sample: Dict[str, torch.Tensor] = None
+        self.positions: List[Tuple[int, int]] = None
+        self.positions_history = deque(maxlen=self.max_steps_per_session)
+        self.observation_history: List[Dict[str, torch.Tensor]] = deque(maxlen=self.max_steps_per_session)
 
         self._last_animation = None
         self._rng: np.random.Generator = np.random.default_rng()
@@ -246,13 +216,14 @@ class UrbanTrafficEnv(gym.Env):
 
         observation = self.build_observation(self.positions)
 
-        pred = self.predictor(observation)
+        pred = self.predictor(self.pack_predictor_context(observation))
 
-        reward_value = float(self.reward_fn(observation, pred, self.data_sample['future']))
+        reward_value = float(self.reward_fn(observation, pred, self.data_sample))
 
         self.positions_history.append(list(self.positions))
+        self.observation_history.append(observation)
 
-        terminated_flag = ( self.step_index >= (self.max_steps - 1) )
+        terminated_flag = ( self.step_index >= (self.max_steps_per_session - 1) )
         truncated_flag = False
 
         info = {
@@ -280,22 +251,15 @@ class UrbanTrafficEnv(gym.Env):
         positions = [self.available_positions[idx] for idx in indices]
         return positions
 
-
-    def _compute_coverage_mask(self, positions: List[Tuple[int, int]]) -> np.ndarray:
-        """
-        compute a boolean mask of shape (num_locations,) indicating which locations are covered
-        at the drones at current `positions`
-        """
-        # simply add up the per-drone coverage masks. 
-        # If a location is covered by at least one drone, it is considered covered.
-        mask = sum([self.dataset.grid_id==self.dataset.grid_xy_to_id[(x,y)] for x, y in positions])
-
-        return (mask > 0).astype(np.int8)
+    def compute_coverage_mask(self, positions: List[Tuple[int, int]]) -> np.ndarray:
+        return self.dataset._compute_coverage_mask(positions)
     
     def build_observation(self, positions: List[Tuple[int, int]]) -> Dict[str, np.ndarray]:
 
-        observed_traffic = self.data_sample["past"].cpu().numpy() # shape (in_steps, num_locations, feature_dim)
-        coverage_mask = self._compute_coverage_mask(positions) # shape (num_locations,)
+        # clean data from the dataset, for 1 time step 
+        # shape (in_steps, num_locations, feature_dim)
+        observed_traffic = self.data_sample["source"].cpu().numpy() 
+        coverage_mask = self.compute_coverage_mask(positions) # shape (num_locations,)
         empty_mask = np.isnan(observed_traffic).any(axis=-1).astype(np.int8)
         # one can check the nans only exists in the speed measurements ... 
         # np.allclose(np.isnan(observed_traffic[:,:,2]), empty_mask)
@@ -331,6 +295,24 @@ class UrbanTrafficEnv(gym.Env):
         if new_pos not in self.available_positions:
             new_pos = old_pos
         return new_pos
+
+    def pack_predictor_context(self, observation: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """ Pad the input data to proper size if needed.
+            Input data shape: (in_steps, num_locations, in_channels)
+        """
+        data_dict = {} 
+
+        # get pad data from the predictor's scaler mean
+
+        # get pad time encoding by linearly counting back from the first time step in the input data
+        # count_back_time = (
+        #     torch.arange(0, pad_len * 5, step=5) - pad_len * 5
+        # )  #  -pad_len*5, ... -10 ,-5
+        # count_back_time = count_back_time / (24 * 60 * 60.0)  # seconds in a day
+        # # count back from the first time step in the input data
+        # count_back_time = time_in_day_5s[0, 0] + repeat(count_back_time, "t -> t n", n=source.shape[1])
+
+        return data_dict
 
     def render(self):
         pass 
@@ -426,20 +408,18 @@ if __name__ == "__main__":
         step_size=3,
         num_unpadded_samples=20,
         allow_shorter_input=True,
-        pad_input=True,
+        pad_input=False,
     )
     dataset.active_session = 0
-    predictor = WindowedPredictor(
+    predictor = TrafficPredictor(
         in_steps=dataset.metadata['input_size'][0],
         in_channels=dataset.metadata['input_size'][2],
         out_steps=dataset.metadata['output_size'][0],
         out_channels=dataset.metadata['output_size'][2],
-        channel_names=dataset.metadata['data_channels'],
-        data_stats=dataset.metadata['data_stats'],
     )
     reward_calculator = RewardCalculator()
     num_drones = 10
-    env = UrbanTrafficEnv(
+    env = TrafficMonitorEnv(
         dataset=dataset,
         predictor=predictor,
         reward=reward_calculator,
@@ -448,12 +428,12 @@ if __name__ == "__main__":
     from stable_baselines3.common.env_checker import check_env
     check_env(env, warn=True)
 
-    agent = MonitoringAgent(num_drones=num_drones)
+    agent = CentralizedMonitoringAgent(num_drones=num_drones)
     agent.bind_action_space(env.action_space)
 
     observation, info = env.reset()
-    print("Initial observation keys:", observation.keys())
-    print("Initial coverage ratio:", observation["coverage_mask"].mean())
+    logger.info("Initial observation keys:{}".format(observation.keys()))
+    logger.info("Initial coverage ratio: {}".format(observation["coverage_mask"].mean()))
 
     done = False
     episode_reward = 0.0
@@ -463,11 +443,15 @@ if __name__ == "__main__":
         observation, reward, done, _, step_info = env.step(actions)
         episode_reward += reward
         step_count += 1
-        print(f"Step {step_count}: reward={reward:.3f}, done={done}, coverage={observation['coverage_mask'].mean():.3f}")
+        logger.info(
+            "Step {}: reward={:.3f}, done={}, coverage={:.3f}".format(
+                step_count, reward, done, observation["coverage_mask"].mean()
+            )
+        )
 
     anim = env.render_episode()
-    writer = animation.PillowWriter(fps=1)
+    writer = animation.PillowWriter(fps=5)
     anim.save("drone_paths.gif", writer=writer, dpi=120)
-    print("Saved animation to drone_paths.gif at 5 fps")
+    logger.info("Saved animation to drone_paths.gif")
 
     env.close()
