@@ -395,7 +395,8 @@ class MTGNN(BaseModel):
         self._logger = getLogger()
         
         # Initialize scaler from metadata if available
-        self.adapt_to_metadata(metadata)
+        if metadata is not None:
+            self.adapt_to_metadata(metadata)
 
         self.task_level = 0
         self.idx = torch.arange(self.num_nodes)

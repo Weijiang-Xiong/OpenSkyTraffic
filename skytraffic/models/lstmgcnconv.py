@@ -48,7 +48,8 @@ class LSTMGCNConv(BaseModel):
         self.adjacency_hop = adjacency_hop
         self.norm_label_for_loss = norm_label_for_loss
         self.edge_index: torch.Tensor
-        self.adapt_to_metadata(metadata)
+        if metadata is not None:
+            self.adapt_to_metadata(metadata)
         
         self.spatial_encoding = LearnedPositionalEncoding(d_model=d_model, max_len=self.num_nodes)
         self.ld_embedding = ValueEmbedding(d_model=d_model, assume_clean_input=not np.isnan(data_null_value))

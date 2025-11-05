@@ -54,8 +54,10 @@ class PatchedMVLSTMGCNConv(BaseModel):
         self.norm_label_for_loss = norm_label_for_loss
         self.temp_patching = temp_patching
         self.edge_index: torch.Tensor
-        self.adapt_to_metadata(metadata)
         self.pred_feat = pred_feat
+
+        if metadata is not None:
+            self.adapt_to_metadata(metadata)
         
         self.patching = nn.Conv2d(in_channels=feature_dim * temp_patching, out_channels=d_model, kernel_size=(temp_patching, 1), stride=(temp_patching, 1))
         self.spatial_pos_enc = LearnedPositionalEncoding(d_model=d_model, max_len=self.num_nodes)

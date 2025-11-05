@@ -112,7 +112,8 @@ class HiMSNet(nn.Module):
         self.loss = GeneralizedProbRegLoss(aleatoric=False, exponent=1, ignore_value=self.ignore_value)
         # weight for the regional task
         self.reg_loss_weight = reg_loss_weight
-        self.adapt_to_metadata(metadata)
+        if metadata is not None:
+            self.adapt_to_metadata(metadata)
         
     @property
     def device(self):
@@ -274,8 +275,6 @@ class HiMSNet(nn.Module):
         return self.post_process(self.make_prediction(source))
 
     def adapt_to_metadata(self, metadata):
-        
-        assert self.training, "metadata should be loaded in training mode"
         
         # keep the tensors and arrays on the same device as the model
         self.data_scalers = {
