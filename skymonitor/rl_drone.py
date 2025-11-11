@@ -11,6 +11,7 @@ import logging
 from enum import Enum
 from typing import Dict, List, Tuple, Optional
 from collections import deque
+from pathlib import Path
 
 import numpy as np
 import gymnasium as gym
@@ -23,8 +24,9 @@ import torch.nn as nn
 
 from skytraffic.utils.event_logger import setup_logger
 from skymonitor.simbarca_explore import SimBarcaExplore
+from skymonitor.patch_lgc import PatchedMVLSTMGCNConv
 
-logger = setup_logger(name="default", log_file="./project/rl_drone.log", level=logging.INFO)
+logger = setup_logger(name="default", log_file="./scratch/rl_drone.log", level=logging.INFO)
 
 class DroneAction(Enum):
     """ A drone can stay, move up/down/left/right by at most 2 steps, or move diagonally by 1 step.
@@ -36,73 +38,97 @@ class DroneAction(Enum):
     DOWN = 2
     LEFT = 3
     RIGHT = 4
-    # # these may make the action space too large, start with simpler actions first
-    # UP_UP = 5
-    # DOWN_DOWN = 6
-    # LEFT_LEFT = 7
-    # RIGHT_RIGHT = 8
-    # UP_LEFT = 9
-    # UP_RIGHT = 10
-    # DOWN_LEFT = 11
-    # DOWN_RIGHT = 12
 
 
 class TrafficPredictor:
     """ Basically a wrapper class for the neural network, the RL environment gives observation per-time-step (3 mins),
         but the predictor will need a context window (e.g., 30 mins) to make predictions.
-        This class aims to handle the padding of input data.
     """
 
-    def __init__(self, in_steps: int, in_channels: int, out_steps: int, out_channels: int):
-        self.in_steps = in_steps
-        self.in_channels = in_channels
-        self.output_steps = out_steps
-        self.out_channels = out_channels
-        self.coverage_mask = None
-        self.prediction_network: nn.Module = None
-    
+    def __init__(self, device: Optional[torch.device] = "cpu"):
+        self.device = torch.device(device)
+        self.net: nn.Module = PatchedMVLSTMGCNConv(
+            use_global=True,
+            feature_dim=3,
+            d_model=64,
+            temp_patching=3,
+            global_downsample_factor=1,
+            layernorm=True,
+            adjacency_hop=1,
+            dropout=0.1,
+            loss_ignore_value=float("nan"),
+            norm_label_for_loss=True,
+            input_steps=360,
+            pred_steps=10,
+            num_nodes=1570,
+            pred_feat=2,
+            data_null_value=0.0,
+        )
+        state_dict = torch.load("./scratch/patch_lgc_simbarca_explore/model_final.pth")
+        self.net.load_state_dict(state_dict['model'])
+        self.net.eval()
+        self.net.to(self.device)
+        self.in_steps = self.net.input_steps
+        self.output_steps = self.net.pred_steps
+
     def predict(self, data_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
 
-        predictions = {}
+        predictions = self.net(data_dict)
 
         return predictions
 
     def __call__(self, new_data: Dict):
         return self.predict(new_data)
-    
-
-class RewardCalculator:
-
-    def __init__(self):
-        # the agent is rewarded for outperforming a baseline policy
-        self.baseline_policy: nn.Module = None
-        self._rng = np.random.default_rng()
-    
-    def compute(self, observation:Dict, pred: Dict, label:torch.Tensor) -> float:
-        """
-        Compute reward based on predictor + newly collected data.
-        Could be uncertainty reduction, entropy drop, etc.
-        """
-        return float(self._rng.random())
-    
-    def __call__(self, observation:Dict, pred: Dict, label:torch.Tensor) -> float:
-        return self.compute(observation, pred, label)
 
 
 class CentralizedMonitoringAgent:
-    def __init__(self, num_drones: int):
+
+    def __init__(self, num_drones: int, grid: Dict = None):
         self.policy_net: nn.Module = None
         self.num_drones = int(num_drones)
-        self._rng = np.random.default_rng()
         self.positions: List[Tuple[int, int]] = None
         self.action_space: gym.Space = None
+        # the grid_id of all road segments, shape (num_locations,)
+        self.grid_id = grid.get("grid_id", None)
+        # the grid (x, y) coordinates of all road segments, shape (num_locations, 2)
+        self.grid_xy = grid.get("grid_xy", None)
+        # Dict[Tuple[int, int], int], the mapping from (x, y) to grid_id
+        # the keys are non-empty grid (x,y) coordinates, the values are the ids of non-empty grids
+        self.grid_xy_to_id = grid.get("grid_xy_to_id", None)
+        self.id_of_non_empty_grids = list(self.grid_xy_to_id.values())
+        self.xy_of_non_empty_grids = list(self.grid_xy_to_id.keys())
 
     def bind_action_space(self, action_space: spaces.Space) -> None:
-        """Call once to provide the environment's action space."""
+        """ The action space of the agent should match that of the environment. """
         self.action_space = action_space
 
-    def select_action(self, obs: Dict) -> List[DroneAction]:
-        """Choose next drone actions given observation for all drones."""
+    def select_action(self, obs: Dict, info: Dict) -> List[DroneAction]:
+        """ Choose next drone actions given observation for all drones.
+            Args:
+                obs: Dict, the observation from the environment, from function `TrafficMonitorEnv.build_observation`
+                info: Dict, the info from `TrafficMonitorEnv.step`
+
+            return: List[DroneAction], the actions for all drones
+        """
+        # shape (in_steps, num_locations, feature_dim), the observed traffic for the recent time step (3 mins)
+        # drone data has high frequency (5s), so we have in_steps = 36 for 3 mins
+        # in feature_dim, we have (flow, density, time-in-day), time-in-day is normalized to [0,1], e.g., 1/3 means 8am
+        current_traffic = obs['observed_traffic']
+        # shape (num_locations,), a True means the location is covered by drones
+        coverage_mask = obs['coverage_mask']
+        # predicted traffic for next 30 minutes, with 3 min time step 
+        # shape (batch_size, out_steps, num_locations, feature_dim)
+        predicted_traffic = info['batch_pred'].squeeze()
+
+        predicted_traffic_at_grid_x9y7 = predicted_traffic[:, self.grid_id==self.grid_xy_to_id[(9,7)], :]
+        flow_at_x9y7 = predicted_traffic_at_grid_x9y7[..., 0] # shape (out_steps, road_segments_in_grid_x9y7)
+        density_at_x9y7 = predicted_traffic_at_grid_x9y7[..., 1]  # shape (out_steps, road_segments_in_grid_x9y7)
+
+        
+        predicted_traffic_at_grid_id = predicted_traffic[:, self.grid_id==self.id_of_non_empty_grids[77], :]
+        flow_at_grid_id_42 = predicted_traffic_at_grid_id[..., 0]  # shape (out_steps, road_segments_in_grid_id_42)
+        density_at_grid_id_42 = predicted_traffic_at_grid_id[..., 1]  # shape (out_steps, road_segments_in_grid_id_42)
+
         sampled = self.action_space.sample()
         return [DroneAction(int(x)) for x in sampled]
 
@@ -126,19 +152,22 @@ class TrafficMonitorEnv(gym.Env):
         self,
         dataset: SimBarcaExplore,
         predictor: TrafficPredictor,
-        reward: RewardCalculator,
         num_drones: int,
     ):
         super().__init__()
         self.dataset = dataset
         self.predictor = predictor
-        self.reward_fn = reward
+        self.baseline_agent = None
 
-        in_steps, num_locations, feature_dim = self.dataset.metadata['input_size']
-        self.in_steps = int(in_steps)
+        in_data_steps, num_locations, feature_dim = self.dataset.metadata['input_size']
+        # we move our drones every `time_step` (3 min), and the input drone data are given every data_step (5s)
+        self.in_time_steps = int(self.dataset.input_window // self.dataset.step_size)
+        self.in_data_steps = int(in_data_steps)
+        self.data_pt_per_time_step = int(self.in_data_steps // self.in_time_steps)
         self.num_locations = int(num_locations)
         self.feature_dim = int(feature_dim)
 
+        self.predictor_input_steps = int(self.predictor.in_steps)
         self.future_horizon = int(self.predictor.output_steps)
         self.max_steps_per_session = self.dataset.sample_per_session
 
@@ -161,16 +190,16 @@ class TrafficMonitorEnv(gym.Env):
                 "observed_traffic": spaces.Box(
                     low=0.0,
                     high=np.inf,
-                    shape=(self.in_steps, self.num_locations, self.feature_dim),
+                    shape=(self.in_data_steps, self.num_locations, self.feature_dim),
                     dtype=np.float32,
                 ),
                 "coverage_mask": spaces.MultiBinary(n=self.num_locations),
-                "empty_mask": spaces.MultiBinary(n=[self.in_steps, self.num_locations]),
+                # "empty_mask": spaces.MultiBinary(n=[self.in_data_steps, self.num_locations]),
             }
         )
         self.step_index: int = 0
         self.data_sample: Dict[str, torch.Tensor] = None
-        self.positions: List[Tuple[int, int]] = None
+        self.positions: List[Tuple[int, int]] = []
         self.positions_history = deque(maxlen=self.max_steps_per_session)
         self.observation_history: List[Dict[str, torch.Tensor]] = deque(maxlen=self.max_steps_per_session)
 
@@ -182,31 +211,39 @@ class TrafficMonitorEnv(gym.Env):
            Returns observations and infos for all agents.
         """
         self.clear_state()
-
         super().reset(seed=seed)
+
         self._rng = np.random.default_rng(seed)
-        if self.dataset.active_session is None:
-            self.dataset.active_session = 0
-        
+        if isinstance(options, dict):
+            self.dataset.active_session = options.get("active_session", self._rng.integers(0, self.dataset.num_sessions))
+        else:
+            self.dataset.active_session = self._rng.integers(0, self.dataset.num_sessions)
+
         self.data_iterator = self.dataset.iterate_active_session()
         self.step_index, self.data_sample = next(self.data_iterator)
         assert self.step_index == 0, "Step index should start from 0 after reset."
 
         self.positions = self.init_agent_positions()
+
         self.positions_history.append(list(self.positions))
 
         observation = self.build_observation(self.positions)
+
+        self.observation_history.append(observation)
+
+        pred = self.predictor(self.pack_predictor_context())
+
         info = {
             "positions": list(self.positions),
             "step_index": 0,
             "session_index": self.dataset.active_session,
+            "batch_pred": pred['pred'].detach().cpu(),
+            "batch_gt": self.data_sample['target'].detach().cpu().unsqueeze(0),
         }
+
         return observation, info
 
     def step(self, actions: List[DroneAction]) -> Tuple[Dict, float, bool, bool, Dict]:
-        """ 
-        """
-
         try:
             self.step_index, self.data_sample = next(self.data_iterator)
         except StopIteration: # indicate the end of the episode
@@ -216,12 +253,13 @@ class TrafficMonitorEnv(gym.Env):
 
         observation = self.build_observation(self.positions)
 
-        pred = self.predictor(self.pack_predictor_context(observation))
-
-        reward_value = float(self.reward_fn(observation, pred, self.data_sample))
-
         self.positions_history.append(list(self.positions))
+
         self.observation_history.append(observation)
+
+        pred = self.predictor(self.pack_predictor_context())
+
+        reward_value = float(self.calculate_reward(observation, pred, self.data_sample))
 
         terminated_flag = ( self.step_index >= (self.max_steps_per_session - 1) )
         truncated_flag = False
@@ -230,6 +268,8 @@ class TrafficMonitorEnv(gym.Env):
             "positions": list(self.positions),
             "step_index": self.step_index,
             "session_index": self.dataset.active_session,
+            "batch_pred": pred['pred'].detach().cpu(),
+            "batch_gt": self.data_sample['target'].detach().cpu().unsqueeze(0),
         }
 
         return observation, reward_value, terminated_flag, truncated_flag, info
@@ -240,10 +280,25 @@ class TrafficMonitorEnv(gym.Env):
     def clear_state(self) -> None:
         self.step_index = 0
         self.data_sample = None
-        self.positions = []
-        self.positions_history = []
         self._last_animation = None
         self._rng: np.random.Generator = None
+        self.positions.clear()
+        self.positions_history.clear()
+        self.observation_history.clear()
+
+    def calculate_reward(
+        self,
+        observation: Dict[str, np.ndarray],
+        prediction: Dict[str, torch.Tensor],
+        ground_truth: Dict[str, torch.Tensor],
+    ) -> float:
+        """ The agent will be rewarded primariy based on improvements of prediction quality:
+                ** The predictor achieves a smaller error compared to a baseline agent (e.g., random flight plan) **
+            And in addition, we add rewards to encourage:
+                1. larger coverage
+                2. ??? 
+        """
+        return 0.0
 
     def init_agent_positions(self):
         """Initialize drone positions at start of episode."""
@@ -260,7 +315,8 @@ class TrafficMonitorEnv(gym.Env):
         # shape (in_steps, num_locations, feature_dim)
         observed_traffic = self.data_sample["source"].cpu().numpy() 
         coverage_mask = self.compute_coverage_mask(positions) # shape (num_locations,)
-        empty_mask = np.isnan(observed_traffic).any(axis=-1).astype(np.int8)
+        # only useful for speed channel, but since we exclude it from dataset, we don't need it for now
+        # empty_mask = np.isnan(observed_traffic[..., self.dataset.data_channels['source'].index('density')]).any(axis=-1).astype(np.int8)
         # one can check the nans only exists in the speed measurements ... 
         # np.allclose(np.isnan(observed_traffic[:,:,2]), empty_mask)
 
@@ -272,7 +328,7 @@ class TrafficMonitorEnv(gym.Env):
         observation = {
             "observed_traffic": observed_traffic,
             "coverage_mask": coverage_mask,
-            "empty_mask": empty_mask,
+            # "empty_mask": empty_mask,
         }
 
         return observation
@@ -296,26 +352,27 @@ class TrafficMonitorEnv(gym.Env):
             new_pos = old_pos
         return new_pos
 
-    def pack_predictor_context(self, observation: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def pack_predictor_context(self) -> Dict[str, torch.Tensor]:
         """ Pad the input data to proper size if needed.
             Input data shape: (in_steps, num_locations, in_channels)
         """
-        data_dict = {} 
+        data_dict = dict()
 
         # get pad data from the predictor's scaler mean
+        observed_time_steps = len(self.observation_history)
+        if observed_time_steps >= self.in_time_steps:
+            in_data = [self.observation_history[idx] for idx in range(-self.in_time_steps, 0)]
+        else:
+            in_data = self.observation_history
 
-        # get pad time encoding by linearly counting back from the first time step in the input data
-        # count_back_time = (
-        #     torch.arange(0, pad_len * 5, step=5) - pad_len * 5
-        # )  #  -pad_len*5, ... -10 ,-5
-        # count_back_time = count_back_time / (24 * 60 * 60.0)  # seconds in a day
-        # # count back from the first time step in the input data
-        # count_back_time = time_in_day_5s[0, 0] + repeat(count_back_time, "t -> t n", n=source.shape[1])
+        source = torch.tensor(np.concat([obs["observed_traffic"] for obs in in_data], axis=0))
+        padded_source = self.dataset.pad_backward_time(source=source, pad_len=self.predictor_input_steps-source.shape[0], zero_pad=True)
+        data_dict['source'] = padded_source.unsqueeze(0)  # add batch dimension for pytorch model
 
         return data_dict
 
     def render(self):
-        pass 
+        pass
 
 
     def render_episode(self):
@@ -399,59 +456,73 @@ class TrafficMonitorEnv(gym.Env):
 
         return animation_obj
 
+def eval_monitoring_agent(env: TrafficMonitorEnv, agent: CentralizedMonitoringAgent):
+
+    all_pred, all_gt = [], []
+    for active_session in range(env.dataset.num_sessions):
+        print("=== Running agents on session {} ===".format(active_session))
+        observation, info = env.reset(options={"active_session": active_session})
+        done = False
+        episode_reward = 0.0
+        step_count = 0
+        episode_pred, episode_gt = [], []
+        while not done:
+            actions = agent.select_action(observation, info)
+            observation, reward, done, _, info = env.step(actions)
+            step_count += 1
+            episode_reward += reward
+            episode_pred.append(info['batch_pred'])
+            episode_gt.append(info['batch_gt'])
+        
+        all_pred.append(torch.cat(episode_pred, dim=0))  # concat on batch dimension
+        all_gt.append(torch.cat(episode_gt, dim=0))
+    
+    all_pred = torch.cat(all_pred, dim=0)
+    all_gt = torch.cat(all_gt, dim=0)
+
+    return all_pred, all_gt
 
 if __name__ == "__main__":
     dataset = SimBarcaExplore(
         split="train",
-        input_window=30,
+        input_window=3,
         pred_window=30,
         step_size=3,
         num_unpadded_samples=20,
-        allow_shorter_input=True,
+        allow_shorter_input=False,
         pad_input=False,
+        norm_tid=False,
     )
-    dataset.active_session = 0
-    predictor = TrafficPredictor(
-        in_steps=dataset.metadata['input_size'][0],
-        in_channels=dataset.metadata['input_size'][2],
-        out_steps=dataset.metadata['output_size'][0],
-        out_channels=dataset.metadata['output_size'][2],
-    )
-    reward_calculator = RewardCalculator()
+    predictor = TrafficPredictor(device='cuda') # looks like I don't really need this wrapper class ...
+
     num_drones = 10
     env = TrafficMonitorEnv(
         dataset=dataset,
         predictor=predictor,
-        reward=reward_calculator,
         num_drones=num_drones,
     )
+
     from stable_baselines3.common.env_checker import check_env
     check_env(env, warn=True)
 
-    agent = CentralizedMonitoringAgent(num_drones=num_drones)
+    grid_info = {"grid_xy": dataset.grid_xy, "grid_id": dataset.grid_id, "grid_xy_to_id": dataset.grid_xy_to_id}
+    agent = CentralizedMonitoringAgent(num_drones=num_drones, grid=grid_info)
     agent.bind_action_space(env.action_space)
 
     observation, info = env.reset()
     logger.info("Initial observation keys:{}".format(observation.keys()))
     logger.info("Initial coverage ratio: {}".format(observation["coverage_mask"].mean()))
 
-    done = False
-    episode_reward = 0.0
-    step_count = 0
-    while not done:
-        actions = agent.select_action(observation)
-        observation, reward, done, _, step_info = env.step(actions)
-        episode_reward += reward
-        step_count += 1
-        logger.info(
-            "Step {}: reward={:.3f}, done={}, coverage={:.3f}".format(
-                step_count, reward, done, observation["coverage_mask"].mean()
-            )
-        )
+    with torch.no_grad():
+        all_pred, all_gt = eval_monitoring_agent(env, agent)
 
-    anim = env.render_episode()
-    writer = animation.PillowWriter(fps=5)
-    anim.save("drone_paths.gif", writer=writer, dpi=120)
-    logger.info("Saved animation to drone_paths.gif")
+    from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
+    evaluator = SimBarcaExploreEvaluator(
+        save_dir="scratch/rl_drone_evaluation",
+        visualize=True,
+        ignore_value=0.0,
+    )
+    eval_results = evaluator.calculate_error_metrics(pred=all_pred, label=all_gt, data_channels=dataset.data_channels['target'])
+    logger.info("Drone Monitoring Evaluation Results: {}".format(eval_results))
 
     env.close()

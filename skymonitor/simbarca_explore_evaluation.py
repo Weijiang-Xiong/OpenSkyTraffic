@@ -24,6 +24,7 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
         ignore_value: float = 0.0,
         eval_speed: bool = False,
         num_repeat: int = None,
+        convert_units: bool = False,
     ) -> None:
         super().__init__(save_dir, visualize, collect_pred, collect_data)
         self.save_dir 
@@ -33,6 +34,8 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
         self.ignore_value = ignore_value
         self.eval_speed = eval_speed
         self.num_repeat = num_repeat
+        # whether to convert the units of flow and density to standard units (vehicles per hour and vehicles per km)
+        self.convert_units = convert_units
 
     def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False) -> Dict[str, float]:
 
@@ -40,18 +43,35 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
         pred, label = all_preds['pred'], all_labels['target']
 
         data_channels = dataloader.dataset.data_channels['target']
+        metrics = self.calculate_error_metrics(pred, label, data_channels, verbose=verbose)
+
+        return metrics
+
+    def calculate_error_metrics(self, pred: torch.Tensor, label: torch.Tensor, data_channels, verbose:bool=False):
+
+        if self.convert_units:
+            logger.info("Evaluating flow, density and speed using unit veh/min, veh/km and km/h).")
+            # assuming the original units are vehicles per 5 minutes and vehicles per 100 meters
+            factors = {"flow": 60, "density": 1000, "speed": 3.6}
+        else:
+            logger.info("Evaluating flow, density and speed using original units (veh/s, veh/m, m/s).")
+            factors = {"flow": 1.0, "density": 1.0, "speed": 1.0}
+
         eval_res_by_horizon, avg_eval_res = [dict() for _ in range(len(data_channels))]
 
         for idx, channel in enumerate(data_channels):
             logger.info("Evaluating on variable {}".format(channel))
-            channel_eval_res_by_horizon = self.common_metrics_by_horizon(pred[..., idx], label[..., idx], verbose=verbose)
+            channel_eval_res_by_horizon = self.common_metrics_by_horizon(
+                factors[channel] * pred[..., idx], 
+                factors[channel] * label[..., idx], 
+                verbose=verbose)
             channel_avg_eval_res = self.average_metrics(channel_eval_res_by_horizon, verbose=verbose)
             eval_res_by_horizon[channel] = channel_eval_res_by_horizon
             avg_eval_res[channel] = channel_avg_eval_res
         
         if self.eval_speed:
             logger.info("Evaluating on derived variable speed, computed as flow / density")
-            speed_labels = all_labels[..., data_channels.index('flow')] / (all_labels[..., data_channels.index('density')])
+            speed_labels = label[..., data_channels.index('flow')] / (label[..., data_channels.index('density')])
             # mark invalid speed values with self.ignore_value
             speed_labels = torch.where(
                 torch.isfinite(speed_labels), 
@@ -65,7 +85,10 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
                 logger.info("Model does not predict speed directly, computing speed using predicted flow and density.")
                 speed_preds = pred[..., data_channels.index('flow')] / (pred[..., data_channels.index('density')] + 1e-6)
                 
-            speed_eval_res_by_horizon = self.common_metrics_by_horizon(speed_preds, speed_labels, verbose=verbose)
+            speed_eval_res_by_horizon = self.common_metrics_by_horizon(
+                factors['speed'] * speed_preds, 
+                factors['speed'] * speed_labels, 
+                verbose=verbose)
             speed_avg_eval_res = self.average_metrics(speed_eval_res_by_horizon, verbose=verbose)
             eval_res_by_horizon['speed'] = speed_eval_res_by_horizon
             avg_eval_res['speed'] = speed_avg_eval_res

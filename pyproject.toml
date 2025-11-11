@@ -36,6 +36,10 @@ vis = [
   "geopandas",
   "contextily",
 ]
+rl = [
+  "stable-baselines3",
+  "gymnasium",
+]
 
 [tool.setuptools]
 # If you have one top-level package

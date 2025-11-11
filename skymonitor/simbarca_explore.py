@@ -7,6 +7,9 @@ from einops import repeat
 
 from skytraffic.data.datasets.simbarca_base import SimBarcaForecast
 
+D_FREQ = 5  # the high-frequency drone data has a time step of 5 seconds
+T_STEP = 180  # we require prediction model to predict every 3 minutes (180 seconds)
+
 def _tuple_keys_to_str(d: Dict[Tuple[int, int], int]) -> Dict[str, int]:
     return {f"{k[0]}_{k[1]}": v for k, v in d.items()}
 
@@ -70,6 +73,7 @@ class SimBarcaExplore(SimBarcaForecast):
         allow_shorter_input=True,
         pad_input=True,
         augmentations: List = None,
+        norm_tid: bool = False,
     ):
         """
         Args:
@@ -88,6 +92,7 @@ class SimBarcaExplore(SimBarcaForecast):
         self.grid_size = grid_size
         self.allow_shorter_input = allow_shorter_input
         self.pad_input = pad_input
+        self.norm_tid = norm_tid # whether to normalize time-in-day encoding to have zero mean and unit variance
 
         if allow_shorter_input:
             assert input_window // step_size >= 2, (
@@ -153,27 +158,7 @@ class SimBarcaExplore(SimBarcaForecast):
         # if the observation window is smaller than input_window, pad it with mean values
         # this happens at the session begeinning because the drone just start to collect traffic data.
         if self.pad_input and source.shape[0] < self.metadata["input_size"][0]:
-            pad_len = self.metadata["input_size"][0] - source.shape[0]
-            pad_data = torch.ones((pad_len, source.shape[1], source.shape[2] - 1)) * (
-                torch.tensor(
-                    [
-                        self.data_stats["5s"]["flow"]["mean"],
-                        self.data_stats["5s"]["density"]["mean"],
-                        # self.data_stats['5s']['speed']['mean'],
-                    ]
-                ).reshape(1, 1, -1)
-            )
-            # count back 5s per step until the input window is reached
-            count_back_time = (
-                torch.arange(0, pad_len * 5, step=5) - pad_len * 5
-            )  #  -pad_len*5, ... -10 ,-5
-            count_back_time = count_back_time / (24 * 60 * 60.0)  # seconds in a day
-            # count back from the first time step in the input data
-            count_back_time = time_in_day_5s[0, 0] + repeat(count_back_time, "t -> t n", n=source.shape[1])
-            pad = torch.cat([pad_data, count_back_time.unsqueeze(-1)], dim=-1)
-
-            temporal_padding_mask = torch.cat(tensors=[torch.zeros(pad_len), torch.ones(source.shape[0])], dim=0).bool()
-            source = torch.cat([pad, source], dim=0)
+            source, temporal_padding_mask = self.pad_backward_time(source, return_mask=True)
         else:
             # no padding applied, all time steps have valid observations (though not all locations are observed)
             temporal_padding_mask = torch.ones(source.shape[0]).bool()
@@ -183,6 +168,46 @@ class SimBarcaExplore(SimBarcaForecast):
             data_dict["temporal_padding_mask"] = temporal_padding_mask
 
         return data_dict
+
+    def pad_backward_time(self, source: torch.Tensor, pad_len=None, zero_pad=False, return_mask=False) -> torch.Tensor:
+        """ 
+        Pad the input data backward in time with global mean values.
+        When the input data has less time steps (e.g., 1 step, 3 min) than the required input window (e.g., 30 min)
+        we pad the beginning with global mean values to reach the required input window size, and we calculate the 
+        time-in-day encodings by linear extrapolation.
+        
+        Args:
+            pad_len: if specified, pad by this length, otherwise pad to the full input window size.
+            zero_pad: if True, pad with zeros instead of global mean values.
+            return_mask: if True, also return a temporal padding mask indicating which time steps are padded (True for real data, False for padded data).
+        """
+        start_time_enc = source[0, 0, -1]  # time encoding of the first time step in the input data
+        dt = source[:, 0, -1].diff().mean().abs()  # average time difference between consecutive time steps
+
+        pad_len = self.metadata["input_size"][0] - source.shape[0] if pad_len is None else pad_len
+
+        pad_data = torch.ones((pad_len, source.shape[1], source.shape[2] - 1)) * (
+                torch.tensor(
+                    [
+                        self.data_stats["5s"]["flow"]["mean"] if not zero_pad else 0.0,
+                        self.data_stats["5s"]["density"]["mean"] if not zero_pad else 0.0,
+                        # self.data_stats['5s']['speed']['mean'] if not zero_pad else 0.0,
+                    ]
+                ).reshape(1, 1, -1)
+            )
+        
+        # count back dt per step until the input window is reached: -pad_len*dt, ... -2 *dt, -dt
+        count_back_time = ( torch.arange(- pad_len, 0, step=1) ) * dt
+        count_back_time = start_time_enc + repeat(count_back_time, "t -> t n", n=source.shape[1])
+        pad = torch.cat([pad_data, count_back_time.unsqueeze(-1)], dim=-1)
+
+        temporal_padding_mask = torch.cat(tensors=[torch.zeros(pad.shape[0]), torch.ones(source.shape[0])], dim=0).bool()
+        padded_source = torch.cat([pad, source], dim=0)
+
+        if return_mask:
+            return padded_source, temporal_padding_mask
+        else:
+            return padded_source
 
     def collate_fn(self, list_of_data_dicts: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
         batch_data_dict = {
@@ -219,10 +244,16 @@ class SimBarcaExplore(SimBarcaForecast):
 
         self.time_in_day_3min = self.compute_time_in_day(self._timestamp_3min)
         self.time_in_day_5s = self.compute_time_in_day(self._timestamp_5s)
+        # the simulation starts from 8am and ends roughly at 10 am, so the time in day values are uniformly distributed
+        # between 8/24 and 10/24, we can normalize them to have zero mean and unit variance for better training stability
+        # we do it using prior knowledge of the time range instead of calculating mean and std from data
+        if self.norm_tid: 
+            self.time_in_day_3min = np.sqrt(3) * (24 * self.time_in_day_3min - 9) 
+            self.time_in_day_5s = np.sqrt(3) * (24 * self.time_in_day_5s - 9)
 
         # normalize by spatial length and time window; unit: veh/m for flow, veh/m for density
-        self.veh_flow_3min = self._vdist_3min / (self.segment_lengths * 180)
-        self.veh_density_3min = self._vtime_3min / (self.segment_lengths * 180)
+        self.veh_flow_3min = self._vdist_3min / (self.segment_lengths * T_STEP)
+        self.veh_density_3min = self._vtime_3min / (self.segment_lengths * T_STEP)
         # self.veh_speed_3min = np.divide(self._vdist_3min, self._vtime_3min)
         # in the raw sequences, the NaN values means there is no vehicle in the road segment during the
         # time interval. This happens more frequently for the per-5s stats. We can safely replace the NaNs
@@ -231,8 +262,8 @@ class SimBarcaExplore(SimBarcaForecast):
         self.veh_flow_3min = np.nan_to_num(self.veh_flow_3min, nan=0.0)
         self.veh_density_3min = np.nan_to_num(self.veh_density_3min, nan=0.0)
 
-        self.veh_flow_5s = self._vdist_5s / (self.segment_lengths * 5)
-        self.veh_density_5s = self._vtime_5s / (self.segment_lengths * 5)
+        self.veh_flow_5s = self._vdist_5s / (self.segment_lengths * D_FREQ)
+        self.veh_density_5s = self._vtime_5s / (self.segment_lengths * D_FREQ)
         # self.veh_speed_5s = np.divide(self._vdist_5s, self._vtime_5s)
         self.veh_flow_5s = np.nan_to_num(self.veh_flow_5s, nan=0.0)
         self.veh_density_5s = np.nan_to_num(self.veh_density_5s, nan=0.0)
@@ -335,10 +366,8 @@ class SimBarcaExplore(SimBarcaForecast):
             "cluster_id": torch.as_tensor(self.cluster_id, dtype=torch.long),
             # the grid ID of each road segment
             "grid_id": torch.as_tensor(self.grid_id, dtype=torch.long),  
-            # the grid (x, y) coordinate of each road segment
-            "grid_xy": torch.as_tensor(
-                grid_xy, dtype=torch.long
-            ),
+            # the grid (x, y) coordinate of each road segment, shape (N,2)
+            "grid_xy": torch.as_tensor(grid_xy, dtype=torch.long),
             # mapping from grid (x, y) coordinate to grid ID
             # converted to string keys for omegaconf compatibility
             "grid_xy_to_id": _tuple_keys_to_str(self.grid_xy_to_id),  
@@ -445,6 +474,8 @@ class SimBarcaExplore(SimBarcaForecast):
         fig.savefig('SimBarcaExplore_{}set_summary.pdf'.format(self.split))
         plt.close(fig)
 
+        
+
 if __name__ == "__main__":
     dataset = SimBarcaExplore(
         split="train",
@@ -477,3 +508,11 @@ if __name__ == "__main__":
         print(step, new_data["source"].shape, new_data["target"].shape)
         if step >= 5:
             break
+
+    # evaluate trivial average value prediction
+    from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
+    evaluator = SimBarcaExploreEvaluator(
+        save_dir="scratch/simbarca_explore_baseline_results",
+        visualize=False, 
+        ignore_value=0.0
+        )

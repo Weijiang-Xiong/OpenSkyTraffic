@@ -86,19 +86,26 @@ class PatchedMVLSTMGCNConv(BaseModel):
         self.loss = masked_mae
 
     def preprocess(self, data: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
-        source = data["source"].to(self.device)
-        target = data["target"].to(self.device)
+        source = data.get("source", None)
+        target = data.get("target", None)
 
-        # replace the label values with nan, so that they will be ignored in the loss after normalization
-        if np.isnan(self.data_null_value):
-            target[target.isnan()] = self.loss_ignore_value
-        else:
-            target[target == self.data_null_value] = self.loss_ignore_value
+        if source is None and target is None:
+            raise ValueError("Both source and target are None in the input data.")
+        
+        if source is not None:
+            # normalize the data
+            source = source.to(self.device)
+            source = self.in_datascaler.transform(source, datadim_only=True)
 
-        # normalize the data
-        source = self.in_datascaler.transform(source)
-        if self.norm_label_for_loss:
-            target = self.out_datascaler.transform(target, datadim_only=False)
+        if target is not None:
+            target = target.to(self.device)
+            # replace the label values with nan, so that they will be ignored in the loss after normalization
+            if np.isnan(self.data_null_value):
+                target[target.isnan()] = self.loss_ignore_value
+            else:
+                target[target == self.data_null_value] = self.loss_ignore_value
+            if self.norm_label_for_loss:
+                target = self.out_datascaler.transform(target, datadim_only=False)
         
         return source, target
 
