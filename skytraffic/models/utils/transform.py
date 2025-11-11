@@ -61,6 +61,7 @@ class TensorDataScaler:
         self.mean = self.mean.to(device)
         self.std = self.std.to(device)
         self.inv_std = self.inv_std.to(device)
+        self.data_dim = self.data_dim.to(device)
         return self
     
     @property
