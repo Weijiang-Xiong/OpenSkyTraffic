@@ -74,6 +74,7 @@ class SimBarcaExplore(SimBarcaForecast):
         pad_input=True,
         augmentations: List = None,
         norm_tid: bool = False,
+        vectorized: bool = False
     ):
         """
         Args:
@@ -86,6 +87,7 @@ class SimBarcaExplore(SimBarcaForecast):
             allow_shorter_input: if True, allow the input window to be `1*step_size` at the beginning of each session, and increase by step_size each step until reaching input_window size. False means the input window is always input_window size.
             pad_input: if both `allow_shorter_input` and `pad_input` are True, the input will be padded with global average values to reach the `input_window` size. If `allow_shorter_input` is True but `pad_input` is False, the input will be of variable length.
             augmentations" : a list of data augmentation modules to apply during data loading, for supervised training only.
+            vectorized: if True, allow `active_session` to be a vector (1D torch.Tensor) for vectorized iteration in `iterate_active_session`. and the data samples from `__getitem__` will retrieve the data sample from all active sessions (with the same time index) and return a batch.
         """
         super().__init__(split, input_window, pred_window, step_size, num_unpadded_samples)
         self._active_session = None  # Current session data
@@ -93,6 +95,8 @@ class SimBarcaExplore(SimBarcaForecast):
         self.allow_shorter_input = allow_shorter_input
         self.pad_input = pad_input
         self.norm_tid = norm_tid # whether to normalize time-in-day encoding to have zero mean and unit variance
+        # allow active_session to be a vector (1D torch.Tensor) for vectorized iteration in `iterate_active_session`
+        self.vectorized = vectorized 
 
         if allow_shorter_input:
             assert input_window // step_size >= 2, (
@@ -127,30 +131,58 @@ class SimBarcaExplore(SimBarcaForecast):
         sample_idx = idx % self.sample_per_session
         if (self.active_session is not None) and (idx >= self.sample_per_session):
             print("WARNING: idx >= sample_per_session when active_session is set.")
+    
+        sample_in_index = self.in_index[sample_idx]
+        sample_out_index = self.out_index[sample_idx]
 
         time_in_day_5s = repeat(
             self.time_in_day_5s[self.in_index[sample_idx]],
             "t -> t n",
             n=self.veh_flow_5s.shape[-1],
         )
+
+        if self.vectorized and isinstance(active_session, torch.Tensor):
+            # vectorize over multiple active sessions, requires advanced indexing
+            active_session = active_session.unsqueeze(-1)  # shape (B,1)
+            sample_in_index = sample_in_index.nonzero(as_tuple=True)[0].unsqueeze(0)  # shape (1, Tin)
+            sample_out_index = sample_out_index.nonzero(as_tuple=True)[0].unsqueeze(0)  # shape (1, Tout)
+            time_in_day_5s = repeat(time_in_day_5s, "t n -> b t n", b=active_session.shape[0])  # shape (B, Tin, N)
+
         # stack channels along the last dim
         # past: 5s resolution [Tin, N, 4] => (flow, density, speed, time_in_day), without speed, the feature dimension becomes 3
         source = torch.stack(
             [
-                self.veh_flow_5s[active_session, self.in_index[sample_idx]],
-                self.veh_density_5s[active_session, self.in_index[sample_idx]],
-                # self.veh_speed_5s[active_session, self.in_index[sample_idx]],
+                self.veh_flow_5s[active_session, sample_in_index, :],
+                self.veh_density_5s[active_session, sample_in_index, :],
+                # self.veh_speed_5s[active_session, sample_in_index, :],
                 time_in_day_5s,
             ],
             dim=-1,
         )
 
+        # check the vectorized source data matches naive iteration
+        # naive_iter_version = torch.stack(
+        #     [
+        #         torch.stack(
+        #             [
+        #                 self.veh_flow_5s[x, sample_in_index.squeeze(), :],
+        #                 self.veh_density_5s[x, sample_in_index.squeeze(), :],
+        #                 # self.veh_speed_5s[x, sample_in_index, :],
+        #                 time_in_day_5s[0, :, :],
+        #             ],
+        #             dim=-1,
+        #         )
+        #         for x in active_session
+        #     ]
+        # )
+        # assert torch.allclose(source, naive_iter_version), "Vectorized source data does not match naive iteration."
+
         # future: low-frequency resolution [Tout, N, 3] => (flow, density, speed)
         target = torch.stack(
             [
-                self.veh_flow_3min[active_session, self.out_index[sample_idx]],
-                self.veh_density_3min[active_session, self.out_index[sample_idx]],
-                # self.veh_speed_3min[active_session, self.out_index[sample_idx]],
+                self.veh_flow_3min[active_session, sample_out_index, :],
+                self.veh_density_3min[active_session, sample_out_index, :],
+                # self.veh_speed_3min[active_session, sample_out_index, :],
             ],
             dim=-1,
         )
@@ -181,12 +213,19 @@ class SimBarcaExplore(SimBarcaForecast):
             zero_pad: if True, pad with zeros instead of global mean values.
             return_mask: if True, also return a temporal padding mask indicating which time steps are padded (True for real data, False for padded data).
         """
-        start_time_enc = source[0, 0, -1]  # time encoding of the first time step in the input data
-        dt = source[:, 0, -1].diff().mean().abs()  # average time difference between consecutive time steps
+        if self.vectorized:
+            N, T, P, C = source.shape
+            time_enc = source[0, :, 0, -1]
+        else:
+            T, P, C = source.shape
+            time_enc = source[:, 0, -1]
 
-        pad_len = self.metadata["input_size"][0] - source.shape[0] if pad_len is None else pad_len
+        start_time_enc = time_enc[0]  
+        dt = time_enc.diff().abs().mean()  # average time difference between consecutive time steps
 
-        pad_data = torch.ones((pad_len, source.shape[1], source.shape[2] - 1)) * (
+        pad_len = self.metadata["input_size"][0] - T if pad_len is None else pad_len
+
+        pad_data = torch.ones((pad_len, P, C-1)) * (
                 torch.tensor(
                     [
                         self.data_stats["5s"]["flow"]["mean"] if not zero_pad else 0.0,
@@ -198,11 +237,14 @@ class SimBarcaExplore(SimBarcaForecast):
         
         # count back dt per step until the input window is reached: -pad_len*dt, ... -2 *dt, -dt
         count_back_time = ( torch.arange(- pad_len, 0, step=1) ) * dt
-        count_back_time = start_time_enc + repeat(count_back_time, "t -> t n", n=source.shape[1])
+        count_back_time = start_time_enc + repeat(count_back_time, "T -> T P", P=P)
         pad = torch.cat([pad_data, count_back_time.unsqueeze(-1)], dim=-1)
 
-        temporal_padding_mask = torch.cat(tensors=[torch.zeros(pad.shape[0]), torch.ones(source.shape[0])], dim=0).bool()
-        padded_source = torch.cat([pad, source], dim=0)
+        if self.vectorized:
+            pad = repeat(pad, "T P C -> N T P C", N=N)
+
+        temporal_padding_mask = torch.cat(tensors=[torch.zeros(pad_len), torch.ones(T)], dim=0).bool()
+        padded_source = torch.cat([pad, source], dim=1 if self.vectorized else 0)
 
         if return_mask:
             return padded_source, temporal_padding_mask
@@ -210,6 +252,9 @@ class SimBarcaExplore(SimBarcaForecast):
             return padded_source
 
     def collate_fn(self, list_of_data_dicts: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+        if self.vectorized:
+            raise ValueError("collate_fn should not be used in vectorized mode.")
+        
         batch_data_dict = {
             key: torch.stack([data_dict[key] for data_dict in list_of_data_dicts], dim=0)
             for key in list_of_data_dicts[0].keys()
@@ -228,6 +273,12 @@ class SimBarcaExplore(SimBarcaForecast):
     @active_session.setter
     def active_session(self, idx):
         """Set current active session by index."""
+        if not self.vectorized:
+            assert isinstance(idx, int), "Active session index should be an integer."
+        else:
+            if isinstance(idx, list):
+                idx = torch.tensor(idx, dtype=torch.long)
+            assert isinstance(idx, torch.Tensor) and idx.dim() == 1, "Active session index should be a 1D torch.Tensor."
         self._active_session = idx % self.num_sessions
 
     def iterate_active_session(self):
@@ -357,6 +408,13 @@ class SimBarcaExplore(SimBarcaForecast):
         self.grid_xy_to_id = {(int(x), int(y)): int(gid) for x, y, gid in grid_xy_to_id_np}
 
         # self.visualzie_grid_ids(grid_width, grid_height, grid_xy, grid_ids)
+        input_size = [self.input_window * 12, self.adjacency.shape[0], len(self.data_channels["source"])]
+        output_size = [self.pred_window // self.step_size, self.adjacency.shape[0], len(self.data_channels["target"])]
+        if self.vectorized: # add the batch dimension
+            input_size = [len(self.active_session)] + input_size
+            output_size = [len(self.active_session)] + output_size
+        self.input_size = tuple(input_size)
+        self.output_size = tuple(output_size)
 
         metadata = {
             "adjacency": torch.as_tensor(self.adjacency, dtype=torch.long),
@@ -379,16 +437,8 @@ class SimBarcaExplore(SimBarcaForecast):
             "data_channels": self.data_channels,
             "data_dim": self.data_dim,
             "data_null_value": self.data_null_value,
-            "input_size": (
-                self.input_window * 12,
-                self.adjacency.shape[0],
-                len(self.data_channels["source"]),
-            ),  # 5s resolution
-            "output_size": (
-                self.pred_window // self.step_size,
-                self.adjacency.shape[0],
-                len(self.data_channels["target"]),
-            ),  # 3min resolution
+            "input_size": self.input_size,  # 5s resolution
+            "output_size": self.output_size,  # 3min resolution
         }
 
         self.metadata = metadata
@@ -486,7 +536,7 @@ if __name__ == "__main__":
         allow_shorter_input=True,
         pad_input=True,
     )
-    dataset.summarize()
+    # dataset.summarize()
 
     # supervised training data loading
     for k, v in dataset.metadata.items():
@@ -516,3 +566,9 @@ if __name__ == "__main__":
         visualize=False, 
         ignore_value=0.0
         )
+    
+    # test vectorized iteration
+    dataset.vectorized = True
+    dataset.active_session = torch.tensor([0,1,2,3])
+    for idx, data in dataset.iterate_active_session():
+        print("Index:", idx, "Data source shape:", data["source"].shape)
