@@ -1,6 +1,12 @@
 """ Gymnasium environment for SkyMonitor.
     see the `Gymnasium environment creation tutorial` at the link:
     https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation
+
+    Right now the baseline agent moves from the "good" agent's previous position.
+    So the reward is given only based on the advantage made by the immediate step.
+    This may be a bit problematic, as the advantage may require a few more steps to manifest. 
+    So perhaps I need to implement a history storage for the baseline agent as well, and 
+    let the baseline and "good" agent have diverged paths for a few steps. 
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -32,6 +38,7 @@ class TrafficMonitorEnv(gym.Env):
         dataset: SimBarcaExplore,
         predictor: TrafficPredictor,
         action_space: spaces.MultiDiscrete,
+        n_env: int = 1, 
     ):
         super().__init__()
         # components of the environment
@@ -71,20 +78,14 @@ class TrafficMonitorEnv(gym.Env):
             {
                 "observed_traffic": spaces.Box(
                     low=0.0,
-                    high=1.0,
+                    high=np.inf,
                     shape=self.dataset.input_size,
                     dtype=np.float32,
                 ),
                 "coverage_mask": spaces.MultiBinary(n=self.num_locations),
                 "batch_pred": spaces.Box(
                     low=0.0,
-                    high=1.0,
-                    shape=self.dataset.output_size,
-                    dtype=np.float32,
-                ),
-                "batch_gt": spaces.Box(
-                    low=0.0,
-                    high=1.0,
+                    high=np.inf,
                     shape=self.dataset.output_size,
                     dtype=np.float32,
                 ),
@@ -106,45 +107,60 @@ class TrafficMonitorEnv(gym.Env):
         """
         self.clear_state()
         super().reset(seed=seed)
-
+        
+        self.baseline_agent = RandomAgent(action_space=self.action_space)
         self._rng = np.random.default_rng(seed)
         if isinstance(options, dict):
-            self.dataset.active_session = options.get("active_session", self._rng.integers(0, self.dataset.num_sessions))
+            active_session = options.get("active_session", self._rng.integers(0, self.dataset.num_sessions))
         else:
-            self.dataset.active_session = self._rng.integers(0, self.dataset.num_sessions)
+            active_session = self._rng.integers(0, self.dataset.num_sessions)
+        self.dataset.active_session = active_session
 
         self.data_iterator = self.dataset.iterate_active_session()
         self.step_index, self.data_sample = next(self.data_iterator)
         assert self.step_index == 0, "Step index should start from 0 after reset."
 
         positions = self.init_agent_positions()
-        observation = self.build_observation(positions)
+        observation = self.get_traffic_obs_pred(positions)
+
         self.b_actions = self.baseline_agent.select_action(observation)
 
         self.update_history(positions, observation)
-        info = self.build_info()
+        info = self.get_info()
 
         return observation, info
 
     def step(self, actions: List[DroneAction]) -> Tuple[Dict, float, bool, bool, Dict]:
+        """ In the previous step, the agent took `actions` to move the drones to new positions.
+            The predictor makes prediction based on the traffic of the new positions, and we compare
+            it with the baseline agent's prediction to compute the reward.
+        """
         try:
             self.step_index, self.data_sample = next(self.data_iterator)
         except StopIteration: # indicate the end of the episode
             return dict(), 0.0, True, False, {}
 
-        positions = self.get_new_positions(actions)
-        observation = self.build_observation(positions)
-        self.b_actions = self.baseline_agent.select_action(observation)
+        pos = self.apply_actions(actions)
+        obs = self.get_traffic_obs_pred(pos)
 
-        reward_value = float(self.calculate_reward(observation['batch_pred'], self.data_sample))
+        # the positions chosen by the baseline agent (from last step observations)
+        b_positions = self.apply_actions(self.b_actions)
+        # the resulting observation and prediction
+        b_obs = self.get_traffic_obs_pred(b_positions)
+
+        # the reward is calculated based on the prediction advantage over the baseline's choices
+        reward_value = self.calculate_reward(obs['batch_pred'], b_obs['batch_pred'], self.data_sample['target'])
 
         terminated_flag = ( self.step_index >= (self.max_steps_per_session - 1) )
         truncated_flag = False
 
-        self.update_history(positions, observation)
-        info = self.build_info()
+        # update the baseline agent's action for next step
+        self.b_actions = self.baseline_agent.select_action(obs)
 
-        return observation, reward_value, terminated_flag, truncated_flag, info
+        self.update_history(pos, obs)
+        info = self.get_info()
+
+        return obs, reward_value, terminated_flag, truncated_flag, info
 
     def close(self):
         self.clear_state()
@@ -158,11 +174,7 @@ class TrafficMonitorEnv(gym.Env):
         self.positions_history.clear()
         self.observation_history.clear()
 
-    def calculate_reward(
-        self,
-        prediction: Dict[str, torch.Tensor],
-        ground_truth: Dict[str, torch.Tensor],
-    ) -> float:
+    def calculate_reward(self, pred: torch.Tensor, b_pred: torch.Tensor, gt: torch.Tensor) -> float:
         """ The agent will be rewarded primariy based on improvements of prediction quality:
                 ** The predictor achieves a smaller error compared to a baseline agent (e.g., random flight plan) **
             And in addition, we add rewards to encourage:
@@ -170,14 +182,14 @@ class TrafficMonitorEnv(gym.Env):
                 2. ??? 
         """
 
-        b_positions = self.get_new_positions(self.b_actions)
-        b_observation = self.build_observation(b_positions)
+        pred_error = torch.mean((pred - gt) ** 2).item()
+        b_pred_error = torch.mean((b_pred - gt) ** 2).item()
 
-        # prediction with the baseline agent's observation
-        # the data collected by the smart agent should be better than the baseline agent
-        b_pred = self._get_pred_with_new_obs(b_observation)
-
-        return 0.0
+        advantage = b_pred_error - pred_error
+        if advantage > 0:
+            return 1.0
+        else:
+            return 0.0
 
     def init_agent_positions(self):
         """Initialize drone positions at start of episode."""
@@ -191,13 +203,15 @@ class TrafficMonitorEnv(gym.Env):
     def _get_pred_with_new_obs(self, observation: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
         with torch.no_grad():
             pred = self.predictor(self.pack_predictor_context(observation))
-        return pred
+        return {k:v.squeeze() for k,v in pred.items()} # compress the batch dimension if it is 1
 
-    def build_observation(self, positions: List[Tuple[int, int]]) -> Dict[str, np.ndarray]:
+    def get_traffic_obs_pred(self, positions: List[Tuple[int, int]]) -> Dict[str, np.ndarray]:
+        """ get the observed traffic at the given positions, and the predicted traffic based on the observation
+        """
 
         # clean data from the dataset, for 1 time step 
         # shape (in_steps, num_locations, feature_dim)
-        observed_traffic = self.data_sample["source"].detach().cpu().numpy() 
+        observed_traffic = self.data_sample["source"].detach().cpu().numpy()
         coverage_mask = self.compute_coverage_mask(positions) # shape (num_locations,)
         # only useful for speed channel, but since we exclude it from dataset, we don't need it for now
         # empty_mask = np.isnan(observed_traffic[..., self.dataset.data_channels['source'].index('density')]).any(axis=-1).astype(np.int8)
@@ -216,11 +230,10 @@ class TrafficMonitorEnv(gym.Env):
 
         pred = self._get_pred_with_new_obs(observation)
         observation['batch_pred'] = pred['pred'].detach().cpu().numpy()
-        observation["batch_gt"] = self.data_sample['target'].detach().cpu().numpy()
 
         return observation
     
-    def build_info(self) -> Dict:
+    def get_info(self) -> Dict:
 
         info = {
             "positions": list(self.positions),
@@ -238,7 +251,7 @@ class TrafficMonitorEnv(gym.Env):
 
         assert len(self.observation_history) == (self.step_index + 1), "Observation history length mismatch."
 
-    def get_new_positions(self, actions: List[DroneAction]) -> List[Tuple[int, int]]:
+    def apply_actions(self, actions: List[DroneAction]) -> List[Tuple[int, int]]:
         new_positions: List[Tuple[int, int]] = []
         occupied = set()
         for idx, action in enumerate(actions):

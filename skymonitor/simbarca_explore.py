@@ -274,11 +274,15 @@ class SimBarcaExplore(SimBarcaForecast):
     def active_session(self, idx):
         """Set current active session by index."""
         if not self.vectorized:
-            assert isinstance(idx, int), "Active session index should be an integer."
+            try:
+                idx = int(idx)
+            except Exception as e:
+                raise ValueError(f"Active session should be an integer for non-vectorized mode: {e}")
         else:
-            if isinstance(idx, list):
-                idx = torch.tensor(idx, dtype=torch.long)
-            assert isinstance(idx, torch.Tensor) and idx.dim() == 1, "Active session index should be a 1D torch.Tensor."
+            try:
+                idx = torch.as_tensor(idx, dtype=torch.long)
+            except Exception as e:
+                raise ValueError(f"Active session should be a 1D torch.Tensor for vectorized mode: {e}")
         self._active_session = idx % self.num_sessions
 
     def iterate_active_session(self):
@@ -568,7 +572,10 @@ if __name__ == "__main__":
         )
     
     # test vectorized iteration
+    print("Testing vectorized iteration...")
     dataset.vectorized = True
     dataset.active_session = torch.tensor([0,1,2,3])
     for idx, data in dataset.iterate_active_session():
         print("Index:", idx, "Data source shape:", data["source"].shape)
+        if idx >= 5:
+            break

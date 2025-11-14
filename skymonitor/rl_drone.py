@@ -105,13 +105,13 @@ def eval_monitoring_agent(env: TrafficMonitorEnv, agent: CentralizedMonitoringAg
             observation, reward, done, truncated, info = env.step(actions)
             step_count += 1
             episode_reward += reward
-            episode_pred.append(info['batch_pred'])
-            episode_gt.append(info['batch_gt'])
+            episode_pred.append(torch.as_tensor(observation['batch_pred'])) # T, P, C
+            episode_gt.append(torch.as_tensor(observation['batch_gt'])) # T, P, C
         
-        all_pred.append(torch.cat(episode_pred, dim=0))  # concat on batch dimension
-        all_gt.append(torch.cat(episode_gt, dim=0))
+        all_pred.append(torch.stack(episode_pred, dim=0))  # stack on new batch dimension
+        all_gt.append(torch.stack(episode_gt, dim=0))
     
-    all_pred = torch.cat(all_pred, dim=0)
+    all_pred = torch.cat(all_pred, dim=0) # concatenate on existing batch dimension
     all_gt = torch.cat(all_gt, dim=0)
 
     return all_pred, all_gt
