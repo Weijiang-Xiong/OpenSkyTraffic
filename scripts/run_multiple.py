@@ -70,6 +70,18 @@ def experiment_adapted_gmm_models(command_list, train_script):
 
     return command_list
 
+def drone_only_small_cvg(train_script, command_list):
+    experiments = []
+
+    for cvg in [0.01, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20]:
+        experiments.append(
+            f"{train_script} --config-file config/himsnet/HiMSNet_RND.py dataset.train.drone_cvg={cvg} dataset.test.drone_cvg={cvg} model.use_ld=False train.output_dir=scratch/drone_only_cvg{int(100*cvg)}"
+        )
+
+    command_list.extend(experiments)
+
+    return command_list
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -80,12 +92,12 @@ if __name__ == "__main__":
     mode = args.mode
     command_list = []
 
-    # experiment_adapted_gmm_models(command_list, TRAIN_SCRIPT)
+    experiment_adapted_gmm_models(command_list, TRAIN_SCRIPT)
     experiment_simbarca_gmm_model_data_modality(TRAIN_SCRIPT, "config/himsnet/HiMSNet_GMM_RND.py", command_list, "simbarca_rnd")
     experiment_simbarca_gmm_model_data_modality(TRAIN_SCRIPT, "config/himsnet/HiMSNet_GMM_Full.py", command_list, "simbarca_full")
     for cfg in ["HiMSNet", "HiMSNet_RND"]:
         run_as_config(TRAIN_SCRIPT, f"config/himsnet/{cfg}.py", command_list)
-
+    drone_only_small_cvg(TRAIN_SCRIPT, command_list)
 
     if mode in ["vis", "both"]:
         eval_list = []
