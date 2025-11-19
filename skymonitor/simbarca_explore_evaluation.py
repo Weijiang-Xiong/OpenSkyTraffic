@@ -50,11 +50,11 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
     def calculate_error_metrics(self, pred: torch.Tensor, label: torch.Tensor, data_channels, verbose:bool=False):
 
         if self.convert_units:
-            logger.info("Evaluating flow, density and speed using unit veh/min, veh/km and km/h).")
+            logger.info("Evaluating traffic variables using converted units (e.g., veh/min, veh/km and km/h).")
             # assuming the original units are vehicles per 5 minutes and vehicles per 100 meters
             factors = {"flow": 60, "density": 1000, "speed": 3.6}
         else:
-            logger.info("Evaluating flow, density and speed using original units (veh/s, veh/m, m/s).")
+            logger.info("Evaluating traffic variables using original units (e.g., veh/s, veh/m, m/s).")
             factors = {"flow": 1.0, "density": 1.0, "speed": 1.0}
 
         eval_res_by_horizon, avg_eval_res = [dict() for _ in range(len(data_channels))]
