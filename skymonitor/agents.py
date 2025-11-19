@@ -1,3 +1,4 @@
+from copy import deepcopy
 from enum import Enum
 from typing import Dict, List, Tuple
 
@@ -20,23 +21,49 @@ class DroneAction(Enum):
     LEFT = 3
     RIGHT = 4
 
-class RandomAgent:
+class BaseAgent:
+
+    def __init__(self):
+        self.is_vectorized = False
+        self.action_space = None
+
+    def select_action(self, obs: Dict) -> List[DroneAction]:
+        """ Choose next drone actions given observation for all drones.
+            Args:
+                obs: Dict, the observation from the environment, from function `TrafficMonitorEnv.build_observation`
+                info: Dict, the info from `TrafficMonitorEnv.step`
+
+            return: List[DroneAction], the actions for all drones
+        """
+        raise NotImplementedError
+    
+    def set_action_space(self, action_space: spaces.Space) -> None:
+        """ Set the action space for the agent. """
+        self.action_space = action_space
+    
+    def vectorize_action_space(self, num_vec_env: int) -> None:
+        """ Turn the single-env action space into a vectorized action space for multiple envs.
+            Action space will be turned to spaces.Tuple of length num_vec_env.
+        """
+        self.is_vectorized = True
+        self.action_space = spaces.Tuple([deepcopy(self.action_space) for _ in range(num_vec_env)])
+
+class RandomAgent(BaseAgent):
 
     def __init__(self, action_space: spaces.Space):
         self.action_space = action_space
 
     def select_action(self, obs: Dict) -> List[DroneAction]:
         sampled = self.action_space.sample()
-        return [DroneAction(int(x)) for x in sampled]
+        return sampled
 
 
-class CentralizedMonitoringAgent:
+class CentralizedMonitoringAgent(BaseAgent):
 
-    def __init__(self, num_drones: int, grid: Dict = None):
+    def __init__(self, action_space: spaces.Space, grid: Dict = None):
         self.policy_net: DronePolicy = None
-        self.num_drones = int(num_drones)
+        self.action_space: spaces.Space = action_space
         self.positions: List[Tuple[int, int]] = None
-        self.action_space: gym.Space = None
         # the grid_id of all road segments, shape (num_locations,)
         self.grid_id = grid.get("grid_id", None)
         # the grid (x, y) coordinates of all road segments, shape (num_locations, 2)
@@ -47,9 +74,6 @@ class CentralizedMonitoringAgent:
         self.id_of_non_empty_grids = list(self.grid_xy_to_id.values())
         self.xy_of_non_empty_grids = list(self.grid_xy_to_id.keys())
 
-    def bind_action_space(self, action_space: spaces.Space) -> None:
-        """ The action space of the agent should match that of the environment. """
-        self.action_space = action_space
 
     def select_action(self, obs: Dict) -> List[DroneAction]:
         """ Choose next drone actions given observation for all drones.
@@ -69,17 +93,18 @@ class CentralizedMonitoringAgent:
         # shape (batch_size, out_steps, num_locations, feature_dim)
         predicted_traffic = obs['batch_pred'].squeeze()
 
-        predicted_traffic_at_grid_x9y7 = predicted_traffic[:, self.grid_id==self.grid_xy_to_id[(9,7)], :]
+        # the predictions can be batched (N T P C) or non-batched (T P C), the following works for both cases
+        predicted_traffic_at_grid_x9y7 = predicted_traffic[..., self.grid_id==self.grid_xy_to_id[(9,7)], :]
         flow_at_x9y7 = predicted_traffic_at_grid_x9y7[..., 0] # shape (out_steps, road_segments_in_grid_x9y7)
         density_at_x9y7 = predicted_traffic_at_grid_x9y7[..., 1]  # shape (out_steps, road_segments_in_grid_x9y7)
 
         
-        predicted_traffic_at_grid_id = predicted_traffic[:, self.grid_id==self.id_of_non_empty_grids[77], :]
+        predicted_traffic_at_grid_id = predicted_traffic[..., self.grid_id==self.id_of_non_empty_grids[77], :]
         flow_at_grid_id_42 = predicted_traffic_at_grid_id[..., 0]  # shape (out_steps, road_segments_in_grid_id_42)
         density_at_grid_id_42 = predicted_traffic_at_grid_id[..., 1]  # shape (out_steps, road_segments_in_grid_id_42)
 
         sampled = self.action_space.sample()
-        return [DroneAction(int(x)) for x in sampled]
+        return sampled
 
     def update(self, experiences: List[Tuple]) -> None:
         """Update policy from collected experience (RL training)."""

@@ -9,7 +9,7 @@
 """
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
 from gymnasium import spaces
@@ -89,7 +89,7 @@ def train_monitoring_agent_with_ppo(
     vec_env.close()
     return model
 
-def eval_monitoring_agent(env: TrafficMonitorEnv, agent: CentralizedMonitoringAgent):
+def collect_pred_and_gt(env: TrafficMonitorEnv, agent: CentralizedMonitoringAgent) -> Tuple[torch.Tensor, torch.Tensor]:
 
     all_pred, all_gt = [], []
     for active_session in range(env.dataset.num_sessions):
@@ -99,14 +99,14 @@ def eval_monitoring_agent(env: TrafficMonitorEnv, agent: CentralizedMonitoringAg
         truncated = False
         episode_reward = 0.0
         step_count = 0
-        episode_pred, episode_gt = [], []
+        episode_pred, episode_gt = [torch.as_tensor(observation['batch_pred']).squeeze()], [torch.as_tensor(info['batch_gt']).squeeze()]
         while not (done or truncated):
             actions = agent.select_action(observation)
             observation, reward, done, truncated, info = env.step(actions)
             step_count += 1
             episode_reward += reward
-            episode_pred.append(torch.as_tensor(observation['batch_pred'])) # T, P, C
-            episode_gt.append(torch.as_tensor(observation['batch_gt'])) # T, P, C
+            episode_pred.append(torch.as_tensor(observation['batch_pred'].squeeze())) # T, P, C
+            episode_gt.append(torch.as_tensor(info['batch_gt'].squeeze())) # T, P, C
         
         all_pred.append(torch.stack(episode_pred, dim=0))  # stack on new batch dimension
         all_gt.append(torch.stack(episode_gt, dim=0))
@@ -117,6 +117,8 @@ def eval_monitoring_agent(env: TrafficMonitorEnv, agent: CentralizedMonitoringAg
     return all_pred, all_gt
 
 if __name__ == "__main__":
+    num_drones = 10
+    num_vec_env = 3
     dataset = SimBarcaExplore(
         split="train",
         input_window=3,
@@ -126,23 +128,28 @@ if __name__ == "__main__":
         allow_shorter_input=False,
         pad_input=False,
         norm_tid=False,
+        vectorized=num_vec_env is not None,
     )
     predictor = TrafficPredictor(device='cuda') # looks like I don't really need this wrapper class ...
-    num_drones = 10
+    
     action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
     
     env = TrafficMonitorEnv(
         dataset=dataset,
         predictor=predictor,
         action_space=action_space,
+        num_vec_env=num_vec_env,
     )
 
     from stable_baselines3.common.env_checker import check_env
     check_env(env, warn=True)
 
     grid_info = {"grid_xy": dataset.grid_xy, "grid_id": dataset.grid_id, "grid_xy_to_id": dataset.grid_xy_to_id}
-    agent = CentralizedMonitoringAgent(num_drones=num_drones, grid=grid_info)
-    agent.bind_action_space(env.action_space)
+    agent = CentralizedMonitoringAgent(action_space=action_space, grid=grid_info)
+
+    agent.vectorize_action_space(num_vec_env=num_vec_env)
+    observation, info = env.reset()
+    env.step(agent.select_action(observation))  # test step
 
     # Example PPO usage:
     # train_monitoring_agent_with_ppo(total_timesteps=50_000, num_envs=2, num_drones=num_drones, predictor_device='cuda')
@@ -151,8 +158,27 @@ if __name__ == "__main__":
     logger.info("Initial observation keys:{}".format(observation.keys()))
     logger.info("Initial coverage ratio: {}".format(observation["coverage_mask"].mean()))
 
+    # test the agent, not vectorized
+    dataset = SimBarcaExplore(
+        split="test",
+        input_window=3,
+        pred_window=30,
+        step_size=3,
+        num_unpadded_samples=20,
+        allow_shorter_input=False,
+        pad_input=False,
+        norm_tid=False,
+        vectorized=False,
+    )
+    env = TrafficMonitorEnv(
+        dataset=dataset,
+        predictor=predictor,
+        action_space=action_space,
+        num_vec_env=None,
+    )
+    agent = CentralizedMonitoringAgent(action_space=action_space, grid=grid_info)
     with torch.no_grad():
-        all_pred, all_gt = eval_monitoring_agent(env, agent)
+        all_pred, all_gt = collect_pred_and_gt(env, agent)
 
     from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
     evaluator = SimBarcaExploreEvaluator(
