@@ -1,5 +1,5 @@
 """ Customized policy network for Stable Baselines3 PPO agent.
-    see the `advanced ehttps://stable-baselines3.readthedocs.io/en/master/guide/custom_policy.html
+    see https://stable-baselines3.readthedocs.io/en/master/guide/custom_policy.html#advanced-example
 """
 
 from typing import Callable, Dict, Tuple
@@ -61,7 +61,13 @@ class CustomMLPExtractor(nn.Module):
     def forward(self, features: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """ The forward function should return the feature for policy and value separately.
         """
-        return self.policy_net(features), self.value_net(features)
+        return self.forward_actor(features), self.forward_critic(features)
+    
+    def forward_actor(self, features: torch.Tensor) -> torch.Tensor:
+        return self.policy_net(features)
+    
+    def forward_critic(self, features: torch.Tensor) -> torch.Tensor:
+        return self.value_net(features) 
 
 
 class DronePolicy(ActorCriticPolicy):
@@ -76,6 +82,8 @@ class DronePolicy(ActorCriticPolicy):
         value_hidden_dim: int = 256,
         feature_extractor_class: BaseFeaturesExtractor = GridFeatureExtractor,
         feature_extractor_kwargs: Dict = None,
+        *args,
+        **kwargs,
     ):
 
         self.policy_hidden_dim = policy_hidden_dim
@@ -88,6 +96,8 @@ class DronePolicy(ActorCriticPolicy):
             net_arch=[], # leave it empty as the custom MLP extractor will consume required parameters directly.
             features_extractor_class=feature_extractor_class,
             features_extractor_kwargs=feature_extractor_kwargs,
+            *args,
+            **kwargs,
         )
 
     def _build_mlp_extractor(self) -> None:

@@ -22,72 +22,103 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from skytraffic.utils.event_logger import setup_logger
 from skymonitor.simbarca_explore import SimBarcaExplore
 from skymonitor.agents import CentralizedMonitoringAgent, DroneAction, DronePolicy
-from skymonitor.monitor_env import TrafficMonitorEnv
+from skymonitor.monitor_env import TrafficMonitorEnv, TrafficMonitorEnvVectorized
 from skymonitor.traffic_predictor import TrafficPredictor
 
 logger = setup_logger(name="default", log_file="./scratch/rl_drone.log", level=logging.INFO)
 
 def train_monitoring_agent_with_ppo(
-    total_timesteps: int = 100_000,
+    total_timesteps: int = 100,
     num_envs: int = 1,
     action_space: int = 10,
     learning_rate: float = 3e-4,
     log_dir: str = "scratch/ppo_monitoring_agent",
     seed: int = 0,
-    dataset_kwargs: Optional[Dict] = None,
     predictor_device: str = "cpu",
 ) -> PPO:
-    """Train PPO on the monitoring environment with the custom policy."""
-    dataset_defaults = dict(
-        split="train",
-        input_window=3,
-        pred_window=30,
-        step_size=3,
-        num_unpadded_samples=20,
-        allow_shorter_input=False,
-        pad_input=False,
-        norm_tid=False,
-    )
-    dataset_config = dataset_defaults if dataset_kwargs is None else {**dataset_defaults, **dataset_kwargs}
+	"""Train PPO on the monitoring environment with the custom policy."""
+	dataset_config = dict(
+		split='train',
+		input_window=3,
+		pred_window=30,
+		step_size=3,
+		num_unpadded_samples=20,
+		allow_shorter_input=False,
+		pad_input=False,
+		norm_tid=False,
+		vectorized=False,
+	)
 
-    set_random_seed(seed)
-    log_path = Path(log_dir)
-    log_path.mkdir(parents=True, exist_ok=True)
+	set_random_seed(seed)
+	log_path = Path(log_dir)
+	log_path.mkdir(parents=True, exist_ok=True)
 
-    def _make_env(rank: int):
-        def _init():
-            env_dataset = SimBarcaExplore(**dataset_config)
-            env_predictor = TrafficPredictor(device=predictor_device)
-            env = TrafficMonitorEnv(dataset=env_dataset, predictor=env_predictor, num_drones=num_drones)
-            env = Monitor(env)
-            env.reset(seed=seed + rank)
-            return env
+	def _make_env(rank: int):
+		def _init():
+			env_dataset = SimBarcaExplore(
+				split='train',
+				input_window=3,
+				pred_window=30,
+				step_size=3,
+				num_unpadded_samples=20,
+				allow_shorter_input=False,
+				pad_input=False,
+				norm_tid=False,
+				vectorized=False,
+			)
+			env_predictor = TrafficPredictor(device=predictor_device)
+			env = TrafficMonitorEnv(
+				dataset=env_dataset,
+				predictor=env_predictor,
+				action_space=action_space,
+				num_vec_env=None,
+			)
+			env = Monitor(env)
+			env.reset(seed=seed + rank)
+			return env
 
-        return _init
+		return _init
 
-    vec_env = DummyVecEnv([_make_env(rank) for rank in range(num_envs)])
+	# vec_env = DummyVecEnv([_make_env(rank) for rank in range(num_envs)])
 
-    model = PPO(
-        policy=DronePolicy,
-        env=vec_env,
-        learning_rate=learning_rate,
-        n_steps=max(32, 1024 // max(1, num_envs)),
-        batch_size=64,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        vf_coef=0.5,
-        max_grad_norm=0.5,
-        tensorboard_log=str(log_path),
-        verbose=1,
-        seed=seed,
-    )
+	vec_env = TrafficMonitorEnvVectorized(
+		dataset=SimBarcaExplore(
+			split='train',
+			input_window=3,
+			pred_window=30,
+			step_size=3,
+			num_unpadded_samples=20,
+			allow_shorter_input=False,
+			pad_input=False,
+			norm_tid=False,
+			vectorized=True,
+		),
+		predictor=TrafficPredictor(device=predictor_device),
+		action_space=action_space,
+		num_envs=num_envs,
+	)
 
-    model.learn(total_timesteps=total_timesteps)
-    checkpoint_path = log_path / "ppo_monitoring_agent"
-    model.save(checkpoint_path)
-    vec_env.close()
-    return model
+	model = PPO(
+		policy=DronePolicy,
+		env=vec_env,
+		learning_rate=learning_rate,
+		n_steps=max(32, 1024 // max(1, num_envs)),
+		batch_size=64,
+		gamma=0.99,
+		gae_lambda=0.95,
+		clip_range=0.2,
+		vf_coef=0.5,
+		max_grad_norm=0.5,
+		tensorboard_log=str(log_path),
+		verbose=1,
+		seed=seed,
+	)
+
+	model.learn(total_timesteps=total_timesteps)
+	checkpoint_path = log_path / 'ppo_monitoring_agent'
+	model.save(checkpoint_path)
+	vec_env.close()
+	return model
 
 def collect_pred_and_gt(env: TrafficMonitorEnv, agent: CentralizedMonitoringAgent) -> Tuple[torch.Tensor, torch.Tensor]:
 
@@ -152,7 +183,7 @@ if __name__ == "__main__":
     env.step(agent.select_action(observation))  # test step
 
     # Example PPO usage:
-    # train_monitoring_agent_with_ppo(total_timesteps=50_000, num_envs=2, num_drones=num_drones, predictor_device='cuda')
+    train_monitoring_agent_with_ppo(total_timesteps=50_000, num_envs=2, action_space=action_space, predictor_device='cuda')
 
     observation, info = env.reset()
     logger.info("Initial observation keys:{}".format(observation.keys()))
