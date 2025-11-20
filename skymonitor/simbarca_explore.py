@@ -193,7 +193,7 @@ class SimBarcaExplore(SimBarcaForecast):
 
         # if the observation window is smaller than input_window, pad it with mean values
         # this happens at the session begeinning because the drone just start to collect traffic data.
-        T_in = source.shape[-2] # source have shape (N, T_in, P, C) or (T_in, P, C) depending on vectorized mode
+        T_in = source.shape[-3] # source have shape (N, T_in, P, C) or (T_in, P, C) depending on vectorized mode
         if self.pad_input and T_in < self.input_size[0]:
             source, temporal_padding_mask = self.pad_backward_time(source, return_mask=True)
         else:
