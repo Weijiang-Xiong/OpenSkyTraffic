@@ -101,8 +101,6 @@ class DronePolicy(ActorCriticPolicy):
         )
 
     def extract_features(self, obs, features_extractor = None):
-        if obs['observed_traffic'].ndim == 5:
-            obs = {k:torch.flatten(v, start_dim=0, end_dim=1) for k, v in obs.items()}
         return self.features_extractor(obs)
     
     def _build_mlp_extractor(self) -> None:

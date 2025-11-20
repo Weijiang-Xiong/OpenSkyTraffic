@@ -6,7 +6,6 @@ https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation
 """
 
 from typing import Any, Dict, List, Optional, Tuple
-from copy import deepcopy
 
 import numpy as np
 import gymnasium as gym
@@ -61,17 +60,6 @@ class TrafficMonitorEnv(gym.Env):
 		indata_shape: Tuple = dataset.input_size
 		pred_shape: Tuple = dataset.output_size
 		cvg_mask_shape: int = dataset.adjacency.shape[0]
-
-		# if num_vec_env is not None:
-		# 	assert self.dataset.vectorized, 'The dataset must support vectorized mode.'
-		# 	# for observations shapes it is literally adding a batch dimension.
-		# 	# but for action space, we duplicate it as a Tuple space because we assume that
-		# 	# when creating the action space, the user doesn't need to consider vectorization.
-		# 	indata_shape = (num_vec_env,) + indata_shape
-		# 	pred_shape = (num_vec_env,) + pred_shape
-		# 	cvg_mask_shape = (num_vec_env, cvg_mask_shape)
-		# else:
-		# 	assert not self.dataset.vectorized, ('The dataset should not be vectorized when the env is non-vectorized.')
 
 		# action and observation spaces, required by gym.Env
 		self.action_space = action_space
@@ -465,13 +453,20 @@ class TrafficMonitorEnvVectorized(VecEnv):
 	def step_async(self, actions):
 		self._actions = actions
 
-	def step_wait(self):
+	def step_wait(self) -> Tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray, List[Dict]]:
+		# TODO now it's a dummy implementation ... works with the interface but does nothing
+		# copied from the parent class file. The return type should be VecEnvStepReturn
+		# VecEnvObs = Union[np.ndarray, dict[str, np.ndarray], tuple[np.ndarray, ...]]
+		# # VecEnvStepReturn is what is returned by the step() method
+		# # it contains the observation, reward, done, info for each env
+		# VecEnvStepReturn = tuple[VecEnvObs, np.ndarray, np.ndarray, list[dict]]
+
 		if self._actions is None:
 			raise RuntimeError('step_async() must be called before step_wait().')
 
 		obs, reward, terminated, truncated, info = self.core.step(self._actions)
 		done_flag = bool(terminated or truncated)
-		rewards = [reward for _ in range(self.num_envs)]
+		rewards = np.array([reward for _ in range(self.num_envs)])
 		dones = np.full(self.num_envs, done_flag, dtype=bool)
 		infos = [info for _ in range(self.num_envs)]
 		terminal_obs = obs if obs else self._last_obs
