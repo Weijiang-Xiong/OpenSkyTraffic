@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 import gymnasium as gym
 from gymnasium import spaces
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -27,7 +28,7 @@ class BaseAgent:
         self.is_vectorized = False
         self.action_space = None
 
-    def select_action(self, obs: Dict) -> List[DroneAction]:
+    def select_action(self, obs: Dict) -> np.ndarray | List[np.ndarray]:
         """ Choose next drone actions given observation for all drones.
             Args:
                 obs: Dict, the observation from the environment, from function `TrafficMonitorEnv.build_observation`
@@ -37,24 +38,19 @@ class BaseAgent:
         """
         raise NotImplementedError
     
-    def set_action_space(self, action_space: spaces.Space) -> None:
-        """ Set the action space for the agent. """
-        self.action_space = action_space
-    
-    def vectorize_action_space(self, num_vec_env: int) -> None:
-        """ Turn the single-env action space into a vectorized action space for multiple envs.
-            Action space will be turned to spaces.Tuple of length num_vec_env.
-        """
-        self.is_vectorized = True
-        self.action_space = spaces.Tuple([deepcopy(self.action_space) for _ in range(num_vec_env)])
 
 class RandomAgent(BaseAgent):
 
     def __init__(self, action_space: spaces.Space):
         self.action_space = action_space
 
-    def select_action(self, obs: Dict) -> List[DroneAction]:
-        sampled = self.action_space.sample()
+    def select_action(self, obs: Dict) -> np.ndarray | List[np.ndarray]:
+        traffic_data = obs['observed_traffic']
+        if traffic_data.ndim == 4:
+            # vectorized env
+            sampled = [self.action_space.sample() for _ in range(traffic_data.shape[0])]
+        else:
+            sampled = self.action_space.sample()
         return sampled
 
 
@@ -75,7 +71,7 @@ class CentralizedMonitoringAgent(BaseAgent):
         self.xy_of_non_empty_grids = list(self.grid_xy_to_id.keys())
 
 
-    def select_action(self, obs: Dict) -> List[DroneAction]:
+    def select_action(self, obs: Dict) -> np.ndarray | List[np.ndarray]:
         """ Choose next drone actions given observation for all drones.
             Args:
                 obs: Dict, the observation from the environment, from function `TrafficMonitorEnv.build_observation`
@@ -103,7 +99,11 @@ class CentralizedMonitoringAgent(BaseAgent):
         flow_at_grid_id_42 = predicted_traffic_at_grid_id[..., 0]  # shape (out_steps, road_segments_in_grid_id_42)
         density_at_grid_id_42 = predicted_traffic_at_grid_id[..., 1]  # shape (out_steps, road_segments_in_grid_id_42)
 
-        sampled = self.action_space.sample()
+        if predicted_traffic.ndim == 4:
+            # vectorized env
+            sampled = [self.action_space.sample() for _ in range(predicted_traffic.shape[0])]
+        else:
+            sampled = self.action_space.sample()
         return sampled
 
     def update(self, experiences: List[Tuple]) -> None:

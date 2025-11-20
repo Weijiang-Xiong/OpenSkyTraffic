@@ -5,7 +5,7 @@ https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation
 
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from copy import deepcopy
 
 import numpy as np
@@ -62,20 +62,16 @@ class TrafficMonitorEnv(gym.Env):
 		pred_shape: Tuple = dataset.output_size
 		cvg_mask_shape: int = dataset.adjacency.shape[0]
 
-		if num_vec_env is not None:
-			assert self.dataset.vectorized, 'The dataset must support vectorized mode.'
-			# for observations shapes it is literally adding a batch dimension.
-			# but for action space, we duplicate it as a Tuple space because we assume that
-			# when creating the action space, the user doesn't need to consider vectorization.
-			indata_shape = (num_vec_env,) + indata_shape
-			pred_shape = (num_vec_env,) + pred_shape
-			cvg_mask_shape = (num_vec_env, cvg_mask_shape)
-			action_space = spaces.MultiDiscrete(np.repeat(action_space.nvec[None, :], num_vec_env, axis=0))
-			self.baseline_agent.action_space = action_space  # change to the vectorized action space
-		else:
-			assert not self.dataset.vectorized, (
-				'The dataset should not be vectorized when the env is non-vectorized.'
-			)
+		# if num_vec_env is not None:
+		# 	assert self.dataset.vectorized, 'The dataset must support vectorized mode.'
+		# 	# for observations shapes it is literally adding a batch dimension.
+		# 	# but for action space, we duplicate it as a Tuple space because we assume that
+		# 	# when creating the action space, the user doesn't need to consider vectorization.
+		# 	indata_shape = (num_vec_env,) + indata_shape
+		# 	pred_shape = (num_vec_env,) + pred_shape
+		# 	cvg_mask_shape = (num_vec_env, cvg_mask_shape)
+		# else:
+		# 	assert not self.dataset.vectorized, ('The dataset should not be vectorized when the env is non-vectorized.')
 
 		# action and observation spaces, required by gym.Env
 		self.action_space = action_space
@@ -154,14 +150,14 @@ class TrafficMonitorEnv(gym.Env):
 		assert self.step_index == 0, 'Step index should start from 0 after reset.'
 
 		positions = self.init_agent_positions()
-		observation = self.get_traffic_obs_pred(positions)
+		obs = self.get_traffic_obs_pred(positions)
 
-		self.b_actions = self.baseline_agent.select_action(observation)
+		self.b_actions = self.baseline_agent.select_action(obs)
 
-		self.update_history(positions, observation)
+		self.update_history(positions, obs)
 		info = self.get_info()
 
-		return observation, info
+		return obs, info
 
 	def set_dataset_active_session(self, active_session_option=None) -> None:
 		active_session = active_session_option if active_session_option is not None else None
@@ -442,3 +438,70 @@ class TrafficMonitorEnv(gym.Env):
 		self._last_animation = animation_obj
 
 		return animation_obj
+	
+
+class TrafficMonitorEnvVectorized(VecEnv):
+	def __init__(self, dataset, predictor, action_space: spaces.MultiDiscrete, num_envs: int):
+
+		core_env = TrafficMonitorEnv(
+			dataset=dataset,
+			predictor=predictor,
+			action_space=action_space,	
+			num_vec_env=num_envs,
+			)
+
+		self.core = core_env
+		num_envs = core_env.num_vec_env or 1
+		obs_space = core_env.observation_space
+		super().__init__(num_envs, obs_space, core_env.action_space)
+		self._actions = None
+		self._last_obs: Optional[Dict[str, np.ndarray]] = None
+
+	def reset(self):
+		obs, info = self.core.reset()
+		self.reset_infos = info
+		return obs
+
+	def step_async(self, actions):
+		self._actions = actions
+
+	def step_wait(self):
+		if self._actions is None:
+			raise RuntimeError('step_async() must be called before step_wait().')
+
+		obs, reward, terminated, truncated, info = self.core.step(self._actions)
+		done_flag = bool(terminated or truncated)
+		rewards = [reward for _ in range(self.num_envs)]
+		dones = np.full(self.num_envs, done_flag, dtype=bool)
+		infos = [info for _ in range(self.num_envs)]
+		terminal_obs = obs if obs else self._last_obs
+
+		if done_flag:
+			obs, reset_info = self.core.reset()
+			self.reset_infos = reset_info
+			self._last_obs = obs
+		else:
+			self._last_obs = obs
+
+		self._actions = None
+		return obs, rewards, dones, infos
+
+	def close(self):
+		self.core.close()
+
+	def get_attr(self, attr_name: str, indices=None) -> List[Any]:
+		values = self._value_by_env(getattr(self.core, attr_name))
+		return [values[i] for i in self._get_indices(indices)]
+
+	def set_attr(self, attr_name: str, value: Any, indices=None) -> None:
+		# underlying env holds shared state, so we set once
+		setattr(self.core, attr_name, value)
+
+	def env_method(self, method_name: str, *method_args, indices=None, **method_kwargs) -> List[Any]:
+		result = getattr(self.core, method_name)(*method_args, **method_kwargs)
+		values = self._value_by_env(result)
+		return [values[i] for i in self._get_indices(indices)]
+
+	def env_is_wrapped(self, wrapper_class: type[gym.Wrapper], indices=None) -> List[bool]:
+		flag = isinstance(self.core, wrapper_class)
+		return [flag for _ in self._get_indices(indices)]

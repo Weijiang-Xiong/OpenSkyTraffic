@@ -37,17 +37,6 @@ def train_monitoring_agent_with_ppo(
     predictor_device: str = "cpu",
 ) -> PPO:
 	"""Train PPO on the monitoring environment with the custom policy."""
-	dataset_config = dict(
-		split='train',
-		input_window=3,
-		pred_window=30,
-		step_size=3,
-		num_unpadded_samples=20,
-		allow_shorter_input=False,
-		pad_input=False,
-		norm_tid=False,
-		vectorized=False,
-	)
 
 	set_random_seed(seed)
 	log_path = Path(log_dir)
@@ -172,13 +161,12 @@ if __name__ == "__main__":
         num_vec_env=num_vec_env,
     )
 
-    from stable_baselines3.common.env_checker import check_env
-    check_env(env, warn=True)
+    # from stable_baselines3.common.env_checker import check_env
+    # check_env(env, warn=True) # doesn't work for vectorized env
 
     grid_info = {"grid_xy": dataset.grid_xy, "grid_id": dataset.grid_id, "grid_xy_to_id": dataset.grid_xy_to_id}
     agent = CentralizedMonitoringAgent(action_space=action_space, grid=grid_info)
 
-    agent.vectorize_action_space(num_vec_env=num_vec_env)
     observation, info = env.reset()
     env.step(agent.select_action(observation))  # test step
 

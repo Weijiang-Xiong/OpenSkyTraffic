@@ -18,7 +18,7 @@ class GridFeatureExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space: spaces.Dict, hidden_dim: int = 256):
         traffic_shape = observation_space["observed_traffic"].shape
         coverage_shape = observation_space["coverage_mask"].shape
-        self.num_locations = int(coverage_shape[0])
+        self.num_locations = int(coverage_shape[-1])
         self.feature_dim = int(traffic_shape[-1])
         flattened_dim = (self.num_locations * self.feature_dim) + self.num_locations
 
@@ -100,6 +100,11 @@ class DronePolicy(ActorCriticPolicy):
             **kwargs,
         )
 
+    def extract_features(self, obs, features_extractor = None):
+        if obs['observed_traffic'].ndim == 5:
+            obs = {k:torch.flatten(v, start_dim=0, end_dim=1) for k, v in obs.items()}
+        return self.features_extractor(obs)
+    
     def _build_mlp_extractor(self) -> None:
         self.mlp_extractor = CustomMLPExtractor(
             input_dim=self.features_dim, # defined in the parent class, equal to the hidden dim of feature extractor
