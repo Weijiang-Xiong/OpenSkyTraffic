@@ -4,7 +4,7 @@ https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation
 
 
 """
-
+from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -30,11 +30,13 @@ class TrafficMonitorEnv(gym.Env):
 	- **🏆 Success**: the predictor has a smaller error compared to a naive flight plan
 	- **⏰ End**: A simulation session ends.
 
-	Note on vectorized mode:
+	Note on `TrafficMonitorEnv`'s vectorized mode:
+		0. This mode DOES NOT work with stable-baselines3's PPO implementation, use the wrapper `TrafficMonitorEnvVectorized` instead.
 	    1. The environment can be instantiated in vectorized mode by providing `num_vec_env` > 1.
 	    2. This mode literally retrieves multiple samples from different simulation sessions, but these samples
-	    have the same time index (e.g., all of them have input from 8:00 to 8:30 and predict from 8:30 to 9:00).
-	    3. the single-env action space are duplicated into a Tuple space
+	    have the same time index (e.g., all of them have input from 8:00 to 8:30 and predict from 8:30 to 9:00),
+		and they will terminate at the same time. 
+	    3. the single-env action space and observation spaces are kept unchanged to let PPO work correctly with its batching.
 	    4. the dataset have a tensor as its `active_session` to indicate which session is active for each vector env.
 	    5. the predictor now deals with batch_size = num_vec_env (in non-vectorized mode, batch_size = 1)
 	"""
@@ -45,24 +47,25 @@ class TrafficMonitorEnv(gym.Env):
 		self,
 		dataset: SimBarcaExplore,
 		predictor: TrafficPredictor,
-		action_space: spaces.MultiDiscrete,
+		num_drones: int,
 		num_vec_env: int = None,
+		seed: int = None,
 	):
 		super().__init__()
 		# components of the environment
 		self.dataset = dataset
 		self.predictor = predictor
-		self.baseline_agent = RandomAgent(action_space=action_space)
+		self.action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
+		self.baseline_agent = RandomAgent(action_space=self.action_space)
 		# settings and configurations
 		self.num_vec_env = num_vec_env
-		self.num_drones = int(action_space.nvec.shape[0])
+		self.num_drones = int(num_drones)
+		self.next_reset_seed: int = seed # the random seed to be used upon next reset
 
 		indata_shape: Tuple = dataset.input_size
 		pred_shape: Tuple = dataset.output_size
 		cvg_mask_shape: int = dataset.adjacency.shape[0]
 
-		# action and observation spaces, required by gym.Env
-		self.action_space = action_space
 		self.observation_space = spaces.Dict(
 			{
 				'observed_traffic': spaces.Box(
@@ -73,7 +76,7 @@ class TrafficMonitorEnv(gym.Env):
 				),
 				'coverage_mask': spaces.MultiBinary(n=cvg_mask_shape),
 				'batch_pred': spaces.Box(
-					low=0.0,
+					low=-np.inf,
 					high=np.inf,
 					shape=pred_shape,
 					dtype=np.float32,
@@ -113,7 +116,6 @@ class TrafficMonitorEnv(gym.Env):
 		self.positions_history = list()
 		self.observation_history: List[Dict[str, torch.Tensor]] = list()
 		self._last_animation = None
-		self._rng: np.random.Generator = np.random.default_rng()
 
 	@property
 	def is_vectorized(self) -> bool:
@@ -124,10 +126,12 @@ class TrafficMonitorEnv(gym.Env):
 		Returns observations and infos for all agents.
 		"""
 		self.clear_state()
-		super().reset(seed=seed)
-
-		self.baseline_agent = RandomAgent(action_space=self.action_space)
-		self._rng = np.random.default_rng(seed)
+		# each time we reset the environment, we use a new random seed because many things, including
+		# the drone locations, are generated using this seed, and we want the agent to explore 
+		# different initial positions rather than starting always from the same ones.
+		super().reset(seed=seed if seed is not None else self.next_reset_seed)
+		print(f"Environment reset with seed: {self.np_random_seed}")
+		self.next_reset_seed = self.np_random.integers(100_000_000, 999_999_999).item()
 
 		# accept override from options if provided, otherwise randomly select active session(s)
 		options = dict() if options is None else options
@@ -140,6 +144,7 @@ class TrafficMonitorEnv(gym.Env):
 		positions = self.init_agent_positions()
 		obs = self.get_traffic_obs_pred(positions)
 
+		self.baseline_agent = RandomAgent(action_space=self.action_space)
 		self.b_actions = self.baseline_agent.select_action(obs)
 
 		self.update_history(positions, obs)
@@ -151,9 +156,9 @@ class TrafficMonitorEnv(gym.Env):
 		active_session = active_session_option if active_session_option is not None else None
 		if active_session is None:
 			if self.is_vectorized:
-				active_session = self._rng.integers(0, self.dataset.num_sessions, size=self.num_vec_env)
+				active_session = self.np_random.integers(0, self.dataset.num_sessions, size=self.num_vec_env)
 			else:
-				active_session = self._rng.integers(0, self.dataset.num_sessions)
+				active_session = self.np_random.integers(0, self.dataset.num_sessions)
 		self.dataset.active_session = active_session
 
 	def step(self, actions: List[DroneAction]) -> Tuple[Dict, float, bool, bool, Dict]:
@@ -163,7 +168,8 @@ class TrafficMonitorEnv(gym.Env):
 		"""
 		try:
 			self.step_index, self.data_sample = next(self.data_iterator)
-		except StopIteration:  # indicate the end of the episode
+		# this is never reached normally since we check the termination flag with max_steps_per_session
+		except StopIteration:  
 			return dict(), 0.0, True, False, {}
 
 		pos = self.apply_actions(actions)
@@ -199,30 +205,34 @@ class TrafficMonitorEnv(gym.Env):
 		self.step_index = 0
 		self.data_sample = None
 		self._last_animation = None
-		self._rng: np.random.Generator = None
 		self.positions.clear()
 		self.positions_history.clear()
 		self.observation_history.clear()
 
-	def calculate_reward(self, pred: torch.Tensor, b_pred: torch.Tensor, gt: torch.Tensor) -> float:
+	def calculate_reward(self, pred: torch.Tensor, b_pred: torch.Tensor, gt: torch.Tensor) -> float | List[float]:
 		"""The agent will be rewarded primariy based on improvements of prediction quality:
 		    ** The predictor achieves a smaller error compared to a baseline agent (e.g., random flight plan) **
 		And in addition, we add rewards to encourage:
 		    1. larger coverage
 		    2. ???
 		"""
+		if not self.is_vectorized:
+			pred_error = torch.mean((pred - gt) ** 2).item()
+			b_pred_error = torch.mean((b_pred - gt) ** 2).item()
+			return 1.0 if (pred_error - b_pred_error) > 0 else 0.0
 
-		pred_error = torch.mean((pred - gt) ** 2).item()
-		b_pred_error = torch.mean((b_pred - gt) ** 2).item()
-
-		return 1.0 if (b_pred_error - pred_error) > 0 else 0.0
+		else: # return the per-env reward as a list of floats
+			pred_error = torch.mean((pred - gt) ** 2, dim=tuple(range(1, pred.ndim))) # (N, )
+			b_pred_error = torch.mean((b_pred - gt) ** 2, dim=tuple(range(1, b_pred.ndim)))  # (N, )
+			return ((b_pred_error - pred_error) > 0).cpu().numpy().tolist()
+		
 
 	def init_agent_positions(self):
 		"""Initialize drone positions at start of episode."""
 
 		def _init_agent_positions():
 			"""non-vectorized version"""
-			indices = self._rng.choice(len(self.available_positions), size=self.num_drones, replace=False)
+			indices = self.np_random.choice(len(self.available_positions), size=self.num_drones, replace=False)
 			positions = [self.available_positions[idx] for idx in indices]
 
 			return positions
@@ -297,15 +307,26 @@ class TrafficMonitorEnv(gym.Env):
 
 		return observation
 
-	def get_info(self) -> Dict:
-		info = {
-			'positions': list(self.positions),
-			'step_index': self.step_index,
-			'session_index': self.dataset.active_session,
-			'batch_gt': self.data_sample['target'].detach().cpu().numpy(),
-		}
+	def get_info(self) -> Dict | List[Dict]:
+		if not self.is_vectorized:
+			info = {
+				'positions': list(self.positions),
+				'step_index': self.step_index,
+				'session_index': self.dataset.active_session,
+				'gt': self.data_sample['target'].detach().cpu().numpy(),
+			}
+		else:
+			info = []
+			for env_idx, (pos, session_idx) in enumerate(zip(self.positions, self.dataset.active_session)):
+				info.append({
+					'positions': list(pos),
+					'step_index': self.step_index,
+					'session_index': session_idx,
+					'gt': self.data_sample['target'][env_idx].detach().cpu().numpy(),
+				})
 
 		return info
+
 
 	def update_history(self, positions: List[Tuple[int, int]], observation: Dict[str, np.ndarray]) -> None:
 		self.positions = positions
@@ -429,25 +450,24 @@ class TrafficMonitorEnv(gym.Env):
 	
 
 class TrafficMonitorEnvVectorized(VecEnv):
-	def __init__(self, dataset, predictor, action_space: spaces.MultiDiscrete, num_envs: int):
+	def __init__(self, dataset, predictor, num_drones: int, num_envs: int):
+
+		assert num_envs > 1, 'num_envs should be greater than 1 for vectorized environment.'
 
 		core_env = TrafficMonitorEnv(
 			dataset=dataset,
 			predictor=predictor,
-			action_space=action_space,	
+			num_drones=num_drones,
 			num_vec_env=num_envs,
 			)
-
 		self.core = core_env
-		num_envs = core_env.num_vec_env or 1
-		obs_space = core_env.observation_space
-		super().__init__(num_envs, obs_space, core_env.action_space)
+
+		super().__init__(num_envs, core_env.observation_space, core_env.action_space)
 		self._actions = None
-		self._last_obs: Optional[Dict[str, np.ndarray]] = None
+		self.info_buffer: List[Dict] = [{} for _ in range(self.num_envs)]
 
 	def reset(self):
-		obs, info = self.core.reset()
-		self.reset_infos = info
+		obs, self.reset_infos = self.core.reset()
 		return obs
 
 	def step_async(self, actions):
@@ -455,31 +475,27 @@ class TrafficMonitorEnvVectorized(VecEnv):
 
 	def step_wait(self) -> Tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray, List[Dict]]:
 		# TODO now it's a dummy implementation ... works with the interface but does nothing
-		# copied from the parent class file. The return type should be VecEnvStepReturn
-		# VecEnvObs = Union[np.ndarray, dict[str, np.ndarray], tuple[np.ndarray, ...]]
-		# # VecEnvStepReturn is what is returned by the step() method
-		# # it contains the observation, reward, done, info for each env
+		# The return type should be VecEnvStepReturn
 		# VecEnvStepReturn = tuple[VecEnvObs, np.ndarray, np.ndarray, list[dict]]
+		# where VecEnvObs = Union[np.ndarray, dict[str, np.ndarray], tuple[np.ndarray, ...]]
 
 		if self._actions is None:
 			raise RuntimeError('step_async() must be called before step_wait().')
 
-		obs, reward, terminated, truncated, info = self.core.step(self._actions)
+		obs, rewards, terminated, truncated, self.info_buffer = self.core.step(self._actions)
+
 		done_flag = bool(terminated or truncated)
-		rewards = np.array([reward for _ in range(self.num_envs)])
 		dones = np.full(self.num_envs, done_flag, dtype=bool)
-		infos = [info for _ in range(self.num_envs)]
-		terminal_obs = obs if obs else self._last_obs
+		rewards = np.array(rewards, dtype=np.float32)
 
 		if done_flag:
-			obs, reset_info = self.core.reset()
-			self.reset_infos = reset_info
-			self._last_obs = obs
-		else:
-			self._last_obs = obs
+			for env_idx in range(self.num_envs):
+				self.info_buffer[env_idx]['terminal_observation'] = {k: v[env_idx] for k, v in obs.items()}
+			obs = self.reset()
 
 		self._actions = None
-		return obs, rewards, dones, infos
+
+		return obs, rewards, dones, deepcopy(self.info_buffer)
 
 	def close(self):
 		self.core.close()

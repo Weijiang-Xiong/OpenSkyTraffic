@@ -99,9 +99,6 @@ class DronePolicy(ActorCriticPolicy):
             *args,
             **kwargs,
         )
-
-    def extract_features(self, obs, features_extractor = None):
-        return self.features_extractor(obs)
     
     def _build_mlp_extractor(self) -> None:
         self.mlp_extractor = CustomMLPExtractor(

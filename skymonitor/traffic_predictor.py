@@ -10,6 +10,8 @@ from skymonitor.patch_lgc import PatchedMVLSTMGCNConv
 class TrafficPredictor:
     """ Basically a wrapper class for the neural network, the RL environment gives observation per-time-step (3 mins),
         but the predictor will need a context window (e.g., 30 mins) to make predictions.
+        Not sure what's needed for this class, but leave the interface here just in case the input or output needs 
+        some format handling.
     """
 
     def __init__(self, device: Optional[torch.device] = "cpu"):

@@ -9,19 +9,19 @@
 """
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Tuple
 
 import torch
-from gymnasium import spaces
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.evaluation import evaluate_policy
 
 from skytraffic.utils.event_logger import setup_logger
 from skymonitor.simbarca_explore import SimBarcaExplore
-from skymonitor.agents import CentralizedMonitoringAgent, DroneAction, DronePolicy
+from skymonitor.agents import MonitoringAgent, DronePolicy
 from skymonitor.monitor_env import TrafficMonitorEnv, TrafficMonitorEnvVectorized
 from skymonitor.traffic_predictor import TrafficPredictor
 
@@ -42,33 +42,31 @@ def train_monitoring_agent_with_ppo(
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
 
-    action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
+    # def _make_env(rank: int):
+    #     def _init():
+    #         env_dataset = SimBarcaExplore(
+    #             split='train',
+    #             input_window=3,
+    #             pred_window=30,
+    #             step_size=3,
+    #             num_unpadded_samples=20,
+    #             allow_shorter_input=False,
+    #             pad_input=False,
+    #             norm_tid=False,
+    #             vectorized=False,
+    #         )
+    #         env_predictor = TrafficPredictor(device=predictor_device)
+    #         env = TrafficMonitorEnv(
+    #             dataset=env_dataset,
+    #             predictor=env_predictor,
+    #             num_drones=num_drones,
+    #             num_vec_env=None,
+    #         )
+    #         env = Monitor(env)
+    #         env.reset(seed=seed + rank)
+    #         return env
 
-    def _make_env(rank: int):
-        def _init():
-            env_dataset = SimBarcaExplore(
-                split='train',
-                input_window=3,
-                pred_window=30,
-                step_size=3,
-                num_unpadded_samples=20,
-                allow_shorter_input=False,
-                pad_input=False,
-                norm_tid=False,
-                vectorized=False,
-            )
-            env_predictor = TrafficPredictor(device=predictor_device)
-            env = TrafficMonitorEnv(
-                dataset=env_dataset,
-                predictor=env_predictor,
-                action_space=action_space,
-                num_vec_env=None,
-            )
-            env = Monitor(env)
-            env.reset(seed=seed + rank)
-            return env
-
-        return _init
+    #     return _init
 
     # vec_env = DummyVecEnv([_make_env(rank) for rank in range(num_envs)])
 
@@ -85,7 +83,7 @@ def train_monitoring_agent_with_ppo(
             vectorized=True,
         ),
         predictor=TrafficPredictor(device=predictor_device),
-        action_space=action_space,
+        num_drones=num_drones,
         num_envs=num_envs,
     )
 
@@ -112,7 +110,9 @@ def train_monitoring_agent_with_ppo(
     
     return model
 
-def collect_pred_and_gt(env: TrafficMonitorEnv, agent: CentralizedMonitoringAgent) -> Tuple[torch.Tensor, torch.Tensor]:
+def get_pred_and_gt_all_sessions(env: TrafficMonitorEnv, agent: MonitoringAgent, seed: int=42) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    env.reset(seed=seed)  # seed the environment once before the loop to initialize its random number generator.
 
     all_pred, all_gt = [], []
     for active_session in range(env.dataset.num_sessions):
@@ -122,14 +122,14 @@ def collect_pred_and_gt(env: TrafficMonitorEnv, agent: CentralizedMonitoringAgen
         truncated = False
         episode_reward = 0.0
         step_count = 0
-        episode_pred, episode_gt = [torch.as_tensor(observation['batch_pred']).squeeze()], [torch.as_tensor(info['batch_gt']).squeeze()]
+        episode_pred, episode_gt = [torch.as_tensor(observation['batch_pred']).squeeze()], [torch.as_tensor(info['gt']).squeeze()]
         while not (done or truncated):
             actions = agent.select_action(observation)
             observation, reward, done, truncated, info = env.step(actions)
             step_count += 1
             episode_reward += reward
             episode_pred.append(torch.as_tensor(observation['batch_pred'].squeeze())) # T, P, C
-            episode_gt.append(torch.as_tensor(info['batch_gt'].squeeze())) # T, P, C
+            episode_gt.append(torch.as_tensor(info['gt'].squeeze())) # T, P, C
         
         all_pred.append(torch.stack(episode_pred, dim=0))  # stack on new batch dimension
         all_gt.append(torch.stack(episode_gt, dim=0))
@@ -155,17 +155,15 @@ def check_environment_basics():
     )
     predictor = TrafficPredictor(device='cuda') # looks like I don't really need this wrapper class ...
 
-    action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
-
     env = TrafficMonitorEnv(
         dataset=dataset,
         predictor=predictor,
-        action_space=action_space,
+        num_drones=num_drones,
         num_vec_env=num_vec_env,
     )
 
     grid_info = {"grid_xy": dataset.grid_xy, "grid_id": dataset.grid_id, "grid_xy_to_id": dataset.grid_xy_to_id}
-    agent = CentralizedMonitoringAgent(action_space=action_space, grid=grid_info)
+    agent = MonitoringAgent(num_drones=num_drones, grid=grid_info, policy_net=None)
 
     observation, info = env.reset()
     logger.info("Initial observation keys:{}".format(observation.keys()))
@@ -180,10 +178,8 @@ if __name__ == "__main__":
     check_environment_basics()
 
     # Example PPO usage:
-    ppo_agent = train_monitoring_agent_with_ppo(total_timesteps=50_000, num_envs=2, num_drones=10, predictor_device='cuda')
-    trained_policy = ppo_agent.policy
+    ppo_agent = train_monitoring_agent_with_ppo(total_timesteps=500, num_envs=8, num_drones=10, predictor_device='cuda')
 
-    action_space = spaces.MultiDiscrete([len(DroneAction)] * 10)
     # test the agent, not vectorized
     dataset = SimBarcaExplore(
         split="test",
@@ -199,16 +195,22 @@ if __name__ == "__main__":
     env = TrafficMonitorEnv(
         dataset=dataset,
         predictor=TrafficPredictor(device='cuda'),
-        action_space=action_space,
+        num_drones=10,
         num_vec_env=None,
-    )   
+        seed=114514,
+    )
+
+    # Seed the environment once before the loop to initialize its random number generator.
+    for _ in range(10):
+        env.reset() # Subsequent calls with no seed will now produce different episodes.
     
     grid_info = {"grid_xy": dataset.grid_xy, "grid_id": dataset.grid_id, "grid_xy_to_id": dataset.grid_xy_to_id}
-    agent = CentralizedMonitoringAgent(action_space=action_space, grid=grid_info)
-    agent.policy_net = trained_policy
+    agent = MonitoringAgent(num_drones=10, grid=grid_info, policy_net=ppo_agent.policy)
 
-    with torch.no_grad():
-        all_pred, all_gt = collect_pred_and_gt(env, agent)
+    # see if the agent is collecting good rewards
+    mean_reward, std_reward = evaluate_policy(ppo_agent, env, n_eval_episodes=10)
+    logger.info(f"Evaluated over 10 episodes: mean reward = {mean_reward}, std = {std_reward}")
+
 
     from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
     evaluator = SimBarcaExploreEvaluator(
@@ -216,6 +218,11 @@ if __name__ == "__main__":
         visualize=True,
         ignore_value=0.0,
     )
+
+    # downstream task performance
+    with torch.no_grad():
+        all_pred, all_gt = get_pred_and_gt_all_sessions(env, agent, seed=42)
+
     eval_results = evaluator.calculate_error_metrics(pred=all_pred, label=all_gt, data_channels=dataset.data_channels['target'])
     logger.info("Drone Monitoring Evaluation Results: {}".format(eval_results))
 
