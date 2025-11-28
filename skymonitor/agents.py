@@ -1,12 +1,8 @@
 from enum import Enum
 from typing import Dict, List, Tuple
 
-import gymnasium as gym
-from gymnasium import spaces
-
 import numpy as np
-import torch
-import torch.nn as nn
+from gymnasium import spaces
 
 from skymonitor.policy_net import DronePolicy
 

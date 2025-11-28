@@ -10,14 +10,14 @@
 import logging
 from pathlib import Path
 from typing import Tuple
+from collections import defaultdict
 
+import numpy as np
 import torch
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import set_random_seed
-from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.evaluation import evaluate_policy
 
 from skytraffic.utils.event_logger import setup_logger
 from skymonitor.simbarca_explore import SimBarcaExplore
@@ -34,7 +34,7 @@ def train_monitoring_agent_with_ppo(
     learning_rate: float = 3e-4,
     log_dir: str = "scratch/ppo_monitoring_agent",
     seed: int = 0,
-    predictor_device: str = "cpu",
+    predictor_device: str = "cuda",
 ) -> PPO:
     """Train PPO on the monitoring environment with the custom policy."""
 
@@ -110,11 +110,12 @@ def train_monitoring_agent_with_ppo(
     
     return model
 
-def get_pred_and_gt_all_sessions(env: TrafficMonitorEnv, agent: MonitoringAgent, seed: int=42) -> Tuple[torch.Tensor, torch.Tensor]:
+def get_pred_gt_reward_all_sessions(env: TrafficMonitorEnv, agent: MonitoringAgent, seed: int=42) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
     env.reset(seed=seed)  # seed the environment once before the loop to initialize its random number generator.
 
-    all_pred, all_gt = [], []
+    all_pred, all_gt, all_reward = [[] for _ in range(3)]
+
     for active_session in range(env.dataset.num_sessions):
         print("=== Running agents on session {} ===".format(active_session))
         observation, info = env.reset(options={"active_session": active_session})
@@ -131,54 +132,22 @@ def get_pred_and_gt_all_sessions(env: TrafficMonitorEnv, agent: MonitoringAgent,
             episode_pred.append(torch.as_tensor(observation['batch_pred'].squeeze())) # T, P, C
             episode_gt.append(torch.as_tensor(info['gt'].squeeze())) # T, P, C
         
+        all_reward.append(episode_reward)
         all_pred.append(torch.stack(episode_pred, dim=0))  # stack on new batch dimension
         all_gt.append(torch.stack(episode_gt, dim=0))
     
     all_pred = torch.cat(all_pred, dim=0) # concatenate on existing batch dimension
     all_gt = torch.cat(all_gt, dim=0)
+    all_reward = torch.tensor(all_reward)
 
-    return all_pred, all_gt
+    return all_pred, all_gt, all_reward
 
-def check_environment_basics():
-    num_drones = 10
-    num_vec_env = None
-    dataset = SimBarcaExplore(
-        split="train",
-        input_window=3,
-        pred_window=30,
-        step_size=3,
-        num_unpadded_samples=20,
-        allow_shorter_input=False,
-        pad_input=False,
-        norm_tid=False,
-        vectorized=num_vec_env is not None,
-    )
-    predictor = TrafficPredictor(device='cuda') # looks like I don't really need this wrapper class ...
 
-    env = TrafficMonitorEnv(
-        dataset=dataset,
-        predictor=predictor,
-        num_drones=num_drones,
-        num_vec_env=num_vec_env,
-    )
-
-    grid_info = {"grid_xy": dataset.grid_xy, "grid_id": dataset.grid_id, "grid_xy_to_id": dataset.grid_xy_to_id}
-    agent = MonitoringAgent(num_drones=num_drones, grid=grid_info, policy_net=None)
-
-    observation, info = env.reset()
-    logger.info("Initial observation keys:{}".format(observation.keys()))
-    logger.info("Initial coverage ratio: {}".format(observation["coverage_mask"].mean()))
-    env.step(agent.select_action(observation))  # test step
-
-    from stable_baselines3.common.env_checker import check_env
-    check_env(env, warn=True) # doesn't work for vectorized env
 
 if __name__ == "__main__":
 
-    check_environment_basics()
-
     # Example PPO usage:
-    ppo_agent = train_monitoring_agent_with_ppo(total_timesteps=500, num_envs=8, num_drones=10, predictor_device='cuda')
+    ppo_agent = train_monitoring_agent_with_ppo(total_timesteps=500_000, num_envs=16, num_drones=10, predictor_device='cuda')
 
     # test the agent, not vectorized
     dataset = SimBarcaExplore(
@@ -200,17 +169,8 @@ if __name__ == "__main__":
         seed=114514,
     )
 
-    # Seed the environment once before the loop to initialize its random number generator.
-    for _ in range(10):
-        env.reset() # Subsequent calls with no seed will now produce different episodes.
-    
     grid_info = {"grid_xy": dataset.grid_xy, "grid_id": dataset.grid_id, "grid_xy_to_id": dataset.grid_xy_to_id}
     agent = MonitoringAgent(num_drones=10, grid=grid_info, policy_net=ppo_agent.policy)
-
-    # see if the agent is collecting good rewards
-    mean_reward, std_reward = evaluate_policy(ppo_agent, env, n_eval_episodes=10)
-    logger.info(f"Evaluated over 10 episodes: mean reward = {mean_reward}, std = {std_reward}")
-
 
     from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
     evaluator = SimBarcaExploreEvaluator(
@@ -218,12 +178,31 @@ if __name__ == "__main__":
         visualize=True,
         ignore_value=0.0,
     )
+    
+    eval_repeat = 5
+    seeds = np.random.choice(10000, size=eval_repeat, replace=False)
 
-    # downstream task performance
-    with torch.no_grad():
-        all_pred, all_gt = get_pred_and_gt_all_sessions(env, agent, seed=42)
+    eval_results = defaultdict(list)
+    for i in range(eval_repeat):
+        # downstream task performance
+        with torch.no_grad():
+            all_pred, all_gt, all_reward = get_pred_gt_reward_all_sessions(env, agent, seed=seeds[i])
+        res = evaluator.calculate_error_metrics(pred=all_pred, label=all_gt, data_channels=dataset.data_channels['target'])
+        for key, value in res.items():
+            eval_results[key].append(value)
+        eval_results["reward"].append(all_reward.mean().item())
 
-    eval_results = evaluator.calculate_error_metrics(pred=all_pred, label=all_gt, data_channels=dataset.data_channels['target'])
-    logger.info("Drone Monitoring Evaluation Results: {}".format(eval_results))
+    stats = {}
+    for key in eval_results:
+        stats[key] = sum(eval_results[key]) / len(eval_results[key])
+        stats["std_" + key] = np.std(eval_results[key])
+
+    logger.info("Drone Monitoring Evaluation Results: {}".format(stats))
 
     env.close()
+
+    # save eval_results and stats to a json file
+    import json
+    save_path = Path("scratch/rl_drone_evaluation") / "eval_results.json"
+    with open(save_path, "w") as f:
+        json.dump({"eval_results": eval_results, "stats": stats}, f, indent=4)

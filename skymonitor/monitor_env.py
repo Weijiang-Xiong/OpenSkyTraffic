@@ -5,6 +5,7 @@ https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation
 
 """
 from copy import deepcopy
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -23,7 +24,8 @@ from stable_baselines3.common.vec_env import VecEnv
 
 
 class TrafficMonitorEnv(gym.Env):
-	"""Design principles for the environment (following Gymnasium API):
+	"""
+	Design principles for the environment (following Gymnasium API):
 	- **🎯 Agent Skill**: Collect traffic data in a grid map
 	- **👀 Information**: Predicted traffic states, agent position, map structure
 	- **🎮 Actions**: Move up, down, left or right by 1 or 2 steps; Move diagonally by 1 step; Don't move
@@ -60,7 +62,9 @@ class TrafficMonitorEnv(gym.Env):
 		# settings and configurations
 		self.num_vec_env = num_vec_env
 		self.num_drones = int(num_drones)
-		self.next_reset_seed: int = seed # the random seed to be used upon next reset
+		# the random seed to be used upon next reset, in fact, each active session can be considered as a separate environment
+		# we want each reset to use a different active session and initial locations, so the agent can explore this dataset better
+		self.next_reset_seed: int = seed
 
 		indata_shape: Tuple = dataset.input_size
 		pred_shape: Tuple = dataset.output_size
@@ -155,10 +159,10 @@ class TrafficMonitorEnv(gym.Env):
 	def set_dataset_active_session(self, active_session_option=None) -> None:
 		active_session = active_session_option if active_session_option is not None else None
 		if active_session is None:
-			if self.is_vectorized:
-				active_session = self.np_random.integers(0, self.dataset.num_sessions, size=self.num_vec_env)
-			else:
+			if not self.is_vectorized:
 				active_session = self.np_random.integers(0, self.dataset.num_sessions)
+			else:
+				active_session = self.np_random.integers(0, self.dataset.num_sessions, size=self.num_vec_env)
 		self.dataset.active_session = active_session
 
 	def step(self, actions: List[DroneAction]) -> Tuple[Dict, float, bool, bool, Dict]:
@@ -247,11 +251,11 @@ class TrafficMonitorEnv(gym.Env):
 	def compute_coverage_mask(
 		self, positions: List[Tuple[int, int]] | List[List[Tuple[int, int]]]
 	) -> np.ndarray:
-		if self.is_vectorized:
+		if not self.is_vectorized:
+			return self.dataset._compute_coverage_mask(positions)
+		else:
 			masks = [self.dataset._compute_coverage_mask(pos) for pos in positions]
 			return np.stack(masks, axis=0)
-		else:
-			return self.dataset._compute_coverage_mask(positions)
 
 	def _get_pred_with_new_obs(self, observation: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
 		data_dict = dict()
@@ -447,7 +451,7 @@ class TrafficMonitorEnv(gym.Env):
 		self._last_animation = animation_obj
 
 		return animation_obj
-	
+
 
 class TrafficMonitorEnvVectorized(VecEnv):
 	def __init__(self, dataset, predictor, num_drones: int, num_envs: int):
@@ -516,3 +520,43 @@ class TrafficMonitorEnvVectorized(VecEnv):
 	def env_is_wrapped(self, wrapper_class: type[gym.Wrapper], indices=None) -> List[bool]:
 		flag = isinstance(self.core, wrapper_class)
 		return [flag for _ in self._get_indices(indices)]
+
+
+if __name__ == "__main__":
+	from skymonitor.agents import MonitoringAgent
+	from skytraffic.utils.event_logger import setup_logger
+	from stable_baselines3.common.env_checker import check_env
+
+	logger = setup_logger(name="default", log_file="./scratch/drone_monitor_env.log", level=logging.INFO)
+
+	num_drones = 10
+	num_vec_env = None
+	dataset = SimBarcaExplore(
+		split="train",
+		input_window=3,
+		pred_window=30,
+		step_size=3,
+		num_unpadded_samples=20,
+		allow_shorter_input=False,
+		pad_input=False,
+		norm_tid=False,
+		vectorized=num_vec_env is not None,
+	)
+	predictor = TrafficPredictor(device='cuda') # looks like I don't really need this wrapper class ...
+
+	env = TrafficMonitorEnv(
+		dataset=dataset,
+		predictor=predictor,
+		num_drones=num_drones,
+		num_vec_env=num_vec_env,
+	)
+
+	grid_info = {"grid_xy": dataset.grid_xy, "grid_id": dataset.grid_id, "grid_xy_to_id": dataset.grid_xy_to_id}
+	agent = MonitoringAgent(num_drones=num_drones, grid=grid_info, policy_net=None)
+
+	observation, info = env.reset()
+	logger.info("Initial observation keys:{}".format(observation.keys()))
+	logger.info("Initial coverage ratio: {}".format(observation["coverage_mask"].mean()))
+	env.step(agent.select_action(observation))  # test step
+	
+	check_env(env, warn=True) # doesn't work for vectorized env
