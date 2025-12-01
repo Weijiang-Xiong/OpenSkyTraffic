@@ -18,10 +18,11 @@ import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import set_random_seed
+from stable_baselines3.common.vec_env import DummyVecEnv
 
 from skytraffic.utils.event_logger import setup_logger
 from skymonitor.simbarca_explore import SimBarcaExplore
-from skymonitor.agents import MonitoringAgent, DronePolicy
+from skymonitor.agents import MonitoringAgent, DronePolicy, RandomAgent
 from skymonitor.monitor_env import TrafficMonitorEnv, TrafficMonitorEnvVectorized
 from skymonitor.traffic_predictor import TrafficPredictor
 
@@ -145,13 +146,21 @@ def get_pred_gt_reward_all_sessions(env: TrafficMonitorEnv, agent: MonitoringAge
 
 
 if __name__ == "__main__":
-
     # Example PPO usage:
-    ppo_agent = train_monitoring_agent_with_ppo(total_timesteps=500_000, num_envs=16, num_drones=10, predictor_device='cuda')
+    ppo = train_monitoring_agent_with_ppo(
+        total_timesteps=10000,
+        num_envs=8,
+        num_drones=10,
+        learning_rate=3e-4,
+        log_dir="scratch/ppo_monitoring_agent",
+        seed=42,
+        predictor_device="cuda",)
 
+    checkpoint_path = "scratch/ppo_monitoring_agent/ppo_monitoring_agent.zip"
+    
     # test the agent, not vectorized
     dataset = SimBarcaExplore(
-        split="test",
+        split='test',
         input_window=3,
         pred_window=30,
         step_size=3,
@@ -166,19 +175,25 @@ if __name__ == "__main__":
         predictor=TrafficPredictor(device='cuda'),
         num_drones=10,
         num_vec_env=None,
-        seed=114514,
+        seed=888,
     )
 
-    grid_info = {"grid_xy": dataset.grid_xy, "grid_id": dataset.grid_id, "grid_xy_to_id": dataset.grid_xy_to_id}
-    agent = MonitoringAgent(num_drones=10, grid=grid_info, policy_net=ppo_agent.policy)
+    grid_info = {
+        'grid_xy': dataset.grid_xy,
+        'grid_id': dataset.grid_id,
+        'grid_xy_to_id': dataset.grid_xy_to_id,
+    }
+    # agent = MonitoringAgent(num_drones=10, grid=grid_info, policy_net=PPO.load(checkpoint_path).policy)
+    agent = RandomAgent(num_drones=10)
 
     from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
+
     evaluator = SimBarcaExploreEvaluator(
-        save_dir="scratch/rl_drone_evaluation",
+        save_dir='scratch/rl_drone_evaluation',
         visualize=True,
         ignore_value=0.0,
     )
-    
+
     eval_repeat = 5
     seeds = np.random.choice(10000, size=eval_repeat, replace=False)
 
@@ -186,23 +201,26 @@ if __name__ == "__main__":
     for i in range(eval_repeat):
         # downstream task performance
         with torch.no_grad():
-            all_pred, all_gt, all_reward = get_pred_gt_reward_all_sessions(env, agent, seed=seeds[i])
-        res = evaluator.calculate_error_metrics(pred=all_pred, label=all_gt, data_channels=dataset.data_channels['target'])
+            all_pred, all_gt, all_reward = get_pred_gt_reward_all_sessions(env, agent, seed=int(seeds[i]))
+        res = evaluator.calculate_error_metrics(
+            pred=all_pred, label=all_gt, data_channels=dataset.data_channels['target']
+        )
         for key, value in res.items():
             eval_results[key].append(value)
-        eval_results["reward"].append(all_reward.mean().item())
+        eval_results['reward'].append(all_reward.mean().item())
 
     stats = {}
     for key in eval_results:
         stats[key] = sum(eval_results[key]) / len(eval_results[key])
-        stats["std_" + key] = np.std(eval_results[key])
+        stats['std_' + key] = np.std(eval_results[key])
 
-    logger.info("Drone Monitoring Evaluation Results: {}".format(stats))
+    logger.info('Drone Monitoring Evaluation Results: {}'.format(stats))
 
     env.close()
 
     # save eval_results and stats to a json file
     import json
-    save_path = Path("scratch/rl_drone_evaluation") / "eval_results.json"
-    with open(save_path, "w") as f:
-        json.dump({"eval_results": eval_results, "stats": stats}, f, indent=4)
+
+    save_path = Path('scratch/rl_drone_evaluation') / 'eval_results.json'
+    with open(save_path, 'w') as f:
+        json.dump({'eval_results': eval_results, 'stats': stats}, f, indent=4)

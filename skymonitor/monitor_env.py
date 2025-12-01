@@ -58,7 +58,7 @@ class TrafficMonitorEnv(gym.Env):
 		self.dataset = dataset
 		self.predictor = predictor
 		self.action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
-		self.baseline_agent = RandomAgent(action_space=self.action_space)
+		self.baseline_agent = RandomAgent(num_drones=num_drones)
 		# settings and configurations
 		self.num_vec_env = num_vec_env
 		self.num_drones = int(num_drones)
@@ -148,7 +148,7 @@ class TrafficMonitorEnv(gym.Env):
 		positions = self.init_agent_positions()
 		obs = self.get_traffic_obs_pred(positions)
 
-		self.baseline_agent = RandomAgent(action_space=self.action_space)
+		self.baseline_agent = RandomAgent(num_drones=self.num_drones)
 		self.b_actions = self.baseline_agent.select_action(obs)
 
 		self.update_history(positions, obs)

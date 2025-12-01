@@ -646,3 +646,14 @@ if __name__ == "__main__":
     print("Per-Location-Per-Time Average Prediction Results:")
     for key, value in per_location_per_time_avg_res.items():
         print(f"  {key}: {value}")
+
+    # save all results to a json file 
+    all_results = {
+        "global_average": global_avg_res,
+        "per_location_average": per_location_avg_res,
+        "per_location_per_time_average": per_location_per_time_avg_res,
+    }
+    import json
+    os.makedirs("scratch/simbarca_explore_baseline_results", exist_ok=True)
+    with open("scratch/simbarca_explore_baseline_results/res.json", "w") as f:
+        json.dump(all_results, f, indent=4)

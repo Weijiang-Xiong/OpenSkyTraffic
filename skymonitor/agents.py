@@ -36,8 +36,8 @@ class BaseAgent:
 
 class RandomAgent(BaseAgent):
 
-    def __init__(self, action_space: spaces.Space):
-        self.action_space = action_space
+    def __init__(self, num_drones: int = 10):
+        self.action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
 
     def select_action(self, obs: Dict) -> np.ndarray | List[np.ndarray]:
         traffic_data = obs['observed_traffic']
@@ -106,8 +106,8 @@ class MonitoringAgent(BaseAgent):
             self.action_buffer = actions
             self.state_buffer = states
         else:
-            predicted_traffic = obs['batch_pred'].squeeze()
-            # random actions    
+            predicted_traffic = obs['batch_pred']
+            # random actions
             if predicted_traffic.ndim == 4:
                 # vectorized env
                 actions = [self.action_space.sample() for _ in range(predicted_traffic.shape[0])]
