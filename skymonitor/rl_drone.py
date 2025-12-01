@@ -23,7 +23,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from skytraffic.utils.event_logger import setup_logger
 from skymonitor.simbarca_explore import SimBarcaExplore
 from skymonitor.agents import MonitoringAgent, DronePolicy, RandomAgent
-from skymonitor.monitor_env import TrafficMonitorEnv, TrafficMonitorEnvVectorized
+from skymonitor.monitor_env import TrafficMonitorEnv
 from skymonitor.traffic_predictor import TrafficPredictor
 
 logger = setup_logger(name="default", log_file="./scratch/rl_drone.log", level=logging.INFO)
@@ -43,50 +43,32 @@ def train_monitoring_agent_with_ppo(
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
 
-    # def _make_env(rank: int):
-    #     def _init():
-    #         env_dataset = SimBarcaExplore(
-    #             split='train',
-    #             input_window=3,
-    #             pred_window=30,
-    #             step_size=3,
-    #             num_unpadded_samples=20,
-    #             allow_shorter_input=False,
-    #             pad_input=False,
-    #             norm_tid=False,
-    #             vectorized=False,
-    #         )
-    #         env_predictor = TrafficPredictor(device=predictor_device)
-    #         env = TrafficMonitorEnv(
-    #             dataset=env_dataset,
-    #             predictor=env_predictor,
-    #             num_drones=num_drones,
-    #             num_vec_env=None,
-    #         )
-    #         env = Monitor(env)
-    #         env.reset(seed=seed + rank)
-    #         return env
+    def _make_env(rank: int):
+        def _init():
+            env_dataset = SimBarcaExplore(
+                split='train',
+                input_window=3,
+                pred_window=30,
+                step_size=3,
+                num_unpadded_samples=20,
+                allow_shorter_input=False,
+                pad_input=False,
+                norm_tid=False,
+            )
+            env_predictor = TrafficPredictor(device=predictor_device)
+            env = TrafficMonitorEnv(
+                dataset=env_dataset,
+                predictor=env_predictor,
+                num_drones=num_drones,
+                seed=seed + rank,
+            )
+            env = Monitor(env)
+            env.reset(seed=seed + rank)
+            return env
 
-    #     return _init
+        return _init
 
-    # vec_env = DummyVecEnv([_make_env(rank) for rank in range(num_envs)])
-
-    vec_env = TrafficMonitorEnvVectorized(
-        dataset=SimBarcaExplore(
-            split='train',
-            input_window=3,
-            pred_window=30,
-            step_size=3,
-            num_unpadded_samples=20,
-            allow_shorter_input=False,
-            pad_input=False,
-            norm_tid=False,
-            vectorized=True,
-        ),
-        predictor=TrafficPredictor(device=predictor_device),
-        num_drones=num_drones,
-        num_envs=num_envs,
-    )
+    vec_env = DummyVecEnv([_make_env(rank) for rank in range(num_envs)])
 
     model = PPO(
         policy=DronePolicy,
@@ -158,7 +140,7 @@ if __name__ == "__main__":
 
     checkpoint_path = "scratch/ppo_monitoring_agent/ppo_monitoring_agent.zip"
     
-    # test the agent, not vectorized
+    # test the agent
     dataset = SimBarcaExplore(
         split='test',
         input_window=3,
@@ -168,13 +150,11 @@ if __name__ == "__main__":
         allow_shorter_input=False,
         pad_input=False,
         norm_tid=False,
-        vectorized=False,
     )
     env = TrafficMonitorEnv(
         dataset=dataset,
         predictor=TrafficPredictor(device='cuda'),
         num_drones=10,
-        num_vec_env=None,
         seed=888,
     )
 
