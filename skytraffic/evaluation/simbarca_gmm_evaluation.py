@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import numpy as np 
@@ -173,7 +174,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
                     sample_per_session=dataset.sample_per_session, task="reg", sim_ids=session_ids,
                     sec_ids=p_list_reg, subfolder_path=gmm_pred_path)
     
-        return self.metrics_scalar
+        return copy.deepcopy(self.metrics_scalar)
 
 
     #########################################################################################

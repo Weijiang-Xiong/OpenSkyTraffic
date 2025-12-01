@@ -1,5 +1,6 @@
 import logging
 from typing import Dict
+from copy import deepcopy
 
 import torch
 import torch.nn as nn
@@ -99,4 +100,4 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
         self.metrics_scalar.update(avg_eval_res)
         self.metrics_vector.update(eval_res_by_horizon)
 
-        return self.metrics_scalar
+        return deepcopy(self.metrics_scalar)

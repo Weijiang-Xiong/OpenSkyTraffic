@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import numpy as np 
@@ -252,7 +253,7 @@ class SimBarcaEvaluator:
                     save_note="region{}".format(r),
                 )
         # return this for EvalHook to do logging in training
-        return self.metrics_scalar
+        return copy.deepcopy(self.metrics_scalar)
 
 
     def plot_pred_for_section(self, all_preds, all_labels, session_ids, demand_scales, section_num=100, regional=False, save_note="example", verbose=False):
