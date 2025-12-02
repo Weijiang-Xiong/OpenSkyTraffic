@@ -20,7 +20,6 @@ class DroneAction(Enum):
 class BaseAgent:
 
     def __init__(self):
-        self.is_vectorized = False
         self.action_space = None
 
     def select_action(self, obs: Dict) -> np.ndarray | List[np.ndarray]:
@@ -32,7 +31,16 @@ class BaseAgent:
             return: List[DroneAction], the actions for all drones
         """
         raise NotImplementedError
-    
+
+class StaticAgent(BaseAgent):
+
+    def __init__(self, num_drones: int = 10):
+        self.action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
+        self.static_action = [DroneAction.STAY.value] * num_drones
+
+    def select_action(self, obs: Dict) -> np.ndarray | List[np.ndarray]:
+        return self.static_action
+
 
 class RandomAgent(BaseAgent):
 
@@ -40,13 +48,7 @@ class RandomAgent(BaseAgent):
         self.action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
 
     def select_action(self, obs: Dict) -> np.ndarray | List[np.ndarray]:
-        traffic_data = obs['observed_traffic']
-        if traffic_data.ndim == 4:
-            # vectorized env
-            sampled = [self.action_space.sample() for _ in range(traffic_data.shape[0])]
-        else:
-            sampled = self.action_space.sample()
-        return sampled
+        return self.action_space.sample()
 
 
 class MonitoringAgent(BaseAgent):
@@ -95,23 +97,17 @@ class MonitoringAgent(BaseAgent):
         # flow_at_grid_id_42 = predicted_traffic_at_grid_id[..., 0]  # shape (out_steps, road_segments_in_grid_id_42)
         # density_at_grid_id_42 = predicted_traffic_at_grid_id[..., 1]  # shape (out_steps, road_segments_in_grid_id_42)
 
-        if self.policy_net is not None:
-            # use the policy net to select actions
-            actions, states = self.policy_net.predict(
-                observation=obs, 
-                state=self.state_buffer,
-                episode_start=None,
-                deterministic=self.deterministic
-            )
-            self.action_buffer = actions
-            self.state_buffer = states
-        else:
-            predicted_traffic = obs['batch_pred']
-            # random actions
-            if predicted_traffic.ndim == 4:
-                # vectorized env
-                actions = [self.action_space.sample() for _ in range(predicted_traffic.shape[0])]
-            else:
-                actions = self.action_space.sample()
+        if self.policy_net is None:
+            raise ValueError("The policy net is not initialized in MonitoringAgent.")
+        
+        # use the policy net to select actions
+        actions, states = self.policy_net.predict(
+            observation=obs, 
+            state=self.state_buffer,
+            episode_start=None,
+            deterministic=self.deterministic
+        )
+        self.action_buffer = actions
+        self.state_buffer = states
 
         return actions
