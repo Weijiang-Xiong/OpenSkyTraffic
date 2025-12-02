@@ -28,10 +28,10 @@ dataset.train = L(SimBarcaExplore)(
     allow_shorter_input=True,
     pad_input=True,
     augmentations=L(RandomGridCoverage)(
-        input_window=30, 
-        step_size=3, 
-        num_positions=10, 
-        empty_value=0.0
+        pts_per_step=36, # step size is 3 min, drone data given every 5 sec, so 36 data points per monitoring step
+        cvg_num=10,
+        empty_value=0.0,
+        data_dims=2,
         ),
 )
 
