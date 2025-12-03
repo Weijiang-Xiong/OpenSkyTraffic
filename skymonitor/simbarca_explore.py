@@ -72,8 +72,8 @@ class SimBarcaExplore(SimBarcaForecast):
         grid_size=220,
         allow_shorter_input=True,
         pad_input=True,
-        augmentations: List = None,
         norm_tid: bool = False,
+        augmentations: List = None,
     ):
         """
         Args:
