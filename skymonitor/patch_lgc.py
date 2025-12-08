@@ -17,6 +17,7 @@ class PatchedMVLSTMGCNConv(BaseModel):
     def __init__(
         self,
         # arguments purely based on model
+        use_cvg_mask: bool=True,
         use_global=True,
         feature_dim: int = 3,
         d_model=64,
@@ -55,6 +56,7 @@ class PatchedMVLSTMGCNConv(BaseModel):
         self.temp_patching = temp_patching
         self.edge_index: torch.Tensor
         self.pred_feat = pred_feat
+        self.use_cvg_mask = use_cvg_mask
 
         if metadata is not None:
             self.adapt_to_metadata(metadata)
@@ -88,6 +90,7 @@ class PatchedMVLSTMGCNConv(BaseModel):
     def preprocess(self, data: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         source = data.get("source", None)
         target = data.get("target", None)
+        coverage_mask = data.get("coverage_mask", None)
 
         if source is None and target is None:
             raise ValueError("Both source and target are None in the input data.")
@@ -96,6 +99,9 @@ class PatchedMVLSTMGCNConv(BaseModel):
             # normalize the data
             source = source.to(self.device)
             source = self.in_datascaler.transform(source, datadim_only=True)
+            if self.use_cvg_mask and coverage_mask is not None:
+                coverage_mask = coverage_mask.unsqueeze(-1).float().to(self.device)
+                source = torch.concatenate([source, coverage_mask], dim=-1)
 
         if target is not None:
             target = target.to(self.device)

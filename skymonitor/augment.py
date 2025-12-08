@@ -5,12 +5,13 @@ from typing import Dict, List, Tuple
 class RandomGridCoverage:
     """
     Randomly sample monitoring positions and build coverage masks.
+    Assumed input data shape: (N, T, P, C), where N=batch size, T=number of time steps, P=number of grid positions, C=number of data channels/features.
 
     Init parameters:
         pts_per_step: number of time series data points per monitoring time step, e.g., traffic data every 5 seconds, then in a 3 minutes monitoring window, pts_per_step=36
         cvg_num: number of monitoring positions to sample at each time step ( number of drones )
         empty_value: the value to fill in the unmonitored positions (by default 0.0)
-        data_dims: number of data dimensions (excluding time feature, by assuming the input shape is N T P C, applied to the C axis)
+        data_dims: number of data dimensions to apply augmentation, default to 2 (e.g., flow and density). The rest channels in the C dimension (e.g., time feature) will not be changed.
     """
 
     def __init__(
@@ -36,8 +37,8 @@ class RandomGridCoverage:
         self.available_gids = torch.tensor(gids, dtype=torch.long)
         self.grid_id_of_nodes = torch.as_tensor(grid_id_of_nodes, dtype=torch.long)
 
-    def sample(self, batch_size: int) -> torch.Tensor:
-        random_scores = torch.rand(batch_size, self.num_time_steps, self.total_positions)
+    def sample(self, batch_size: int, num_time_steps: int) -> torch.Tensor:
+        random_scores = torch.rand(batch_size, num_time_steps, self.total_positions)
         sampled_indices = random_scores.argsort(dim=-1, descending=True)[..., : self.cvg_num]
         sampled_gids = self.available_gids[sampled_indices]
         masks = sampled_gids.unsqueeze(-1).eq(self.grid_id_of_nodes).any(dim=2)
@@ -47,14 +48,15 @@ class RandomGridCoverage:
     def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         source = data_dict["source"]
 
-        masks = self.sample(batch_size=source.shape[0])
-        expanded_masks = masks.repeat_interleave(self.pts_per_step, dim=1)
-        expanded_masks = expanded_masks[:, : source.shape[1], :]
+        masks = self.sample(batch_size=source.shape[0], num_time_steps=source.shape[1] // self.pts_per_step)
+        expanded_mask = masks.repeat_interleave(self.pts_per_step, dim=1)
+        expanded_mask = expanded_mask[:, : source.shape[1], :]
         data_values = source.clone()[..., :self.data_dims]
-        data_values[expanded_masks == 0] = self.empty_value
+        data_values[expanded_mask == 0] = self.empty_value
         masked_source = torch.cat([data_values, source[..., self.data_dims:]], dim=-1)  # keep time feature unchanged
 
         data_dict["source"] = masked_source
+        data_dict["coverage_mask"] = expanded_mask
 
         return data_dict
 
@@ -87,8 +89,8 @@ class RandomWalkCoverage(RandomGridCoverage):
                 neighbors.append(index_lookup[pos])
             self.neighbor_indices.append(torch.tensor(neighbors, dtype=torch.long))
 
-    def sample(self, batch_size: int) -> torch.Tensor:
-        walk_indices = torch.empty(batch_size, self.num_time_steps, self.cvg_num, dtype=torch.long)
+    def sample(self, batch_size: int, num_time_steps: int) -> torch.Tensor:
+        walk_indices = torch.empty(batch_size, num_time_steps, self.cvg_num, dtype=torch.long)
 
         # randomly initialize starting positions
         current_indices = torch.randint(

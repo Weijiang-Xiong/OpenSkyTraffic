@@ -27,6 +27,7 @@ dataset.train = L(SimBarcaExplore)(
     grid_size=220,
     allow_shorter_input=True,
     pad_input=True,
+    norm_tid=False,
     augmentations=L(RandomGridCoverage)(
         pts_per_step=36, # step size is 3 min, drone data given every 5 sec, so 36 data points per monitoring step
         cvg_num=10,
@@ -59,8 +60,9 @@ dataloader.test = L(DataLoader)(
 )
 
 model = L(PatchedMVLSTMGCNConv)(
+    use_cvg_mask=True,
     use_global=True,
-    feature_dim=3,
+    feature_dim=4,
     d_model=64,
     temp_patching=3,
     global_downsample_factor=1,
