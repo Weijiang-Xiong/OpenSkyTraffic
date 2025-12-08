@@ -11,9 +11,11 @@ git clone https://github.com/Weijiang-Xiong/OpenSkyTraffic.git
 python -m pip install -e .
 ```
 
-For the preprocessing of METR-LA and PEMS-Bay dataset, please refer to this [README.md](preprocess/metr-style/README.md).
+For using the datasets, one can simply download the processed version from PLEASE_UPDATE_LINK and skip the preparations below.
 
-For the preprocessing of SimBarca dataset, follow this [README.md](preprocess/simbarca/README.md)
+To prepare METR-LA and PEMS-Bay dataset, please refer to this [README.md](preprocess/metr-style/README.md).
+
+To prepare SimBarca dataset, follow this [README.md](preprocess/simbarca/README.md)
 
 ### Basic Usage
 
@@ -22,9 +24,9 @@ The main entrance scripts are placed under `scripts`.
 * `train.py` provides the training pipeline and evaluation
 * `run_multiple.py` is a script to format and run multiple commands in sequence using `subprocess.run`
 
-For example, the following command will train a model using the specifications in `config/HiMSNet.py`, and override the output folder to `scratch/SAVE_DIR`.
+For example, the following command will run a training task with `PATH/TO/CFG/FILE.py`, and override the output folder to `scratch/SAVE_DIR`.
 
-The configuration files can be found as python files under the [config](./config) folder. 
+The actal configuration files can be found as python files under the [config](./config) folder. 
 
 ```
 python scripts/train.py --config-file PATH/TO/CFG/FILE.py train.output_dir=scratch/SAVE_DIR
@@ -44,6 +46,8 @@ For a complete walk through of the training and visualization workflow, please l
 project_root
 ├── config : experiment configuration files
 ├── datasets : the dataset files (raw and processed) and metadata
+│   ├── <dataset_1>
+│   ├── <dataset_2>
 ├── skytraffic : codes
 │   ├── config : configuration management
 │   ├── data : dataset loading and transform

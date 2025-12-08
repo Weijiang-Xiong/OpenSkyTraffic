@@ -54,16 +54,18 @@ class SimbarcaBase(BaseDataset):
         self.split = split
 
         # data sequences along with timestamps 
-        self._timestamp_5s: np.ndarray
-        self._vdist_5s: np.ndarray
-        self._vtime_5s: np.ndarray
-        self._timestamp_3min: np.ndarray
-        self._ld_speed_3min: np.ndarray
-        self._vdist_3min: np.ndarray
-        self._vtime_3min: np.ndarray
+        # the provided raw sequences are vehicle travel distance (vdist) and travel time (vtime) for all locations (road segments)
+        # taggregated every 5 seconds and every 3 minutes, corresponding to high-frequency drones and low-frequency loop detectors
+        self._timestamp_5s: np.ndarray # shape (T_high,)
+        self._vdist_5s: np.ndarray # shape (num_sessions, T_high, num_locations)
+        self._vtime_5s: np.ndarray # shape (num_sessions, T_high, num_locations)
+        self._timestamp_3min: np.ndarray # shape (T_low,)
+        self._ld_speed_3min: np.ndarray # shape (num_sessions, T_low, num_locations)
+        self._vdist_3min: np.ndarray # shape (num_sessions, T_low, num_locations)
+        self._vtime_3min: np.ndarray # shape (num_sessions, T_low, num_locations)
         
         # simulation session info, for grouped evaluation 
-        self.session_ids: List[int]
+        self.session_ids: List[int] 
         self.demand_scales: List[float]
 
         # graph structure 
@@ -172,7 +174,8 @@ class SimbarcaBase(BaseDataset):
             
         session_ids, demand_scales = [], []
         for f in sessions_in_split:
-            scale = json.load(open("{}/settings.json".format(f), 'r'))["global_scale"]
+            with open("{}/settings.json".format(f), "r") as settings_file:
+                scale = json.load(settings_file)["global_scale"]
             session_id = session_number_from_path(f)
             session_ids.append(session_id)
             demand_scales.append(scale)
@@ -221,6 +224,7 @@ class SimbarcaBase(BaseDataset):
         section_grid_id = link_bboxes["grid_nb"].to_numpy()  # check with the csv file
         node_coordinates = link_bboxes[["c_x", "c_y"]].to_numpy()
         segment_lengths = link_bboxes["length"].to_numpy()
+        num_lanes = link_bboxes["num_lanes"].to_numpy()
         
         adjacency_matrix = np.zeros((len(section_ids_sorted), len(section_ids_sorted)))
         for row in connections.itertuples():
@@ -239,6 +243,7 @@ class SimbarcaBase(BaseDataset):
         self.index_to_section_id = index_to_section_id
         self.section_id_to_index = section_id_to_index
         self.intersection_polygon = intersection_polygon
+        self.num_lanes = num_lanes
 
 
 class SimBarcaForecast(SimbarcaBase):
