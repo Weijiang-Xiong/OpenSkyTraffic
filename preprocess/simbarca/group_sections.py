@@ -36,8 +36,8 @@ plt.xlabel('X Grid ID')
 plt.ylabel('Y Grid ID')
 plt.title('Region clusters and monitoring grids')
 plt.tight_layout()
-plt.savefig('datasets/simbarca/figures/cluster.pdf')
+plt.savefig('figures/simbarca_datavis/cluster.pdf')
 
 
 # save the modified dataframe to a csv file
-df.to_csv('datasets/simbarca/metadata/link_bboxes_clustered.csv', index=False)
+# df.to_csv('datasets/simbarca/metadata/link_bboxes_clustered.csv', index=False)

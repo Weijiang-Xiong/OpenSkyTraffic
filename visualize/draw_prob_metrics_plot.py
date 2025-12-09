@@ -1,5 +1,5 @@
 """ This script is used to draw the plots for the probabilistic metrics.
-    The plots are saved in the visualize/figures folder.
+    The plots are saved in the {SAVE_DIR} folder.
 """
 import json
 import argparse
@@ -17,7 +17,9 @@ plt.rcParams['font.size'] = 12
 COLORS = colormaps.get_cmap('tab10')
 LINE_STYLES = ['-', '--', '-.']
 
-def load_evaluation_results(res_dir: str, dataset: str, res_group_file: str = "visualize/result_groups.json"):
+SAVE_DIR = "figures/gmm_eval_vis"
+
+def load_evaluation_results(res_dir: str, dataset: str, res_group_file: str = None):
     result_groups = json.load(open(res_group_file))
     dataset_results = result_groups.get(dataset, {})
 
@@ -59,7 +61,7 @@ def plot_ci_coverage(results, save_note="dataset"):
     plt.ylabel('Data Coverage')
     plt.legend()
     plt.tight_layout()
-    save_path = f'visualize/figures/{save_note}_data_coverage_by_ci_level.pdf'
+    save_path = f'{SAVE_DIR}/{save_note}_data_coverage_by_ci_level.pdf'
     plt.savefig(save_path, bbox_inches='tight')
     print(f"Saved figure to {save_path}")
     plt.show()
@@ -87,7 +89,7 @@ def plot_cce_horizon(results, save_note="dataset"):
     plt.xticks(range(1, pred_horizon + 1))
     plt.legend()
     plt.tight_layout()
-    save_path = f'visualize/figures/{save_note}_mcce_by_pred_horizon.pdf'
+    save_path = f'{SAVE_DIR}/{save_note}_mcce_by_pred_horizon.pdf'
     plt.savefig(save_path, bbox_inches='tight')
     print(f"Saved figure to {save_path}")
     plt.show()
@@ -114,7 +116,7 @@ def plot_aw_horizon(results, save_note="dataset"):
     plt.xticks(range(1, pred_horizon + 1))
     plt.legend()
     plt.tight_layout()
-    save_path = f'visualize/figures/{save_note}_maw_by_pred_horizon.pdf'
+    save_path = f'{SAVE_DIR}/{save_note}_maw_by_pred_horizon.pdf'
     plt.savefig(save_path, bbox_inches='tight')
     print(f"Saved figure to {save_path}")
     plt.show()
@@ -150,7 +152,7 @@ def plot_crps_gt(results, save_note="dataset"):
     plt.xticks(range(1, pred_horizon + 1))
     plt.legend()
     plt.tight_layout()
-    save_path = f'visualize/figures/{save_note}_crps_wrt_gt_by_pred_horizon.pdf'
+    save_path = f'{SAVE_DIR}/{save_note}_crps_wrt_gt_by_pred_horizon.pdf'
     plt.savefig(save_path, bbox_inches='tight')
     print(f"Saved figure to {save_path}")
     plt.show()
@@ -179,7 +181,7 @@ def plot_crps_emp(results, save_note="dataset"):
     plt.xticks(range(1, pred_horizon + 1))
     plt.legend()
     plt.tight_layout()
-    save_path = f'visualize/figures/{save_note}_crps_wrt_emp_by_pred_horizon.pdf'
+    save_path = f'{SAVE_DIR}/{save_note}_crps_wrt_emp_by_pred_horizon.pdf'
     plt.savefig(save_path, bbox_inches='tight')
     print(f"Saved figure to {save_path}")
     plt.show()
@@ -210,7 +212,7 @@ def plot_mae_mape_rmse_horizon(results, save_note="dataset"):
         ax.set_ylabel(metric)
         ax.legend()
         fig.tight_layout()
-        save_path = f'visualize/figures/{save_note}_{metric}_by_pred_horizon.pdf'
+        save_path = f'{SAVE_DIR}/{save_note}_{metric}_by_pred_horizon.pdf'
         fig.savefig(save_path, bbox_inches='tight')
         print(f"Saved figure to {save_path}")
 
@@ -222,7 +224,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load results from all methods (probabilistic methods and deterministic methods)
-    results = load_evaluation_results(args.res_dir, args.dataset)
+    results = load_evaluation_results(args.res_dir, args.dataset, res_group_file=f"{SAVE_DIR}/result_groups.json")
     
     if not results:
         print("No evaluation results found!")

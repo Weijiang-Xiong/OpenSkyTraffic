@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from skytraffic.data.datasets import SimBarca
 
+SAVE_DIR = "figures/simbarca_datavis"
+
 sns.set_theme(style="darkgrid")
 
 if __name__ == "__main__":
@@ -21,7 +23,7 @@ if __name__ == "__main__":
     ax.set_ylabel("Frequency")
     ax.set_title("Histogram of Segment-level Speed")
     fig.tight_layout()
-    fig.savefig("visualize/figures/pred_speed_histogram.pdf")
+    fig.savefig(f"{SAVE_DIR}/pred_speed_histogram.pdf")
     
     # plot a histogram for regional
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -30,4 +32,4 @@ if __name__ == "__main__":
     ax.set_ylabel("Frequency")
     ax.set_title("Histogram of Regional Speed")
     fig.tight_layout()
-    fig.savefig("visualize/figures/regional_speed_histogram.pdf")
+    fig.savefig(f"{SAVE_DIR}/regional_speed_histogram.pdf")
