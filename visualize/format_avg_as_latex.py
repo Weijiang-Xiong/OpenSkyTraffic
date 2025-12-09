@@ -5,6 +5,8 @@ import argparse
 import pandas as pd
 from draw_prob_metrics_plot import load_evaluation_results
 
+SAVE_DIR = "figures/gmm_eval_latex"
+
 def format_det_metrics_latex_table(res_dir, groups):
     """Format the results into a latex table."""
     metrics = ['mae', 'mape', 'rmse']
@@ -20,7 +22,7 @@ def format_det_metrics_latex_table(res_dir, groups):
             
     with pd.option_context('display.float_format', '{:.2f}'.format):
         print(df)
-    df.to_latex(buf="visualize/result_latex_table_det.tex", index=True, float_format='{:.2f}'.format)
+    df.to_latex(buf=f"{SAVE_DIR}/result_latex_table_det.tex", index=True, float_format='{:.2f}'.format)
 
 def format_prob_metrics_latex_table(res_dir, groups):
     """Format the results into a latex table."""
@@ -44,7 +46,7 @@ def format_prob_metrics_latex_table(res_dir, groups):
             
     with pd.option_context('display.float_format', '{:.2f}'.format):
         print(df)
-    df.to_latex(buf="visualize/result_latex_table_prob.tex", index=True, float_format='{:.2f}'.format)
+    df.to_latex(buf=f"{SAVE_DIR}/result_latex_table_prob.tex", index=True, float_format='{:.2f}'.format)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

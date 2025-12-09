@@ -57,8 +57,9 @@ project_root
 │   ├── solver: optimizer and scheduler
 │   └── utils: utility functions
 ├── preprocess : data preprocessing (before training)
-├── scratch : training results
 ├── scripts : train scripts
 ├── tests : unit tests
-└── visualize : visualization for data and models
+├── visualize : visualization for data and models
+├── scratch : training logs and checkpoints
+└── figures : visualization of data and results
 ```

@@ -179,4 +179,4 @@ if __name__ == "__main__":
         ax.set_ylabel('Vehicle Flow')
         ax.set_title('MFD')
         fig.tight_layout()
-        fig.savefig('{}/all_MFD_combined.pdf'.format("datasets/simbarca/figures"))
+        fig.savefig('{}/all_MFD_combined.pdf'.format("figures/simbarca_datavis"))
