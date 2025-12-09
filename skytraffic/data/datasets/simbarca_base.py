@@ -174,7 +174,8 @@ class SimbarcaBase(BaseDataset):
             
         session_ids, demand_scales = [], []
         for f in sessions_in_split:
-            scale = json.load(open("{}/settings.json".format(f), 'r'))["global_scale"]
+            with open("{}/settings.json".format(f), "r") as settings_file:
+                scale = json.load(settings_file)["global_scale"]
             session_id = session_number_from_path(f)
             session_ids.append(session_id)
             demand_scales.append(scale)

@@ -55,8 +55,8 @@ def draw_hops():
     ax.set_ylabel("MAE")
     # ax.set_title("30-min MAE of different adjacency hops")
     plt.tight_layout()
-    plt.savefig("datasets/simbarca/figures/mae_30min_adj_hops.pdf")
-    print("figure saved to datasets/simbarca/figures/mae_30min_adj_hops.pdf")
+    plt.savefig("figures/simbarca_datavis/mae_30min_adj_hops.pdf")
+    print("figure saved to figures/simbarca_datavis/mae_30min_adj_hops.pdf")
 
 def draw_hidden_dimension():
     hidden_dims = [32, 128, 256]
@@ -86,7 +86,7 @@ def draw_hidden_dimension():
     ax.set_ylabel("MAE")
     # ax.set_title("30-min MAE of different hidden dimensions")
     plt.tight_layout()
-    plt.savefig("datasets/simbarca/figures/mae_30min_hidden_dim.pdf")
+    plt.savefig("figures/simbarca_datavis/mae_30min_hidden_dim.pdf")
     
 
 def draw_epochs():
@@ -114,7 +114,7 @@ def draw_epochs():
     ax.set_ylabel("MAE")
     # ax.set_title("30-min MAE of different training epochs")
     plt.tight_layout()
-    plt.savefig("datasets/simbarca/figures/mae_30min_epochs.pdf")
+    plt.savefig("figures/simbarca_datavis/mae_30min_epochs.pdf")
 
 def draw_coverage(include_no_emb=False):
     
@@ -146,7 +146,7 @@ def draw_coverage(include_no_emb=False):
     # ax.set_title("30-min MAE by coverage")
     ax.legend()
     plt.tight_layout()
-    plt.savefig("datasets/simbarca/figures/mae_30min_coverage.pdf")
+    plt.savefig("figures/simbarca_datavis/mae_30min_coverage.pdf")
 
 def draw_loss_weight():
     # plot for different loss weight
@@ -177,7 +177,7 @@ def draw_loss_weight():
     ax.set_ylabel("MAE")
     # ax.set_title("30-min MAE of different loss weights")
     plt.tight_layout()
-    plt.savefig("datasets/simbarca/figures/mae_30min_loss_weight.pdf")
+    plt.savefig("figures/simbarca_datavis/mae_30min_loss_weight.pdf")
     
 def draw_ablation_emb_with_10reps():
     # so we basically confirmed that EMB has just a little effect on the performance
@@ -269,7 +269,7 @@ def draw_ld_only_regional_mae_example():
     ax.set_xlabel("Epoch")
     ax.legend()
     fig.tight_layout()
-    save_path = "datasets/simbarca/figures/ld_only_regional_mae_example.pdf"
+    save_path = "figures/simbarca_datavis/ld_only_regional_mae_example.pdf"
     fig.savefig(save_path)
     print("figure saved to {}".format(save_path))
     plt.close(fig)
@@ -299,7 +299,7 @@ def compare_norm_input_at_different_hops():
     ax.set_ylabel("MAE")
     ax.legend()
     fig.tight_layout()
-    save_path = "datasets/simbarca/figures/mae_30min_norm_input.pdf"
+    save_path = "figures/simbarca_datavis/mae_30min_norm_input.pdf"
     fig.savefig(save_path)
     print("figure saved to {}".format(save_path))
     plt.close(fig)

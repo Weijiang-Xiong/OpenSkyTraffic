@@ -29,6 +29,7 @@ dependencies = [
   "scipy",
   "hydra-core",
   "tensorboard",
+  "properscoring"
 ]
 
 [project.optional-dependencies]

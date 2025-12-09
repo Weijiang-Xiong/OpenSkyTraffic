@@ -168,15 +168,9 @@ tests/*.pkl
 # intermediate files and datasets
 scratch/*
 datasets/*
-
-
 # visualization files
-visualize/**/*.pdf
-visualize/*.json
-visualize/*.tex
+figures
 
-# ignore the backup results
-results_backup*/
 # ignore claude user prompt
 CLAUDE.md
 AGENTS.md
