@@ -2,6 +2,8 @@ import logging
 from typing import Dict
 from copy import deepcopy
 
+import numpy as np
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -39,14 +41,33 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
         self.convert_units = convert_units
 
     def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False) -> Dict[str, float]:
+        
+        if self.num_repeat is None:
+            self.num_repeat = 1
+        else:
+            logger.info(f"Evaluating {self.num_repeat} times and averaging the results.")
 
-        all_preds, all_labels = self.collect_predictions(model, dataloader, pred_seqs=self.collect_pred, data_seqs=self.collect_data)
-        pred, label = all_preds['pred'], all_labels['target']
+        metrics_of_repeats = []
 
-        data_channels = dataloader.dataset.data_channels['target']
-        metrics = self.calculate_error_metrics(pred, label, data_channels, verbose=verbose)
+        for _ in range(self.num_repeat):
+            all_preds, all_labels = self.collect_predictions(model, dataloader, pred_seqs=self.collect_pred, data_seqs=self.collect_data)
+            pred, label = all_preds['pred'], all_labels['target']
 
-        return metrics
+            data_channels = dataloader.dataset.data_channels['target']
+            metrics = self.calculate_error_metrics(pred, label, data_channels, verbose=verbose)
+            metrics_of_repeats.append(deepcopy(metrics))
+        
+        # average metrics over repeats, report std as well
+        avg_metrics = {}
+        for key in metrics_of_repeats[0].keys():
+            results_over_repeats = np.array([m[key] for m in metrics_of_repeats])
+            avg_metrics[key] = results_over_repeats.mean()
+            avg_metrics[key + "_std"] = results_over_repeats.std()
+
+        self.metrics_scalar.update(avg_metrics)
+        logger.info(f"Evaluation results over {self.num_repeat} repeats: {avg_metrics}")
+
+        return avg_metrics
 
     def calculate_error_metrics(self, pred: torch.Tensor, label: torch.Tensor, data_channels, verbose:bool=False):
 

@@ -69,8 +69,9 @@ class RandomWalkCoverage(RandomGridCoverage):
         pts_per_step: int, 
         cvg_num: int = 10,
         empty_value: float = 0.0,
+        data_dims: int = 2, 
     ) -> None:
-        super().__init__(pts_per_step, cvg_num, empty_value)
+        super().__init__(pts_per_step, cvg_num, empty_value, data_dims)
 
     def set_grid(self, grid_xy_to_id: Dict[Tuple[int, int], int], grid_id_of_nodes: np.ndarray):
         super().set_grid(grid_xy_to_id, grid_id_of_nodes)
@@ -102,7 +103,7 @@ class RandomWalkCoverage(RandomGridCoverage):
         walk_indices[:, 0, :] = current_indices
 
         # randomly move to a neighbor
-        for step in range(1, self.num_time_steps):
+        for step in range(1, num_time_steps):
             next_indices = torch.empty(batch_size, self.cvg_num, dtype=torch.long)
             for batch_idx in range(batch_size):
                 all_neighbors = []

@@ -4,10 +4,10 @@ from skytraffic.config import LazyCall as L
 from skytraffic.data.datasets import MetrDataset
 from torch.utils.data import DataLoader
 
-from .patch_lgc import PatchedMVLSTMGCNConv
-from .simbarca_explore import SimBarcaExplore
-from .simbarca_explore_evaluation import SimBarcaExploreEvaluator
-from .augment import RandomGridCoverage
+from skymonitor.patch_lgc import PatchedMVLSTMGCNConv
+from skymonitor.simbarca_explore import SimBarcaExplore
+from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
+from skymonitor.augment import RandomGridCoverage, RandomWalkCoverage
 
 from ..config.common.train import train
 from ..config.common.optim import AdamW as optimizer
@@ -23,12 +23,11 @@ dataset.train = L(SimBarcaExplore)(
     input_window=30,
     pred_window=30,
     step_size=3,
-    num_unpadded_samples=20,
     grid_size=220,
     allow_shorter_input=True,
     pad_input=True,
     norm_tid=False,
-    augmentations=L(RandomGridCoverage)(
+    augmentations=L(RandomWalkCoverage)(
         pts_per_step=36, # step size is 3 min, drone data given every 5 sec, so 36 data points per monitoring step
         cvg_num=10,
         empty_value=0.0,
@@ -67,7 +66,7 @@ model = L(PatchedMVLSTMGCNConv)(
     temp_patching=3,
     global_downsample_factor=1,
     layernorm=True,
-    adjacency_hop=1,
+    adjacency_hop=5,
     dropout=0.1,
     loss_ignore_value = float("nan"),
     norm_label_for_loss = True,
@@ -86,4 +85,5 @@ evaluator = L(SimBarcaExploreEvaluator)(
     collect_data=["target"],
     ignore_value=0.0,
     eval_speed=False,
+    num_repeat=5,
 )

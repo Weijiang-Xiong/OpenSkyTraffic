@@ -4,6 +4,7 @@ https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation
 
 
 """
+
 import logging
 from typing import Dict, List, Optional, Tuple
 
@@ -12,6 +13,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import matplotlib.pyplot as plt
 from matplotlib import animation
+from einops import rearrange, repeat
 
 import torch
 
@@ -53,7 +55,7 @@ class TrafficMonitorEnv(gym.Env):
 
 		indata_shape: Tuple = dataset.input_size
 		pred_shape: Tuple = dataset.output_size
-		cvg_mask_shape: int = dataset.adjacency.shape[0]
+		cvg_mask_shape: int = dataset.input_size[:-1]  # excluding the feature dim
 
 		self.observation_space = spaces.Dict(
 			{
@@ -83,7 +85,8 @@ class TrafficMonitorEnv(gym.Env):
 		self.feature_dim = int(feature_dim)
 		self.predictor_input_steps = int(predictor.in_steps)
 		self.future_horizon = int(predictor.output_steps)
-		self.max_steps_per_session = dataset.sample_per_session
+		# -1 because we need 1 sample for initial observation in reset()
+		self.max_steps_per_session = dataset.sample_per_session - 1
 
 		# grid structure info
 		self.grid_ids: np.ndarray = dataset.grid_id
@@ -112,10 +115,10 @@ class TrafficMonitorEnv(gym.Env):
 		"""
 		self.clear_state()
 		# each time we reset the environment, we use a new random seed because many things, including
-		# the drone locations, are generated using this seed, and we want the agent to explore 
+		# the drone locations, are generated using this seed, and we want the agent to explore
 		# different initial positions rather than starting always from the same ones.
 		super().reset(seed=seed if seed is not None else self.next_reset_seed)
-		print(f"Environment reset with seed: {self.np_random_seed}")
+		print(f'Environment reset with seed: {self.np_random_seed}')
 		self.next_reset_seed = self.np_random.integers(100_000_000, 999_999_999).item()
 
 		# accept override from options if provided, otherwise randomly select active session(s)
@@ -151,7 +154,7 @@ class TrafficMonitorEnv(gym.Env):
 		try:
 			self.step_index, self.data_sample = next(self.data_iterator)
 		# this is never reached normally since we check the termination flag with max_steps_per_session
-		except StopIteration:  
+		except StopIteration:
 			return dict(), 0.0, True, False, {}
 
 		pos = self.apply_actions(actions)
@@ -200,8 +203,7 @@ class TrafficMonitorEnv(gym.Env):
 		"""
 		pred_error = torch.mean((pred - gt) ** 2).item()
 		b_pred_error = torch.mean((b_pred - gt) ** 2).item()
-		return 1.0 if (pred_error - b_pred_error) > 0 else 0.0
-		
+		return b_pred_error - pred_error  # error reduction as reward
 
 	def init_agent_positions(self):
 		"""Initialize drone positions at start of episode."""
@@ -223,12 +225,20 @@ class TrafficMonitorEnv(gym.Env):
 			in_data = all_obs
 
 		source = torch.tensor(np.concatenate([obs['observed_traffic'] for obs in in_data], axis=0))
-		source_steps = source.shape[-3]
-		padded_source = self.dataset.pad_backward_time(
-			source=source, pad_len=self.predictor_input_steps - source_steps, zero_pad=True
-		)
+		coverage_mask = torch.tensor(np.concatenate([obs['coverage_mask'] for obs in in_data], axis=0))
+		T, P, C = source.shape  # source shape T, P, C
+		if self.predictor_input_steps > T:
+			source = self.dataset.pad_backward_time(source=source, pad_len=self.predictor_input_steps - T, zero_pad=True)
+			coverage_mask = torch.concatenate(
+				[
+					torch.zeros((self.predictor_input_steps - T, P), dtype=coverage_mask.dtype),
+					coverage_mask,
+				]
+			)
+
 		# the predictor expects batched input, so we add a batch dimension
-		data_dict['source'] = padded_source.unsqueeze(0)
+		data_dict['source'] = source.unsqueeze(0)
+		data_dict['coverage_mask'] = coverage_mask.unsqueeze(0)
 
 		with torch.no_grad():
 			pred = self.predictor(data_dict)
@@ -240,8 +250,10 @@ class TrafficMonitorEnv(gym.Env):
 
 		# clean data from the dataset, for 1 time step
 		# shape (in_steps, num_locations, feature_dim)
-		observed_traffic = self.data_sample['source'].detach().cpu().numpy()
+		observed_traffic = self.data_sample['source'].detach().cpu().clone().numpy()
 		coverage_mask = self.compute_coverage_mask(positions)  # shape (num_locations,)
+		# have the same shape as observed_traffic for easier masking
+		coverage_mask = repeat(coverage_mask, 'P -> T P', T=observed_traffic.shape[0])
 
 		# now we modify the nan values to be 0 to align with the observation space definition
 		observed_traffic = np.nan_to_num(observed_traffic, nan=0.0)
@@ -266,7 +278,6 @@ class TrafficMonitorEnv(gym.Env):
 			'gt': self.data_sample['target'].detach().cpu().numpy(),
 		}
 
-
 	def update_history(self, positions: List[Tuple[int, int]], observation: Dict[str, np.ndarray]) -> None:
 		self.positions = positions
 		self.positions_history.append(tuple(self.positions))
@@ -275,9 +286,7 @@ class TrafficMonitorEnv(gym.Env):
 		assert len(self.observation_history) == (self.step_index + 1), 'Observation history length mismatch.'
 
 	def apply_actions(self, actions: np.array) -> List[Tuple[int, int]]:
-		def _apply_single_env(
-			actions: List[DroneAction], current_pos: List[Tuple[int, int]]
-		) -> List[Tuple[int, int]]:
+		def _apply_single_env(actions: List[DroneAction], current_pos: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
 			new_positions: List[Tuple[int, int]] = []
 			occupied = set()
 			for idx, act in enumerate(actions):
@@ -381,38 +390,45 @@ class TrafficMonitorEnv(gym.Env):
 		return animation_obj
 
 
-if __name__ == "__main__":
-	from skymonitor.agents import MonitoringAgent
+if __name__ == '__main__':
 	from skytraffic.utils.event_logger import setup_logger
 	from stable_baselines3.common.env_checker import check_env
 
-	logger = setup_logger(name="default", log_file="./scratch/drone_monitor_env.log", level=logging.INFO)
+	logger = setup_logger(name='default', log_file='./scratch/drone_monitor_env.log', level=logging.INFO)
 
 	num_drones = 10
 	dataset = SimBarcaExplore(
-		split="train",
+		split='train',
 		input_window=3,
 		pred_window=30,
 		step_size=3,
-		num_unpadded_samples=20,
 		allow_shorter_input=False,
 		pad_input=False,
 		norm_tid=False,
 	)
-	predictor = TrafficPredictor(device='cuda') # looks like I don't really need this wrapper class ...
+	predictor = TrafficPredictor(
+		device='cuda', ckpt_dir='scratch/patch_lgc'
+	)  # looks like I don't really need this wrapper class ...
 
 	env = TrafficMonitorEnv(
 		dataset=dataset,
 		predictor=predictor,
 		num_drones=num_drones,
 	)
-
-	grid_info = {"grid_xy": dataset.grid_xy, "grid_id": dataset.grid_id, "grid_xy_to_id": dataset.grid_xy_to_id}
-	agent = MonitoringAgent(num_drones=num_drones, grid=grid_info, policy_net=None)
+	agent = RandomAgent(num_drones=num_drones)
 
 	observation, info = env.reset()
-	logger.info("Initial observation keys:{}".format(observation.keys()))
-	logger.info("Initial coverage ratio: {}".format(observation["coverage_mask"].mean()))
-	env.step(agent.select_action(observation))  # test step
-	
+	logger.info('Initial observation keys:{}'.format(observation.keys()))
+	logger.info('Initial coverage ratio: {}'.format(observation['coverage_mask'].mean()))
+	terminated = False
+	while not terminated:
+		obs, reward_value, terminated, _, info = env.step(agent.select_action(observation))  # test step
+		logger.info(
+			'Step:{} Reward:{:.4f} Coverage:{:.4f}'.format(
+				info['step_index'],
+				reward_value,
+				obs['coverage_mask'].mean(),
+			)
+		)
+
 	check_env(env, warn=True)

@@ -216,7 +216,7 @@ class PatchedMVLSTMGCNConv(BaseModel):
         return state
     
     def load_state_dict(self, state_dict, strict: bool = False):
-        self.in_datascaler = TensorDataScaler(**state_dict["in_datascaler"])
-        self.out_datascaler = TensorDataScaler(**state_dict["out_datascaler"])
-        self.edge_index = state_dict["edge_index"]
+        self.in_datascaler = TensorDataScaler(**state_dict["in_datascaler"]).to(self.device)
+        self.out_datascaler = TensorDataScaler(**state_dict["out_datascaler"]).to(self.device)
+        self.edge_index = state_dict["edge_index"].to(self.device)
         super().load_state_dict(state_dict["model_params"], strict=strict)

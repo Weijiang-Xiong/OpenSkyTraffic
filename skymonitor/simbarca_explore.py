@@ -68,7 +68,6 @@ class SimBarcaExplore(SimBarcaForecast):
         input_window=30,
         pred_window=30,
         step_size=3,
-        num_unpadded_samples=20,
         grid_size=220,
         allow_shorter_input=True,
         pad_input=True,
@@ -82,11 +81,12 @@ class SimBarcaExplore(SimBarcaForecast):
             pred_window: prediction window size in minutes (multiple of step_size)
             step_size: step size in minutes for sliding window sampling
             grid_size: grid size in meters for spatial abstraction
-            num_unpadded_samples: the number of unpadded samples to extract from the parent class.
             allow_shorter_input: if True, allow the input window to be `1*step_size` at the beginning of each session, and increase by step_size each step until reaching input_window size. False means the input window is always input_window size.
             pad_input: if both `allow_shorter_input` and `pad_input` are True, the input will be padded with global average values to reach the `input_window` size. If `allow_shorter_input` is True but `pad_input` is False, the input will be of variable length.
             augmentations" : a list of data augmentation modules to apply during data loading, for supervised training only.
         """
+        # the number of sliding window samples during the 120 minute valid simulation
+        num_unpadded_samples = ( 120 - (input_window + pred_window) ) // step_size + 1
         super().__init__(split, input_window, pred_window, step_size, num_unpadded_samples)
         self._active_session = None  # Current session data
         self.grid_size = grid_size
@@ -492,7 +492,6 @@ if __name__ == "__main__":
         input_window=30,
         pred_window=30,
         step_size=3,
-        num_unpadded_samples=20,
         allow_shorter_input=True,
         pad_input=True,
     )
@@ -525,7 +524,6 @@ if __name__ == "__main__":
         input_window=30,
         pred_window=30,
         step_size=3,
-        num_unpadded_samples=20,
         allow_shorter_input=True,
         pad_input=True,
     )

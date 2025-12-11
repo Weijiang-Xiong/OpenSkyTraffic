@@ -39,6 +39,7 @@ def train_monitoring_agent_with_ppo(
 	log_dir: str = 'scratch/rl_drone',
 	checkpoint_filename: str = 'ppo.zip',
 	seed: int = 0,
+	ckpt_dir: str = 'scratch/patch_lgc',
 	predictor_device: str = 'cuda',
 ) -> PPO:
 	"""Train PPO on the monitoring environment with the custom policy."""
@@ -54,12 +55,11 @@ def train_monitoring_agent_with_ppo(
 				input_window=3,
 				pred_window=30,
 				step_size=3,
-				num_unpadded_samples=20,
 				allow_shorter_input=False,
 				pad_input=False,
 				norm_tid=False,
 			)
-			env_predictor = TrafficPredictor(device=predictor_device)
+			env_predictor = TrafficPredictor(device=predictor_device, ckpt_dir=ckpt_dir)
 			env = TrafficMonitorEnv(
 				dataset=env_dataset,
 				predictor=env_predictor,
@@ -90,7 +90,7 @@ def train_monitoring_agent_with_ppo(
 		seed=seed,
 	)
 
-	model.learn(total_timesteps=total_timesteps)
+	model.learn(total_timesteps=total_timesteps, progress_bar=True)
 	model.save(log_path / checkpoint_filename)
 	vec_env.close()
 
@@ -136,6 +136,8 @@ def get_pred_gt_reward_all_sessions(
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Train and evaluate PPO monitoring agent.')
+	parser.add_argument('--agent-type', type=str, default='ppo', help='Type of agent to use: ppo, random, static.')
+	parser.add_argument('--ckpt-dir', type=str, default='scratch/patch_lgc', help='Directory of the predictor checkpoint.')
 	parser.add_argument('--total-timesteps', type=int, default=500_000, help='Number of environment steps for PPO training.')
 	parser.add_argument('--num-envs', type=int, default=8, help='Number of parallel environments during training.')
 	parser.add_argument('--num-drones', type=int, default=10, help='Number of drones used in training and evaluation.')
@@ -151,29 +153,20 @@ if __name__ == '__main__':
 	make_dir_if_not_exist(args.log_dir)
 	logger = setup_logger(name='default', log_file='{}/experiment.log'.format(args.log_dir), level=logging.INFO)
 
-	# ppo = train_monitoring_agent_with_ppo(
-	# 	total_timesteps=args.total_timesteps,
-	# 	num_envs=args.num_envs,
-	# 	num_drones=args.num_drones,
-	# 	learning_rate=args.learning_rate,
-	# 	log_dir=args.log_dir,
-	# 	checkpoint_filename='{}.zip'.format(args.ckptname),
-	# 	seed=args.seed,
-	# 	predictor_device=args.predictor_device,
-	# )
-
 	# test the agent
 	dataset = SimBarcaExplore(
 		split='test',
 		input_window=3,
 		pred_window=30,
 		step_size=3,
-		num_unpadded_samples=20,
 		allow_shorter_input=False,
 		pad_input=False,
 		norm_tid=False,
 	)
-	predictor = TrafficPredictor(device=args.predictor_device)
+
+	logger.info('loading the traffic predictor from {}'.format(args.ckpt_dir))
+	predictor = TrafficPredictor(device=args.predictor_device, ckpt_dir=args.ckpt_dir)
+
 	env = TrafficMonitorEnv(
 		dataset=dataset,
 		predictor=predictor,
@@ -186,13 +179,31 @@ if __name__ == '__main__':
 		'grid_id': dataset.grid_id,
 		'grid_xy_to_id': dataset.grid_xy_to_id,
 	}
-	# agent = MonitoringAgent(
-	# 	num_drones=args.num_drones,
-	# 	grid=grid_info,
-	# 	policy_net=PPO.load(Path(args.log_dir) / '{}.zip'.format(args.ckptname)).policy,
-	# )
-	# agent = RandomAgent(num_drones=args.num_drones)
-	agent = StaticAgent(num_drones=args.num_drones)
+	match args.agent_type:
+		case 'ppo':
+			logger.info('Training PPO monitoring agent.')
+			ppo = train_monitoring_agent_with_ppo(
+				total_timesteps=args.total_timesteps,
+				num_envs=args.num_envs,
+				num_drones=args.num_drones,
+				learning_rate=args.learning_rate,
+				log_dir=args.log_dir,
+				checkpoint_filename='{}.zip'.format(args.ckptname),
+				seed=args.seed,
+				ckpt_dir=args.ckpt_dir,
+				predictor_device=args.predictor_device,
+			)
+			agent = MonitoringAgent(
+				num_drones=args.num_drones,
+				grid=grid_info,
+				policy_net=PPO.load(Path(args.log_dir) / '{}.zip'.format(args.ckptname)).policy,
+			)
+		case 'random':
+			logger.info('Using Random Agent, skipping training.')
+			agent = RandomAgent(num_drones=args.num_drones)
+		case 'static':
+			logger.info('Using Static Agent, skipping training.')
+			agent = StaticAgent(num_drones=args.num_drones)
 
 	from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
 
@@ -224,6 +235,6 @@ if __name__ == '__main__':
 	env.close()
 
 	# save eval_results and stats to a json file
-	save_path = Path(args.log_dir) / 'multi_run_results.json'
+	save_path = Path(args.log_dir) / 'multi_run_results_static_agent.json'
 	with open(save_path, 'w') as f:
 		json.dump({'eval_results': eval_results, 'stats': stats}, f, indent=4)

@@ -4,8 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from skymonitor.patch_lgc import PatchedMVLSTMGCNConv
-
+from skytraffic.config import LazyConfig, instantiate
 
 class TrafficPredictor:
     """ Basically a wrapper class for the neural network, the RL environment gives observation per-time-step (3 mins),
@@ -14,26 +13,11 @@ class TrafficPredictor:
         some format handling.
     """
 
-    def __init__(self, device: Optional[torch.device] = "cpu"):
+    def __init__(self, device: Optional[torch.device] = "cpu", ckpt_dir: Optional[str] = None):
         self.device = torch.device(device)
-        self.net: nn.Module = PatchedMVLSTMGCNConv(
-            use_global=True,
-            feature_dim=3,
-            d_model=64,
-            temp_patching=3,
-            global_downsample_factor=1,
-            layernorm=True,
-            adjacency_hop=1,
-            dropout=0.1,
-            loss_ignore_value=float("nan"),
-            norm_label_for_loss=True,
-            input_steps=360,
-            pred_steps=10,
-            num_nodes=1570,
-            pred_feat=2,
-            data_null_value=0.0,
-        )
-        state_dict = torch.load("./scratch/patch_lgc_simbarca_explore/model_final.pth")
+        config = LazyConfig.load(f"{ckpt_dir}/config.yaml")
+        self.net = instantiate(config.model)
+        state_dict = torch.load(f"{ckpt_dir}/model_final.pth")
         self.net.load_state_dict(state_dict['model'])
         self.net.eval()
         self.net.to(self.device)
