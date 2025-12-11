@@ -296,7 +296,7 @@ class HiMSNet_GMM(nn.Module):
         self.cluster_id = state_dict["cluster_id"]
         self.edge_index = state_dict["edge_index"]
         self.data_scalers = {
-            name: TensorDataScaler(**state)
+            name: TensorDataScaler(**state).to(self.device)
             for name, state in state_dict["data_scalers"].items()
         }
         super().load_state_dict(state_dict["model_params"])
@@ -308,5 +308,4 @@ class HiMSNet_GMM(nn.Module):
         self.cluster_id = self.cluster_id.to(device)
         self.edge_index = self.edge_index.to(device)
         return super().to(device)
-
 
