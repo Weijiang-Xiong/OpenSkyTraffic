@@ -92,12 +92,18 @@ if __name__ == "__main__":
     mode = args.mode
     command_list = []
 
-    experiment_adapted_gmm_models(command_list, TRAIN_SCRIPT)
-    experiment_simbarca_gmm_model_data_modality(TRAIN_SCRIPT, "config/himsnet/HiMSNet_GMM_RND.py", command_list, "simbarca_rnd")
-    experiment_simbarca_gmm_model_data_modality(TRAIN_SCRIPT, "config/himsnet/HiMSNet_GMM_Full.py", command_list, "simbarca_full")
-    for cfg in ["HiMSNet", "HiMSNet_RND"]:
-        run_as_config(TRAIN_SCRIPT, f"config/himsnet/{cfg}.py", command_list)
-    drone_only_small_cvg(TRAIN_SCRIPT, command_list)
+    # experiment_adapted_gmm_models(command_list, TRAIN_SCRIPT)
+    # experiment_simbarca_gmm_model_data_modality(TRAIN_SCRIPT, "config/himsnet/HiMSNet_GMM_RND.py", command_list, "simbarca_rnd")
+    # experiment_simbarca_gmm_model_data_modality(TRAIN_SCRIPT, "config/himsnet/HiMSNet_GMM_Full.py", command_list, "simbarca_full")
+    # for cfg in ["HiMSNet", "HiMSNet_RND"]:
+    #     run_as_config(TRAIN_SCRIPT, f"config/himsnet/{cfg}.py", command_list)
+    # drone_only_small_cvg(TRAIN_SCRIPT, command_list)
+    command_list.append(
+        f"{TRAIN_SCRIPT} --config-file skymonitor/CFG_Patch_LGC.py train.output_dir=scratch/patch_lgc"
+    )
+    command_list.append(
+        f"{TRAIN_SCRIPT} --config-file skymonitor/CFG_Patch_LGC.py train.output_dir=scratch/patch_lgc_1hop model.adjacency_hop=1"
+    )
 
     if mode in ["vis", "both"]:
         eval_list = []
