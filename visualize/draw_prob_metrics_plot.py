@@ -156,35 +156,6 @@ def plot_crps_gt(results, save_note="dataset"):
     plt.show()
 
 
-def plot_crps_emp(results, save_note="dataset"):
-    """Plot CRPS_GMM_EMP values over prediction horizon."""
-    plt.figure(figsize=(8, 6))
-
-    # Get prediction horizon from the first method's first horizon metric
-    first_method_data = list(results.values())[0]
-    first_horizon_metric = list(first_method_data["horizon"].values())[0]
-    pred_horizon = len(first_horizon_metric)
-
-    for i, (method, data) in enumerate(results.items()):
-        if "CRPS_GMM_EMP" in data["horizon"]:
-            horizons = list(range(1, pred_horizon + 1))
-            crps_values = data["horizon"]["CRPS_GMM_EMP"]
-            plt.plot(horizons, crps_values, 
-                     label=method, linewidth=2, marker='.',
-                     color=COLORS([i % len(COLORS.colors)]), 
-                     linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
-    
-    plt.xlabel('Prediction Horizon')
-    plt.ylabel('CRPS')
-    plt.xticks(range(1, pred_horizon + 1))
-    plt.legend()
-    plt.tight_layout()
-    save_path = f'visualize/figures/{save_note}_crps_wrt_emp_by_pred_horizon.pdf'
-    plt.savefig(save_path, bbox_inches='tight')
-    print(f"Saved figure to {save_path}")
-    plt.show()
-
-
 def plot_mae_mape_rmse_horizon(results, save_note="dataset"):
     """Plot MAE, MAPE, and RMSE values over prediction horizon."""
     for metric in ["mae", "mape", "rmse"]:
@@ -235,5 +206,4 @@ if __name__ == "__main__":
     plot_cce_horizon(results, save_note=args.dataset)
     plot_aw_horizon(results, save_note=args.dataset)
     plot_crps_gt(results, save_note=args.dataset)
-    plot_crps_emp(results, save_note=args.dataset)
     plot_mae_mape_rmse_horizon(results, save_note=args.dataset)
