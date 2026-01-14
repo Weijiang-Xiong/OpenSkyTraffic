@@ -3,18 +3,18 @@ import json
 import logging
 import datetime
 import pickle
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Any
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
-
-from ..base_dataset import BaseDataset
+from torch.utils.data import Dataset
 
 logger = logging.getLogger("default")
 
-class SimbarcaBase(BaseDataset):
+class SimbarcaBase(Dataset, ABC):
     """
     This dataset implements the functions that are useful at the level of simulation sessions.
     Data are stored as numpy arrays (not pandas dataframes or torch tensors).
@@ -245,6 +245,21 @@ class SimbarcaBase(BaseDataset):
         self.intersection_polygon = intersection_polygon
         self.num_lanes = num_lanes
 
+    @abstractmethod
+    def __len__(self) -> int:
+        pass
+
+    @abstractmethod
+    def __getitem__(self, idx: int):
+        pass
+
+    @abstractmethod
+    def load_or_compute_metadata(self) -> Dict[str, Any]:
+        pass
+
+    def collate_fn(self, list_of_data_dicts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        pass
+
 
 class SimBarcaForecast(SimbarcaBase):
 
@@ -291,4 +306,3 @@ class SimBarcaForecast(SimbarcaBase):
 
         # convert to numpy arrays and return
         return np.array(in_indexes), np.array(out_indexes)
-
