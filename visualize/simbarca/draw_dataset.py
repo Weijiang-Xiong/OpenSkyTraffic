@@ -42,6 +42,6 @@ for sec_id in IDS_OF_INTEREST:
     ax.set_ylabel("Speed (m/s)")
     ax.legend()
     fig.tight_layout()
-    fig.savefig("datasets/simbarca/figures/dataset_vs_sample_{}.pdf".format(sec_id))
+    fig.savefig("figures/simbarca_datavis/dataset_vs_sample_{}.pdf".format(sec_id))
     plt.close(fig)
 

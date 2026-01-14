@@ -181,7 +181,6 @@ class LSTMGCNConv(BaseModel):
         return state
     
     def load_state_dict(self, state_dict, strict: bool = False):
-        self.datascaler = TensorDataScaler(**state_dict["datascaler"])
+        self.datascaler = TensorDataScaler(**state_dict["datascaler"]).to(self.device)
         self.edge_index = state_dict["edge_index"]
         super().load_state_dict(state_dict["model_params"], strict=strict)
-
