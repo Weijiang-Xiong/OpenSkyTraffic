@@ -484,9 +484,9 @@ class SimBarcaExplore(SimBarcaForecast):
         fig.savefig('SimBarcaExplore_{}set_summary.pdf'.format(self.split))
         plt.close(fig)
 
-        
 
-if __name__ == "__main__":
+def initialize_dataset():
+
     trainset = SimBarcaExplore(
         split="train",
         input_window=30,
@@ -496,6 +496,19 @@ if __name__ == "__main__":
         pad_input=True,
     )
     # trainset.summarize()
+
+    testset = SimBarcaExplore(
+        split="test",
+        input_window=30,
+        pred_window=30,
+        step_size=3,
+        allow_shorter_input=True,
+        pad_input=True,
+    )
+
+    return trainset, testset
+
+def iterate_dataset(trainset, testset):
 
     # supervised training data loading
     for k, v in trainset.metadata.items():
@@ -518,15 +531,7 @@ if __name__ == "__main__":
         if step >= 5:
             break
 
-
-    testset = SimBarcaExplore(
-        split="test",
-        input_window=30,
-        pred_window=30,
-        step_size=3,
-        allow_shorter_input=True,
-        pad_input=True,
-    )
+def historical_average_baseline(trainset, testset):
 
     # evaluate trivial average value prediction
     from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
@@ -590,3 +595,151 @@ if __name__ == "__main__":
     os.makedirs("scratch/simbarca_explore_baseline_results", exist_ok=True)
     with open("scratch/simbarca_explore_baseline_results/res.json", "w") as f:
         json.dump(all_results, f, indent=4)
+
+def compute_critical_density(trainset, visualize=True) -> np.ndarray:
+    """
+    Compute per-road-segment critical density using the 85th percentile over all training sessions.
+
+    Args:
+        trainset: Dataset containing 3-minute density arrays shaped [num_sessions, time, num_locations].
+        visualize: If True, also save a map of critical density to the scratch folder.
+
+    Returns:
+        np.ndarray: Critical density per road segment with shape (num_locations,).
+    """
+    densities = trainset.veh_density_3min
+    density_array = np.asarray(densities, dtype=np.float32)
+    flattened = density_array.reshape(-1, density_array.shape[-1])
+    critical_density = np.quantile(flattened, 0.85, axis=0)
+    if visualize:
+        map_visualize(
+            node_coordinate=trainset.node_coordinates,
+            values=critical_density,
+            figure_note=f"Critical density (85th percentile) [{trainset.split}]",
+            save_path=os.path.join("scratch", f"critical_density_map_{trainset.split}.png"),
+            cmap="coolwarm",
+            colorbar_label="Critical density (veh/m)",
+        )
+    return critical_density
+
+def visualize_congestion_front(dataset, critical_density):
+    """
+    Visualize and animate the ratio of density to critical density for each simulation session.
+
+    For every session in `dataset`, this function creates a scatter plot of all road segments where
+    colors encode the density-to-critical-density ratio at each time step, then saves the animation
+    under `./scratch/congestion_front_<split>/session_XXX.gif`.
+
+    Args:
+        dataset: Dataset providing `veh_density_3min`, `node_coordinates`, `num_sessions`, and `session_ids`.
+        critical_density: Per-road-segment critical density tensor or array with shape (num_locations,).
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib import animation
+
+    output_dir = os.path.join("scratch", f"congestion_front_{getattr(dataset, 'split', 'dataset')}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    densities = dataset.veh_density_3min
+    density_array = np.asarray(densities, dtype=np.float32)
+    critical_array = np.asarray(critical_density, dtype=np.float32)
+    critical_array = np.maximum(critical_array, 1e-6)
+
+    ratios = density_array / critical_array
+    ratios = np.clip(ratios, a_min=None, a_max=2.0)
+    coords = np.asarray(dataset.node_coordinates, dtype=np.float32)
+    session_simids = dataset.session_ids
+    demand_scales = dataset.demand_scales
+
+    for idx in range(dataset.num_sessions):
+        print(f"Visualizing session {session_simids[idx]} ({idx+1}/{dataset.num_sessions})...")
+        session_ratios = ratios[idx]
+        scale = demand_scales[idx]
+        title_prefix = f"Session {session_simids[idx]} (scale={scale:.2f})"
+
+        fig, ax, scatter = map_visualize(
+            node_coordinate=coords,
+            values=session_ratios[0],
+            figure_note=f"{title_prefix} density ratio (t=0)",
+            save_path=None,
+            cmap="coolwarm",
+            vmin=0.0,
+            vmax=2.0,
+            colorbar_label="Density / Critical",
+        )
+
+        def update(frame):
+            scatter.set_array(session_ratios[frame])
+            ax.set_title(f"{title_prefix} density ratio (t={frame})")
+            return scatter,
+
+        anim = animation.FuncAnimation(
+            fig,
+            update,
+            frames=session_ratios.shape[0],
+            interval=300,
+            blit=False,
+        )
+
+        save_path = os.path.join(output_dir, f"session_{session_simids[idx]:03d}.gif")
+        anim.save(save_path, writer=animation.PillowWriter(fps=4))
+        plt.close(fig)
+
+def map_visualize(
+    node_coordinate: np.ndarray,
+    values: np.ndarray,
+    figure_note: str,
+    save_path: str = None,
+    cmap: str = "coolwarm",
+    vmin: float = None,
+    vmax: float = None,
+    colorbar_label: str = "Value",
+):
+    """
+    Scatter map helper used for static plots and animation frames.
+
+    Args:
+        node_coordinate: Array of shape (num_locations, 2) with XY coordinates.
+        values: Array of shape (num_locations,) containing values to visualize.
+        figure_note: Title text for the figure.
+        save_path: Optional file path to save the figure.
+        cmap: Matplotlib colormap name.
+        vmin: Optional minimum for color scaling.
+        vmax: Optional maximum for color scaling.
+        colorbar_label: Label for the colorbar.
+
+    Returns:
+        Tuple of (figure, axis, scatter) for reuse (e.g., animation updates).
+    """
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set_theme(style="darkgrid")
+
+    coords = np.asarray(node_coordinate, dtype=np.float32)
+    values = values.numpy() if isinstance(values, torch.Tensor) else np.asarray(values, dtype=np.float32)
+
+    if save_path:
+        save_dir = os.path.dirname(save_path)
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    scatter = ax.scatter(coords[:, 0], coords[:, 1], c=values, cmap=cmap, vmin=vmin, vmax=vmax, s=8)
+    fig.colorbar(scatter, ax=ax, label=colorbar_label)
+    ax.set_title(figure_note)
+    ax.set_xlabel("X coordinate")
+    ax.set_ylabel("Y coordinate")
+    ax.set_aspect("equal")
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=200)
+    return fig, ax, scatter
+
+if __name__ == "__main__":
+
+    trainset, testset = initialize_dataset()
+    # iterate_dataset(trainset, testset)
+    # historical_average_baseline(trainset, testset)
+    critical_density = compute_critical_density(trainset)
+    visualize_congestion_front(trainset, critical_density)
+    visualize_congestion_front(testset, critical_density)
