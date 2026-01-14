@@ -237,5 +237,4 @@ if __name__ == "__main__":
     plot_cce_horizon(results, save_note=args.dataset)
     plot_aw_horizon(results, save_note=args.dataset)
     plot_crps_gt(results, save_note=args.dataset)
-    plot_crps_emp(results, save_note=args.dataset)
     plot_mae_mape_rmse_horizon(results, save_note=args.dataset)

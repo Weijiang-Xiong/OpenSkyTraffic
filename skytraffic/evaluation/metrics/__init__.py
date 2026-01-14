@@ -7,11 +7,7 @@ from .probabilistic import (
 from .metrics_helper import (
     get_point_cdf,
     get_gmm_cdf,
-    get_knn_ecdf,
-    get_knn_neighbors,
     ignore_score_when_gt_is,
     gmm_interval_coverage_and_width,
-    get_crps_gmm_vs_gt,
-    get_crps_pred_vs_emp_dist,
-    get_crps_gmm_vs_emp_dist
+    get_crps_gmm_vs_gt
 )
