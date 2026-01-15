@@ -16,7 +16,7 @@ OUTPUT_DIR = Path("figures/gmm_pred_sessions")
 SAMPLE_PER_SESSION = 20
 POSITION_TO_VISUALIZE = [113, 345, 1068]
 VIS_POINTS = 300
-DENSITY_SCALE = 5
+DENSITY_SCALE = 2.0  # scale factor for better visualization
 DATA_TIME_STEP = 3  # minutes between consecutive samples
 INPUT_WINDOW = 30   # minutes of history used for prediction
 Y_MIN, Y_MAX = 0.0, 14.0
@@ -73,7 +73,7 @@ def main():
 
             ax.plot(xx, pred_by_session[session_idx][:, position], "o-", label="30min Pred")
             ax.plot(xx, gt_by_session[session_idx][:, position], "x-", label="Ground Truth")
-            ax.set_xticks(xx, xx * DATA_TIME_STEP + INPUT_WINDOW)
+            ax.set_xticks(xx, (1 + xx) * DATA_TIME_STEP + INPUT_WINDOW)
             ax.set_xlabel("Time in Simulation")
             ax.set_ylabel("Speed (m/s)")
             ax.legend()
