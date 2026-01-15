@@ -166,7 +166,8 @@ scripts/debug*.py
 tests/*.pkl
 
 # intermediate files and datasets
-scratch/*
+scratch
+results_backup*
 datasets/*
 # visualization files
 figures
