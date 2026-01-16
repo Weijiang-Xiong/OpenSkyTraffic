@@ -61,10 +61,9 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         ignore_value=float("nan"),
         mape_threshold=1.0,
         save_dir: str = None,
-        visualize=False,
         add_output_seq: list = None,
     ) -> None:
-        super().__init__(ignore_value, mape_threshold, save_dir, visualize)
+        super().__init__(ignore_value, mape_threshold, save_dir)
         if add_output_seq is not None:  # overwrite the default if provided
             self.add_output_seq = add_output_seq
         self.sp_size = 20  # the size of the chunks to split the tensors space dimension, default 10
@@ -116,7 +115,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
     #########################################################################################
     ################ Main evaluation routines           #####################################
     #########################################################################################
-    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
+    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False, visualize: bool = False) -> Dict[str, float]:
         """ This evaluation function is structured as follows:
                 0. run the super class's evaluation function (deterministic metrics)
                 1. collect predictions and required data sequences from the model and dataset
@@ -124,7 +123,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
                 3. if visualization is required, plot the scores and predictions
                 4. return the average scores (so that the engine and hooks can have access to the main scores at this round)
         """
-        _ = super().evaluate(model, data_loader, verbose=verbose)
+        _ = super().evaluate(model, data_loader, verbose=verbose, visualize=visualize)
         
         dataset: SimBarcaMSMT = data_loader.dataset
         soi: List[int] = dataset.sections_of_interest
@@ -142,7 +141,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         logger.info("Evaluating confidence intervals")
         self.evaluate_confidence_interval(all_preds, all_data, verbose=verbose)
         
-        if self.visualize:
+        if visualize:
             
             self.plot_crps_scores()
             self.save_scores_to_json()
