@@ -21,18 +21,19 @@ logger = logging.getLogger("default")
 
 class SimBarcaEvaluator:
 
-    def __init__(self, ignore_value=float("nan"), mape_threshold=1.0, save_dir: str=None, visualize=False) -> None:
+    def __init__(self, ignore_value=float("nan"), mape_threshold=1.0, save_dir: str=None) -> None:
         self.ignore_value = ignore_value
         self.mape_threshold = mape_threshold
         self.save_dir = save_dir
-        self.visualize = visualize
         make_dir_if_not_exist(self.save_dir)
         # for saving various evaluation metrics in analysis
         self.metrics_scalar: Dict[str, float] = dict()
         self.metrics_vector: Dict[str, List] = dict()
         
     def __call__(self, model: nn.Module, data_loader: DataLoader, **kwargs) -> Dict[str, float]:
-        return self.evaluate(model, data_loader, **kwargs)
+        verbose = kwargs.pop('verbose', False)
+        visualize = kwargs.pop('visualize', False)
+        return self.evaluate(model, data_loader, verbose=verbose, visualize=visualize)
 
     def collect_predictions(
         self,
@@ -190,7 +191,7 @@ class SimBarcaEvaluator:
         self.metrics_scalar.update(avg_eval_res)
 
 
-    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False) -> Dict[str, float]:
+    def evaluate(self, model: nn.Module, data_loader: DataLoader, verbose=False, visualize: bool = False) -> Dict[str, float]:
         dataset: SimBarcaMSMT = data_loader.dataset
         seqs = dataset.output_seqs
         sections_of_interest = dataset.sections_of_interest
@@ -202,7 +203,7 @@ class SimBarcaEvaluator:
         self.eval_by_time_step(all_preds, all_labels, verbose=verbose)
         
         # this is for evaluation after the training process is done
-        if self.visualize:
+        if visualize:
             self.save_scores_to_json()
             # visualize average MAE per location as a map
             self.plot_MAE_by_location(

@@ -121,13 +121,13 @@ def evaluate_trivial_models(data_loader, ignore_value=np.nan, save_dir="/scratch
     for model_class in [InputAverageModel, LastObservedModel]:
         for mode in ["ld_speed", "drone_speed"]:
             logger.info("Evaluating trivial models {} {}".format(model_class.__name__, mode))
-            evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir,visualize=True, save_note="{}_{}".format(model_class.__name__, mode))
-            res = evaluator.evaluate(model_class(mode), data_loader, verbose=True)
+            evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir)
+            res = evaluator.evaluate(model_class(mode), data_loader, verbose=True, visualize=True)
 
     # historical average
     logger.info("Evaluating trivial models historical_avg")
-    evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir, visualize=True, save_note="HistoricalAverageModel")
-    res = evaluator.evaluate(HistoricalAverageModel(data_loader=data_loader), data_loader, verbose=True)
+    evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir)
+    res = evaluator.evaluate(HistoricalAverageModel(data_loader=data_loader), data_loader, verbose=True, visualize=True)
     
 
 if __name__ == "__main__":

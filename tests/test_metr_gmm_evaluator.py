@@ -117,7 +117,7 @@ class TestMetrGMMEvaluator(unittest.TestCase):
 
     def test_collect_predictions(self):
         """Test that the evaluator can collect predictions correctly"""
-        evaluator = MetrGMMEvaluator(save_dir=self.temp_dir, visualize=False)
+        evaluator = MetrGMMEvaluator(save_dir=self.temp_dir)
         
         all_preds, all_data = evaluator.collect_predictions(
             self.model, 
@@ -140,7 +140,7 @@ class TestMetrGMMEvaluator(unittest.TestCase):
     
     def test_evaluate_method(self):
         """Test the main evaluate method"""
-        evaluator = MetrGMMEvaluator(save_dir=self.temp_dir, visualize=False)
+        evaluator = MetrGMMEvaluator(save_dir=self.temp_dir)
         
         results = evaluator.evaluate(self.model, self.dataloader, verbose=False)
         

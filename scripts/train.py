@@ -62,7 +62,8 @@ def main(args):
         eval_res = evaluator(
             model, 
             test_loader,
-            verbose=True
+            verbose=True,
+            visualize=True
         )
         return eval_res
     else:
@@ -82,7 +83,6 @@ def main(args):
         cfg.scheduler.optimizer = optimizer
         scheduler = instantiate(cfg.scheduler)
         evaluator = instantiate(cfg.evaluator)
-        
         # the trainer runs a training loop, which iterates the model through batches in 
         # the dataloader, compute loss and call optimizer to update model parameters
         trainer = DefaultTrainer(
@@ -101,7 +101,7 @@ def main(args):
             hooks.StepBasedLRScheduler(scheduler=scheduler),
             (
                 hooks.EvalHook(
-                    lambda m: evaluator(m, train_loader),
+                    lambda m: evaluator(m, train_loader, visualize=False),
                     metric_suffix="train",
                     period=cfg.train.eval_period,
                     eval_after_train=False,
@@ -109,11 +109,11 @@ def main(args):
                 if cfg.train.eval_train
                 else None
             ),
-            hooks.EvalHook(lambda m: evaluator(m, test_loader), metric_suffix='test', period=cfg.train.eval_period, eval_after_train=False),
+            hooks.EvalHook(lambda m: evaluator(m, test_loader, visualize=False), metric_suffix='test', period=cfg.train.eval_period, eval_after_train=False),
             hooks.MetricPrinter(),
             hooks.CheckpointSaver(cfg.train.best_metric, cfg.train.test_best_ckpt, cfg.train.save_period),
             # after training, we print the results on the test set
-            hooks.EvalHook(lambda m: evaluator(m, test_loader, verbose=True), metric_suffix='final_test'),
+            hooks.EvalHook(lambda m: evaluator(m, test_loader, verbose=True, visualize=True), metric_suffix='final_test'),
             hooks.GradientClipper(clip_value=cfg.train.grad_clip),
             hooks.PlotTrainingLog(),
             hooks.TensorboardWriter(period=cfg.train.eval_period, save_dir=cfg.train.output_dir)

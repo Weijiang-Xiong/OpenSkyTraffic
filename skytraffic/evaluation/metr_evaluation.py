@@ -21,17 +21,12 @@ class MetrEvaluator(BaseEvaluator):
     def __init__(
         self,
         save_dir: str = None,
-        visualize: bool = False,
         collect_pred=["pred"],
         collect_data=["target"],
     ) -> None:
-        super().__init__(save_dir, visualize, collect_pred, collect_data)
-        self.save_dir 
-        self.visualize
-        self.collect_pred
-        self.collect_data
+        super().__init__(save_dir, collect_pred, collect_data)
 
-    def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False) -> Dict[str, float]:
+    def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False, visualize: bool = False) -> Dict[str, float]:
 
         all_preds, all_labels = self.collect_predictions(model, dataloader, pred_seqs=self.collect_pred, data_seqs=self.collect_data)
         pred, label = all_preds['pred'], all_labels['target']
