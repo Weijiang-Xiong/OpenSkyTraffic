@@ -19,9 +19,6 @@ from .simbarca_evaluation import SimBarcaEvaluator
 from .metrics import (
     gmm_interval_coverage_and_width,
     ignore_score_when_gt_is,
-    get_knn_neighbors,
-    get_crps_pred_vs_emp_dist,
-    get_crps_gmm_vs_emp_dist,
     get_crps_gmm_vs_gt
 )
 
@@ -67,7 +64,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         if add_output_seq is not None:  # overwrite the default if provided
             self.add_output_seq = add_output_seq
         self.sp_size = 20  # the size of the chunks to split the tensors space dimension, default 10
-        self.knn_nb = 20  # the number of nearest neighbors to find, default 20
         self.gpu = True  # whether to use GPU acceleration, default True
 
     
@@ -167,7 +163,7 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
 
             self.plot_30min_gmm_preds(all_preds, all_data, p_list=p_list_seg, s_list=s_list, 
                     sample_per_session=dataset.sample_per_session, task="seg", sim_ids=session_ids, 
-                    sec_ids=soi, with_knn=True, subfolder_path=gmm_pred_path)
+                    sec_ids=soi, subfolder_path=gmm_pred_path)
             self.plot_30min_gmm_preds(all_preds, all_data, p_list=p_list_reg, s_list=s_list,
                     sample_per_session=dataset.sample_per_session, task="reg", sim_ids=session_ids,
                     sec_ids=p_list_reg, subfolder_path=gmm_pred_path)
@@ -229,42 +225,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
 
         self.analyze_scores(
             scores=ignore_score_when_gt_is(
-                get_crps_gmm_vs_emp_dist(
-                    mixing=all_preds["seg_mixing"],
-                    means=all_preds["seg_means"],
-                    log_var=all_preds["seg_log_var"],
-                    xs=cdf_xs,
-                    inputs=all_data["drone_speed"],
-                    gt=all_data["pred_speed"],
-                    sp_size=self.sp_size,
-                    knn_nb=self.knn_nb,
-                    gpu=self.gpu,
-                ),
-                all_data["pred_speed"],
-            ),
-            note="CRPS_GMM_EMP",
-            verbose=verbose,
-        )
-
-        self.analyze_scores(
-            scores=ignore_score_when_gt_is(
-                get_crps_pred_vs_emp_dist(
-                    pred=all_preds["pred_speed"],
-                    xs=cdf_xs,
-                    inputs=all_data["drone_speed"],
-                    gt=all_data["pred_speed"],
-                    sp_size=self.sp_size,
-                    knn_nb=self.knn_nb,
-                    gpu=self.gpu,
-                ),
-                all_data["pred_speed"],
-            ),
-            note="CRPS_PRED_EMP",
-            verbose=verbose,
-        )
-
-        self.analyze_scores(
-            scores=ignore_score_when_gt_is(
                 get_crps_gmm_vs_gt(
                     mixing=all_preds["seg_mixing"],
                     means=all_preds["seg_means"],
@@ -292,34 +252,26 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             The values are numpy arrays with shape (T,) or (P,) for each time step and spatial location.
         """
         scores_by_time = self.metrics_vector
-        # plot the scores by time step
-        plot_legends_emp = [
-            ("CRPS_GMM_EMP", "GMM vs Empirical"),
-            ("CRPS_PRED_EMP", "Pred vs Empirical")
-        ]
-        plot_legends_gt = [            
+        plot_legends_gt = [
             ("CRPS_GMM_GT", "GMM vs GT"),
             ("pred_speed_mae", "Pred vs GT (MAE)")
         ]
-        for plot_legends, base_name in zip([plot_legends_emp, plot_legends_gt], ["emp", "gt"]):
-            fig, ax = plt.subplots(figsize=(6, 5))
-            for seq_name, seq_legend in plot_legends:
-                if seq_name in scores_by_time.keys():
-                    v = scores_by_time[seq_name]
-                # plot the scores by time step using the specified line style
+        fig, ax = plt.subplots(figsize=(6, 5))
+        for seq_name, seq_legend in plot_legends_gt:
+            if seq_name in scores_by_time.keys():
+                v = scores_by_time[seq_name]
                 ax.plot(v, label=seq_legend)
-                
-            ax.set_xticks(np.arange(len(v)))
-            ax.set_xticklabels(3 * (np.arange(len(v))+1) )
-            ax.set_xlabel("Prediction Time Horizion (min)")
-            ax.set_ylabel("Score")
-            ax.legend(loc="upper left")
-            ax.set_title("CRPS by Time Horizion")
-            plt.tight_layout()
-            save_path = f"{self.save_dir}/crps_by_time_{base_name}.pdf"
-            plt.savefig(save_path)
-            logger.info(f"Save scores by time step to {save_path}")
-            plt.close(fig)  # Close figure to free memory
+        ax.set_xticks(np.arange(len(v)))
+        ax.set_xticklabels(3 * (np.arange(len(v)) + 1))
+        ax.set_xlabel("Prediction Time Horizion (min)")
+        ax.set_ylabel("Score")
+        ax.legend(loc="upper left")
+        ax.set_title("CRPS by Time Horizion")
+        plt.tight_layout()
+        save_path = f"{self.save_dir}/crps_by_time_gt.pdf"
+        plt.savefig(save_path)
+        logger.info(f"Save scores by time step to {save_path}")
+        plt.close(fig)  # Close figure to free memory
 
 
     #########################################################################################
@@ -336,7 +288,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         task=None,
         sec_ids: List = None,
         sim_ids: List = None,
-        with_knn=False,
         verbose=False,
         subfolder_path=None,
     ):
@@ -351,7 +302,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
             regional: whether to plot regional (True) or segment (False) predictions
             sec_ids: list of section IDs in aimsun, will be used in file name
             sim_ids: list of simulation session IDs, will be used in file name
-            with_knn: whether to plot KNN empirical distribution, can be used with segment level predictions
         """
         # Determine which task to use
         assert task in self.eval_tasks, f"Task should be one of {self.eval_tasks}"
@@ -379,14 +329,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
         
         # Now loop through the lists of positions and sessions
         for p, sec_id in zip(p_list, sec_ids):
-            
-            if with_knn: # Compute KNN neighbors for the last time step
-                knn = get_knn_neighbors(
-                    x=all_data['drone_speed'][:, -1, p].reshape(-1, 1, 1), 
-                    y=all_data['pred_speed'][:, -1, p].reshape(-1, 1, 1)
-                )
-                knn_by_session = [x.squeeze().numpy() for x in np.split(knn, num_sessions)]
-                
             for s, sim_id in zip(s_list, sim_ids):
                 # Extract data for this specific position and session
                 pdf_matrix = GMMPredictionHead.get_mixture_density(
@@ -401,14 +343,6 @@ class SimBarcaGMMEvaluator(SimBarcaEvaluator):
                     x_baseline = t  # the left side (time coordinate) for this ridge
                     ridge_x = t + self.density_scale * pdf_matrix[t, :]  # the right edge, shifted by density
                     ax.fill_betweenx(y_vals, x_baseline, ridge_x, color=palette[t], alpha=0.6)
-                    
-                    # create a scatter point plots for the KNN empirical distribution
-                    if with_knn:
-                        ax.scatter(
-                            torch.ones(self.knn_nb) * x_baseline, 
-                            knn_by_session[s][t], 
-                            color='grey', s=5, alpha=0.5
-                        )
 
                 # Plot predictions and ground truth
                 ax.plot(xx, pred_by_session[s][:, p], 'o-', label='30min Pred')
