@@ -17,7 +17,8 @@ plt.rcParams['font.size'] = 12
 COLORS = colormaps.get_cmap('tab10')
 LINE_STYLES = ['-', '--', '-.']
 
-SAVE_DIR = "figures/gmm_eval_vis"
+SAVE_DIR = "figures/gmm/eval_vis"
+RESULT_GROUP_FILE = "figures/gmm/result_groups.json"
 
 def load_evaluation_results(res_dir: str, dataset: str, res_group_file: str = None):
     result_groups = json.load(open(res_group_file))
@@ -131,6 +132,8 @@ def plot_crps_gt(results, save_note="dataset"):
     pred_horizon = len(first_horizon_metric)
     horizons = list(range(1, pred_horizon + 1))
 
+    avg_metrics = dict()
+
     for i, (method, data) in enumerate(results.items()):
         # draw the CRPS values for probabilistic methods
         if "CRPS_GMM_GT" in data["horizon"]:
@@ -146,44 +149,19 @@ def plot_crps_gt(results, save_note="dataset"):
                     label=f"{method}", linewidth=2, marker='.',
                     color=COLORS([i % len(COLORS.colors)]), 
                     linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
+        avg_metrics[method] = np.mean(metric_values)
     
     plt.xlabel('Prediction Horizon')
     plt.ylabel('CRPS')
     plt.xticks(range(1, pred_horizon + 1))
     plt.legend()
     plt.tight_layout()
-    save_path = f'{SAVE_DIR}/{save_note}_crps_wrt_gt_by_pred_horizon.pdf'
+    save_path = f'{SAVE_DIR}/{save_note}_crps_by_pred_horizon.pdf'
     plt.savefig(save_path, bbox_inches='tight')
     print(f"Saved figure to {save_path}")
-    plt.show()
-
-
-def plot_crps_emp(results, save_note="dataset"):
-    """Plot CRPS_GMM_EMP values over prediction horizon."""
-    plt.figure(figsize=(8, 6))
-
-    # Get prediction horizon from the first method's first horizon metric
-    first_method_data = list(results.values())[0]
-    first_horizon_metric = list(first_method_data["horizon"].values())[0]
-    pred_horizon = len(first_horizon_metric)
-
-    for i, (method, data) in enumerate(results.items()):
-        if "CRPS_GMM_EMP" in data["horizon"]:
-            horizons = list(range(1, pred_horizon + 1))
-            crps_values = data["horizon"]["CRPS_GMM_EMP"]
-            plt.plot(horizons, crps_values, 
-                     label=method, linewidth=2, marker='.',
-                     color=COLORS([i % len(COLORS.colors)]), 
-                     linestyle=LINE_STYLES[(i // len(COLORS.colors)) % len(LINE_STYLES)])
-    
-    plt.xlabel('Prediction Horizon')
-    plt.ylabel('CRPS')
-    plt.xticks(range(1, pred_horizon + 1))
-    plt.legend()
-    plt.tight_layout()
-    save_path = f'{SAVE_DIR}/{save_note}_crps_wrt_emp_by_pred_horizon.pdf'
-    plt.savefig(save_path, bbox_inches='tight')
-    print(f"Saved figure to {save_path}")
+    print("Average CRPS/MAE values across all horizons:")
+    for method, avg_value in avg_metrics.items():
+        print(f"{method}: {avg_value:.4f}")
     plt.show()
 
 
@@ -224,7 +202,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load results from all methods (probabilistic methods and deterministic methods)
-    results = load_evaluation_results(args.res_dir, args.dataset, res_group_file=f"{SAVE_DIR}/result_groups.json")
+    results = load_evaluation_results(args.res_dir, args.dataset, res_group_file=RESULT_GROUP_FILE)
     
     if not results:
         print("No evaluation results found!")
