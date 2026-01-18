@@ -154,7 +154,7 @@ class GMMPredictionHead(nn.Module):
         self.offset.weight.data.fill_(0.0)
         self.offset.bias.data.fill_(0.0)
         self.uncertainty.weight.data.fill_(0.0)
-        self.uncertainty.bias.data.fill_(1.0)
+        self.uncertainty.bias.data.fill_(0.0)
     
     @staticmethod
     def get_mixture_density(mixing:torch.Tensor, means: torch.Tensor, log_var: torch.Tensor, xs: torch.Tensor) -> torch.Tensor:

@@ -115,7 +115,6 @@ if __name__ == "__main__":
                 eval_cmd = eval_cmd + " " + "train.checkpoint={}/model_final.pth".format(output_dir)
             except Exception:
                 print("Output directory not specified, relying on the default save dir for evaluation")
-            eval_cmd = eval_cmd + " " + "evaluator.visualize=True"
             eval_list.append(eval_cmd)
 
     if mode == "vis":

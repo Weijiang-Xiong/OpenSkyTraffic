@@ -34,22 +34,23 @@ class BaseEvaluator(ABC):
     def __init__(
         self,
         save_dir: str = None,
-        visualize: bool = False,
         collect_pred: List[str] = None,
         collect_data: List[str] = None,
     ) -> None:
         self.save_dir = save_dir
         make_dir_if_not_exist(self.save_dir)
-        self.visualize = visualize
         self.collect_pred = collect_pred
         self.collect_data = collect_data
         self.metrics_scalar: Dict[str, float] = dict()
         self.metrics_vector: Dict[str, List] = dict()
 
     def __call__(self, model: nn.Module, dataloader: DataLoader, **kwargs) -> Dict[str, float]:
-        eval_res = self.evaluate(model, dataloader, **kwargs)
+        verbose = kwargs.pop('verbose', False)
+        visualize = kwargs.pop('visualize', False)
 
-        if self.visualize:
+        eval_res = self.evaluate(model, dataloader, verbose=verbose, visualize=visualize)
+
+        if visualize:
             self.save_scores_to_json()
 
         return eval_res
@@ -90,7 +91,7 @@ class BaseEvaluator(ABC):
         return all_preds, all_labels
 
     @abstractmethod
-    def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False) -> Dict[str, float]:
+    def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False, visualize: bool = False) -> Dict[str, float]:
         pass
 
     def common_metrics_by_horizon(self, pred, label, verbose:bool=False) -> Dict[str, List[float]]:

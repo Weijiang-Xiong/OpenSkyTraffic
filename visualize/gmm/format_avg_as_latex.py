@@ -5,14 +5,14 @@ import argparse
 import pandas as pd
 from draw_prob_metrics_plot import load_evaluation_results
 
-SAVE_DIR = "figures/gmm_eval_latex"
+SAVE_DIR = "figures/gmm/eval_latex"
 
-def format_det_metrics_latex_table(res_dir, groups):
+def format_det_metrics_latex_table(res_dir, groups, res_group_file):
     """Format the results into a latex table."""
     metrics = ['mae', 'mape', 'rmse']
     df = pd.DataFrame(columns=sorted(["{}_{}".format(g, m) for m in metrics for g in groups]))
     for group in groups:
-        results = load_evaluation_results(res_dir=res_dir, dataset=group)
+        results = load_evaluation_results(res_dir=res_dir, dataset=group, res_group_file=res_group_file)
         results = dict(sorted(results.items(), key=lambda x: x[0]))
         for method, eval_res in results.items():
             avg_res = eval_res["average"]
@@ -24,12 +24,12 @@ def format_det_metrics_latex_table(res_dir, groups):
         print(df)
     df.to_latex(buf=f"{SAVE_DIR}/result_latex_table_det.tex", index=True, float_format='{:.2f}'.format)
 
-def format_prob_metrics_latex_table(res_dir, groups):
+def format_prob_metrics_latex_table(res_dir, groups, res_group_file):
     """Format the results into a latex table."""
     metrics = ['CRPS', 'mAW', 'mCCE']
     df = pd.DataFrame(columns=sorted(["{}_{}".format(g, m) for m in metrics for g in groups]))
     for group in groups:
-        results = load_evaluation_results(res_dir=res_dir, dataset=group)
+        results = load_evaluation_results(res_dir=res_dir, dataset=group, res_group_file=res_group_file)
         results = dict(sorted(results.items(), key=lambda x: x[0]))
         for method, eval_res in results.items():
             avg_res = eval_res["average"]
@@ -52,7 +52,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--res-dir", type=str, default="./results_backup")
     parser.add_argument("--groups", type=list, nargs="+", default=["metr", "pemsbay", "simbarcaspd"])
+    parser.add_argument("--res-group-file", type=str, default="figures/gmm/result_groups.json")
     args = parser.parse_args()
-    format_det_metrics_latex_table(res_dir=args.res_dir, groups=args.groups)
+    format_det_metrics_latex_table(res_dir=args.res_dir, groups=args.groups, res_group_file=args.res_group_file)
     print("\n\n")
-    format_prob_metrics_latex_table(res_dir=args.res_dir, groups=args.groups)
+    format_prob_metrics_latex_table(res_dir=args.res_dir, groups=args.groups, res_group_file=args.res_group_file)

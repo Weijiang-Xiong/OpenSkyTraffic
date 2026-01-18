@@ -25,7 +25,6 @@ class MetrGMMEvaluator(MetrEvaluator):
 
     def __init__(self, 
                  save_dir: str = None, 
-                 visualize: bool = False, 
                  collect_pred=["pred", "mixing", "means", "log_var"], 
                  collect_data=["target"],
                  data_min: float = 0.0, 
@@ -33,14 +32,14 @@ class MetrGMMEvaluator(MetrEvaluator):
                  sp_size: int = 5,
                  gpu: bool = True,
                  ci_pts: int = 500):
-        super().__init__(save_dir, visualize, collect_pred, collect_data)
+        super().__init__(save_dir, collect_pred, collect_data)
         self.data_min = data_min # minimum data value (traffic data is typically non-negative)
         self.data_max = data_max # maximum data value (adjustable based on dataset)
         self.sp_size = sp_size # chunk size for spatial dimension to save memory
         self.gpu = gpu # whether to use GPU acceleration for evaluation
         self.ci_pts = ci_pts # number of points to evaluate GMM density for confidence intervals
 
-    def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False) -> Dict[str, float]:
+    def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False, visualize: bool = False) -> Dict[str, float]:
         """
         Evaluate GMM model with both deterministic and probabilistic metrics.
         
@@ -53,7 +52,7 @@ class MetrGMMEvaluator(MetrEvaluator):
             Dictionary of evaluation metrics
         """
         # First get basic deterministic metrics from parent class
-        _ = super().evaluate(model, dataloader, verbose=verbose)
+        _ = super().evaluate(model, dataloader, verbose=verbose, visualize=visualize)
         
         # Collect predictions and data for GMM evaluation
         all_preds, all_data = self.collect_predictions(
