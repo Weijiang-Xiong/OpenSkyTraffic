@@ -3,9 +3,9 @@
 """
 import argparse
 import pandas as pd
-from visualize.gmm.draw_prob_metrics_plot import load_evaluation_results
+from draw_prob_metrics_plot import load_evaluation_results
 
-SAVE_DIR = "figures/gmm_eval_latex"
+SAVE_DIR = "figures/gmm/eval_latex"
 
 def format_det_metrics_latex_table(res_dir, groups, res_group_file):
     """Format the results into a latex table."""
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--res-dir", type=str, default="./results_backup")
     parser.add_argument("--groups", type=list, nargs="+", default=["metr", "pemsbay", "simbarcaspd"])
-    parser.add_argument("--res-group-file", type=str, default="figures/gmm_eval_vis/result_groups.json")
+    parser.add_argument("--res-group-file", type=str, default="figures/gmm/result_groups.json")
     args = parser.parse_args()
     format_det_metrics_latex_table(res_dir=args.res_dir, groups=args.groups, res_group_file=args.res_group_file)
     print("\n\n")
