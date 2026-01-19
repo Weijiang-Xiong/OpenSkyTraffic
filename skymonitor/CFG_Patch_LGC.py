@@ -61,7 +61,7 @@ dataloader.test = L(DataLoader)(
 model = L(PatchedMVLSTMGCNConv)(
     use_cvg_mask=True,
     use_global=True,
-    feature_dim=4,
+    feature_dim=3,
     d_model=64,
     temp_patching=3,
     global_downsample_factor=1,
@@ -80,7 +80,6 @@ model = L(PatchedMVLSTMGCNConv)(
 evaluator = L(SimBarcaExploreEvaluator)(
     # we assume that evaluator will be a top-level config, and in the same level we have `train`
     save_dir="${train.output_dir}/evaluation",
-    visualize=False,
     collect_pred=["pred"],
     collect_data=["target"],
     ignore_value=0.0,

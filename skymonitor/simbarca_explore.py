@@ -86,7 +86,7 @@ class SimBarcaExplore(SimBarcaForecast):
             augmentations" : a list of data augmentation modules to apply during data loading, for supervised training only.
         """
         # the number of sliding window samples during the 120 minute valid simulation
-        num_unpadded_samples = ( 120 - (input_window + pred_window) ) // step_size + 1
+        num_unpadded_samples = ( 120 - (input_window + pred_window) ) // step_size
         super().__init__(split, input_window, pred_window, step_size, num_unpadded_samples)
         self._active_session = None  # Current session data
         self.grid_size = grid_size
@@ -103,13 +103,14 @@ class SimBarcaExplore(SimBarcaForecast):
         self.load_or_compute_metadata()
         self.clean_up_raw_sequences()
 
-        self.augmentations = []
         if augmentations is not None:
             if not isinstance(augmentations, list): # single augmentation
                 augmentations = [augmentations]
             for aug in augmentations:
                 aug.set_grid(self.grid_xy_to_id, self.grid_id)
                 self.augmentations.append(aug)
+        else:
+            self.augmentations = []
 
     @property
     def metadata_file(self) -> str:

@@ -21,7 +21,6 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
     def __init__(
         self,
         save_dir: str = None,
-        visualize: bool = False,
         collect_pred=["pred"],
         collect_data=["target"],
         ignore_value: float = 0.0,
@@ -29,9 +28,8 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
         num_repeat: int = None,
         convert_units: bool = False,
     ) -> None:
-        super().__init__(save_dir, visualize, collect_pred, collect_data)
+        super().__init__(save_dir, collect_pred, collect_data)
         self.save_dir 
-        self.visualize
         self.collect_pred
         self.collect_data
         self.ignore_value = ignore_value
@@ -40,7 +38,7 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
         # whether to convert the units of flow and density to standard units (vehicles per hour and vehicles per km)
         self.convert_units = convert_units
 
-    def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False) -> Dict[str, float]:
+    def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False, visualize: bool = False) -> Dict[str, float]:
         
         if self.num_repeat is None:
             self.num_repeat = 1
@@ -121,4 +119,4 @@ class SimBarcaExploreEvaluator(BaseEvaluator):
         self.metrics_scalar.update(avg_eval_res)
         self.metrics_vector.update(eval_res_by_horizon)
 
-        return deepcopy(self.metrics_scalar)
+        return avg_eval_res
