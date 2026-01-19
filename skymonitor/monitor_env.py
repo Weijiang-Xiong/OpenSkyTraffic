@@ -28,7 +28,7 @@ class TrafficMonitorEnv(gym.Env):
 	- **🎯 Agent Skill**: Collect traffic data in a grid map
 	- **👀 Information**: Predicted traffic states, agent position, map structure
 	- **🎮 Actions**: Move up, down, left or right by 1 or 2 steps; Move diagonally by 1 step; Don't move
-	- **🏆 Success**: the predictor has a smaller error compared to a naive flight plan
+	- **🏆 Success**: maximize the defined reward
 	- **⏰ End**: A simulation session ends.
 	"""
 
@@ -46,7 +46,6 @@ class TrafficMonitorEnv(gym.Env):
 		self.dataset = dataset
 		self.predictor = predictor
 		self.action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
-		self.baseline_agent = RandomAgent(num_drones=num_drones)
 		# settings and configurations
 		self.num_drones = int(num_drones)
 		# the random seed to be used upon next reset, in fact, each active session can be considered as a separate environment
@@ -122,34 +121,28 @@ class TrafficMonitorEnv(gym.Env):
 		self.next_reset_seed = self.np_random.integers(100_000_000, 999_999_999).item()
 
 		# accept override from options if provided, otherwise randomly select active session(s)
-		options = dict() if options is None else options
-		self.set_dataset_active_session(options.get('active_session', None))
+		active_session = None if not isinstance(options, dict) else options.get('active_session', None)
+		if active_session is None:
+			active_session = self.np_random.integers(0, self.dataset.num_sessions)
+		self.dataset.active_session = active_session
 
 		self.data_iterator = self.dataset.iterate_active_session()
 		self.step_index, self.data_sample = next(self.data_iterator)
 		assert self.step_index == 0, 'Step index should start from 0 after reset.'
 
 		positions = self.init_agent_positions()
-		obs = self.get_traffic_obs_pred(positions)
-
-		self.baseline_agent = RandomAgent(num_drones=self.num_drones)
-		self.b_actions = self.baseline_agent.select_action(obs)
+		obs = self.get_observations(positions)
 
 		self.update_history(positions, obs)
 		info = self.get_info()
 
 		return obs, info
 
-	def set_dataset_active_session(self, active_session_option=None) -> None:
-		active_session = active_session_option if active_session_option is not None else None
-		if active_session is None:
-			active_session = self.np_random.integers(0, self.dataset.num_sessions)
-		self.dataset.active_session = active_session
 
 	def step(self, actions: List[DroneAction]) -> Tuple[Dict, float, bool, bool, Dict]:
 		"""In the previous step, the agent took `actions` to move the drones to new positions.
-		The predictor makes prediction based on the traffic of the new positions, and we compare
-		it with the baseline agent's prediction to compute the reward.
+		The predictor makes prediction based on the traffic of the new positions, and we compute
+		the reward from the new observation.
 		"""
 		try:
 			self.step_index, self.data_sample = next(self.data_iterator)
@@ -158,25 +151,16 @@ class TrafficMonitorEnv(gym.Env):
 			return dict(), 0.0, True, False, {}
 
 		pos = self.apply_actions(actions)
-		obs = self.get_traffic_obs_pred(pos)
+		obs = self.get_observations(pos)
 
-		# the positions chosen by the baseline agent (from last step observations)
-		b_positions = self.apply_actions(self.b_actions)
-		# the resulting observation and prediction
-		b_obs = self.get_traffic_obs_pred(b_positions)
-
-		# the reward is calculated based on the prediction advantage over the baseline's choices
+		# the reward is calculated based on the current observation
 		reward_value = self.calculate_reward(
 			torch.from_numpy(obs['batch_pred']),
-			torch.from_numpy(b_obs['batch_pred']),
 			self.data_sample['target'],
 		)
 
 		terminated_flag = self.step_index >= (self.max_steps_per_session - 1)
 		truncated_flag = False
-
-		# update the baseline agent's action for next step
-		self.b_actions = self.baseline_agent.select_action(obs)
 
 		self.update_history(pos, obs)
 		info = self.get_info()
@@ -194,16 +178,9 @@ class TrafficMonitorEnv(gym.Env):
 		self.positions_history.clear()
 		self.observation_history.clear()
 
-	def calculate_reward(self, pred: torch.Tensor, b_pred: torch.Tensor, gt: torch.Tensor) -> float:
-		"""The agent will be rewarded primariy based on improvements of prediction quality:
-		    ** The predictor achieves a smaller error compared to a baseline agent (e.g., random flight plan) **
-		And in addition, we add rewards to encourage:
-		    1. larger coverage
-		    2. ???
-		"""
-		pred_error = torch.mean((pred - gt) ** 2).item()
-		b_pred_error = torch.mean((b_pred - gt) ** 2).item()
-		return b_pred_error - pred_error  # error reduction as reward
+	def calculate_reward(self, *args, **kwargs) -> float:
+		"""Define the reward based on the current observation and target."""
+		raise NotImplementedError('Define hand-crafted reward here.')
 
 	def init_agent_positions(self):
 		"""Initialize drone positions at start of episode."""
@@ -245,7 +222,7 @@ class TrafficMonitorEnv(gym.Env):
 
 		return {k: v for k, v in pred.items()}
 
-	def get_traffic_obs_pred(self, positions: List[Tuple[int, int]]) -> Dict[str, np.ndarray]:
+	def get_observations(self, positions: List[Tuple[int, int]]) -> Dict[str, np.ndarray]:
 		"""get the observed traffic at the given positions, and the predicted traffic based on the observation"""
 
 		# clean data from the dataset, for 1 time step
@@ -402,7 +379,6 @@ if __name__ == '__main__':
 		input_window=3,
 		pred_window=30,
 		step_size=3,
-		allow_shorter_input=False,
 		pad_input=False,
 		norm_tid=False,
 	)

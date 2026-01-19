@@ -26,10 +26,6 @@ class SimBarcaExplore(SimBarcaForecast):
     The parent class `SimBarcaForecast` loads the flow, density for all sessions as a tensor bundle shaped `[num_sessions, time, num_locations]`.
     Each session behaves like an RL environment rollout, and we want to train our drone policy using all sessions in the training set, and will test it on all sessions in the test set.
 
-    While the parent class assumes at least 30 minutes of historical data (`input_window`), here we can let the drones fly for one  `step_size` (3 minutes) to collect new data.
-    In the prediction-in-the-loop RL, the input will have 1 step size data instead of 10 steps, and we let the predictor wrapper to do the padding job.
-    The reason of this choice is to avoid designing some non-trivial starting flight plans for the drones (because the predictor needs 10 steps).
-
     In reinforcement learning, the dataset returns data samples from the current active session only.
     Each step, the dataset returns the data in most recent time window of `step_size` (e.g., 3 min).
     We first set `self.active_session` and then use `self.iterate_active_session` to go through all samples in the current active session.
@@ -69,7 +65,6 @@ class SimBarcaExplore(SimBarcaForecast):
         pred_window=30,
         step_size=3,
         grid_size=220,
-        allow_shorter_input=True,
         pad_input=True,
         norm_tid: bool = False,
         augmentations: List = None,
@@ -81,8 +76,7 @@ class SimBarcaExplore(SimBarcaForecast):
             pred_window: prediction window size in minutes (multiple of step_size)
             step_size: step size in minutes for sliding window sampling
             grid_size: grid size in meters for spatial abstraction
-            allow_shorter_input: if True, allow the input window to be `1*step_size` at the beginning of each session, and increase by step_size each step until reaching input_window size. False means the input window is always input_window size.
-            pad_input: if both `allow_shorter_input` and `pad_input` are True, the input will be padded with global average values to reach the `input_window` size. If `allow_shorter_input` is True but `pad_input` is False, the input will be of variable length.
+            pad_input: if True, pad the input with global average values to reach the `input_window` size when needed.
             augmentations" : a list of data augmentation modules to apply during data loading, for supervised training only.
         """
         # the number of sliding window samples during the 120 minute valid simulation
@@ -90,14 +84,8 @@ class SimBarcaExplore(SimBarcaForecast):
         super().__init__(split, input_window, pred_window, step_size, num_unpadded_samples)
         self._active_session = None  # Current session data
         self.grid_size = grid_size
-        self.allow_shorter_input = allow_shorter_input
         self.pad_input = pad_input
         self.norm_tid = norm_tid # whether to normalize time-in-day encoding to have zero mean and unit variance
-
-        if allow_shorter_input:
-            assert input_window // step_size >= 2, (
-                f"input_window ({input_window}) should be at least twice of step_size ({step_size}) to allow shorter input."
-            )
 
         self.prepare_data_sequences()
         self.load_or_compute_metadata()
@@ -163,7 +151,6 @@ class SimBarcaExplore(SimBarcaForecast):
         )
 
         # if the observation window is smaller than input_window, pad it with mean values
-        # this happens at the session begeinning because the drone just start to collect traffic data.
         T_in = source.shape[-3]
         if self.pad_input and T_in < self.input_size[0]:
             source, temporal_padding_mask = self.pad_backward_time(source, return_mask=True)
@@ -180,9 +167,9 @@ class SimBarcaExplore(SimBarcaForecast):
     def pad_backward_time(self, source: torch.Tensor, pad_len=None, zero_pad=False, return_mask=False) -> torch.Tensor:
         """ 
         Pad the input data backward in time with global mean values.
-        When the input data has less time steps (e.g., 1 step, 3 min) than the required input window (e.g., 30 min)
-        we pad the beginning with global mean values to reach the required input window size, and we calculate the 
-        time-in-day encodings by linear extrapolation.
+        When the input data has fewer time steps than the required input window, we pad the
+        beginning with global mean values to reach the required input window size, and we
+        calculate the time-in-day encodings by linear extrapolation.
         
         Args:
             pad_len: if specified, pad by this length, otherwise pad to the full input window size.
@@ -253,10 +240,6 @@ class SimBarcaExplore(SimBarcaForecast):
             yield i, self.__getitem__(i)
 
     def prepare_data_sequences(self):
-        def shift_left(arr, by):
-            # shift an 1d array to left by `by` steps, fill in False
-            return np.concatenate([arr[by:], np.full(by, False)])
-
         self.time_in_day_3min = self.compute_time_in_day(self._timestamp_3min)
         self.time_in_day_5s = self.compute_time_in_day(self._timestamp_5s)
         # the simulation starts from 8am and ends roughly at 10 am, so the time in day values are uniformly distributed
@@ -286,30 +269,6 @@ class SimBarcaExplore(SimBarcaForecast):
         # input and output indexes for sliding window sampling
         in_index, _ = self.get_sample_in_out_index(self._timestamp_5s)
         _, out_index = self.get_sample_in_out_index(self._timestamp_3min)
-
-        # shift the boolean mask to the left to allow shorter input windows at the beginning of each session
-        # e.g., if input_window=30min, step_size=3min, then we allow input windows of size 3,6,9,...,27 min
-        if self.allow_shorter_input:
-            shifted_out_index = [
-                shift_left(out_index[0, :].copy(), x)
-                for x in reversed(range(1, self.input_window // self.step_size))
-            ]
-            out_index = np.concatenate([np.stack(shifted_out_index, axis=0), out_index], axis=0)
-
-            steps_per_shift = int((self.step_size * 60) // 5)  # minutes→5 s ticks
-            shifted_in_index = [
-                shift_left(in_index[0, :], steps_per_shift * x)
-                for x in reversed(range(1, self.input_window // self.step_size))
-            ]
-            in_index = np.concatenate([np.stack(shifted_in_index, axis=0), in_index], axis=0)
-
-            # check the time alignment between input and output indexes
-            # the input have higher frequency than output, so we need to scale the input index
-            # by the steps_per_shift factor
-            # for sii, soi in zip(in_index, out_index):
-            #     last_in = np.nonzero(sii)[0][-1]
-            #     first_out = np.nonzero(soi)[0][0]
-            #     assert (last_in // steps_per_shift + 1) == first_out, "Input index last True should be before output index first True."
 
         self.in_index = in_index
         self.out_index = out_index
@@ -493,7 +452,6 @@ def initialize_dataset():
         input_window=30,
         pred_window=30,
         step_size=3,
-        allow_shorter_input=True,
         pad_input=True,
     )
     # trainset.summarize()
@@ -503,7 +461,6 @@ def initialize_dataset():
         input_window=30,
         pred_window=30,
         step_size=3,
-        allow_shorter_input=True,
         pad_input=True,
     )
 

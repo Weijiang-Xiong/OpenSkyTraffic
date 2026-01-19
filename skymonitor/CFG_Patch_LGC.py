@@ -24,7 +24,6 @@ dataset.train = L(SimBarcaExplore)(
     pred_window=30,
     step_size=3,
     grid_size=220,
-    allow_shorter_input=True,
     pad_input=True,
     norm_tid=False,
     augmentations=L(RandomWalkCoverage)(

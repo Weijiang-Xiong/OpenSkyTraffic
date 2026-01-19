@@ -12,7 +12,6 @@ import json
 import logging
 import argparse
 from pathlib import Path
-from typing import Tuple
 from collections import defaultdict
 
 import torch
@@ -55,7 +54,6 @@ def train_monitoring_agent_with_ppo(
 				input_window=3,
 				pred_window=30,
 				step_size=3,
-				allow_shorter_input=False,
 				pad_input=False,
 				norm_tid=False,
 			)
@@ -97,12 +95,12 @@ def train_monitoring_agent_with_ppo(
 	return model
 
 
-def get_pred_gt_reward_all_sessions(
-	env: TrafficMonitorEnv, agent: MonitoringAgent, seed: int = 42
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-	env.reset(seed=seed)  # seed the environment once before the loop to initialize its random number generator.
+def get_reward_all_sessions(env: TrafficMonitorEnv, agent: MonitoringAgent, seed: int = 42) -> torch.Tensor:
+	# seed the environment once before the loop to initialize its random number generator.
+	# in this way the drones are randomly spawn for each session, but remains consistent across runs
+	env.reset(seed=seed)  
 
-	all_pred, all_gt, all_reward = [[] for _ in range(3)]
+	all_reward = []
 
 	for active_session in range(env.dataset.num_sessions):
 		print('=== Running agents on session {} ==='.format(active_session))
@@ -110,28 +108,16 @@ def get_pred_gt_reward_all_sessions(
 		done = False
 		truncated = False
 		episode_reward = 0.0
-		step_count = 0
-		episode_pred, episode_gt = (
-			[torch.as_tensor(observation['batch_pred']).squeeze()],
-			[torch.as_tensor(info['gt']).squeeze()],
-		)
 		while not (done or truncated):
 			actions = agent.select_action(observation)
 			observation, reward, done, truncated, info = env.step(actions)
-			step_count += 1
 			episode_reward += reward
-			episode_pred.append(torch.as_tensor(observation['batch_pred'].squeeze()))  # T, P, C
-			episode_gt.append(torch.as_tensor(info['gt'].squeeze()))  # T, P, C
 
 		all_reward.append(episode_reward)
-		all_pred.append(torch.stack(episode_pred, dim=0))  # stack on new batch dimension
-		all_gt.append(torch.stack(episode_gt, dim=0))
 
-	all_pred = torch.cat(all_pred, dim=0)  # concatenate on existing batch dimension
-	all_gt = torch.cat(all_gt, dim=0)
 	all_reward = torch.tensor(all_reward)
 
-	return all_pred, all_gt, all_reward
+	return all_reward
 
 
 if __name__ == '__main__':
@@ -159,7 +145,6 @@ if __name__ == '__main__':
 		input_window=3,
 		pred_window=30,
 		step_size=3,
-		allow_shorter_input=False,
 		pad_input=False,
 		norm_tid=False,
 	)
@@ -205,24 +190,12 @@ if __name__ == '__main__':
 			logger.info('Using Static Agent, skipping training.')
 			agent = StaticAgent(num_drones=args.num_drones)
 
-	from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
-
-	evaluator = SimBarcaExploreEvaluator(
-		save_dir=args.log_dir,
-		visualize=True,
-		ignore_value=0.0,
-	)
-
 	eval_results = defaultdict(list)
 	rng = np.random.default_rng(args.eval_env_seed)
 	seeds = rng.choice(10000, size=args.eval_repeat, replace=False)
 	for i in range(args.eval_repeat):
-		# downstream task performance
 		with torch.no_grad():
-			all_pred, all_gt, all_reward = get_pred_gt_reward_all_sessions(env, agent, seed=int(seeds[i]))
-		res = evaluator.calculate_error_metrics(pred=all_pred, label=all_gt, data_channels=dataset.data_channels['target'])
-		for key, value in res.items():
-			eval_results[key].append(value)
+			all_reward = get_reward_all_sessions(env, agent, seed=int(seeds[i]))
 		eval_results['reward'].append(all_reward.mean().item())
 
 	stats = {}
