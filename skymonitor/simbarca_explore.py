@@ -9,6 +9,7 @@ from skytraffic.data.datasets.simbarca_base import SimBarcaForecast
 
 D_FREQ = 5  # the high-frequency drone data has a time step of 5 seconds
 T_STEP = 180  # we require prediction model to predict every 3 minutes (180 seconds)
+FIGURE_DIR = os.path.join("figures", "skymonitor")
 
 def _tuple_keys_to_str(d: Dict[Tuple[int, int], int]) -> Dict[str, int]:
     return {f"{k[0]}_{k[1]}": v for k, v in d.items()}
@@ -119,35 +120,35 @@ class SimBarcaExplore(SimBarcaForecast):
         sample_in_index = self.in_index[sample_idx]
         sample_out_index = self.out_index[sample_idx]
 
-        time_in_day_3min = repeat(
-            self.time_in_day_3min[self.in_index[sample_idx]],
-            "t -> t n",
-            n=self.veh_flow_3min.shape[-1],
-        )
+        time_in_day_3min = np.asarray(self.time_in_day_3min[sample_in_index])
+        time_in_day_3min = repeat(time_in_day_3min, "t -> t n", n=self.veh_flow_3min.shape[-1])
 
         # stack channels along the last dim
         # past: 3-min resolution [Tin, N, 4] => (flow, density, speed, time_in_day), without speed, the feature dimension becomes 3
-        source = torch.stack(
+        source = np.stack(
             [
-                self.veh_flow_3min[active_session, sample_in_index, :],
-                self.veh_density_3min[active_session, sample_in_index, :],
+                np.asarray(self.veh_flow_3min[active_session, sample_in_index, :]),
+                np.asarray(self.veh_density_3min[active_session, sample_in_index, :]),
                 # self.veh_speed_3min[active_session, sample_in_index, :],
                 time_in_day_3min,
             ],
-            dim=-1,
+            axis=-1,
         )
 
         # future: low-frequency resolution [Tout, N, 3] => (flow, density, speed)
-        target = torch.stack(
+        target = np.stack(
             [
-                self.veh_flow_3min[active_session, sample_out_index, :],
-                self.veh_density_3min[active_session, sample_out_index, :],
+                np.asarray(self.veh_flow_3min[active_session, sample_out_index, :]),
+                np.asarray(self.veh_density_3min[active_session, sample_out_index, :]),
                 # self.veh_speed_3min[active_session, sample_out_index, :],
             ],
-            dim=-1,
+            axis=-1,
         )
 
-        return {"source": source, "target": target}
+        return {
+            "source": torch.as_tensor(source, dtype=torch.float32),
+            "target": torch.as_tensor(target, dtype=torch.float32),
+        }
 
     def collate_fn(self, list_of_data_dicts: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
         batch_data_dict = {
@@ -190,6 +191,8 @@ class SimBarcaExplore(SimBarcaForecast):
         if self.norm_tid: 
             self.time_in_day_3min = np.sqrt(3) * (24 * self.time_in_day_3min - 9) 
             self.time_in_day_5s = np.sqrt(3) * (24 * self.time_in_day_5s - 9)
+        self.time_in_day_3min = np.asarray(self.time_in_day_3min, dtype=np.float32)
+        self.time_in_day_5s = np.asarray(self.time_in_day_5s, dtype=np.float32)
 
         # normalize by spatial length and time window; unit: veh/m for flow, veh/m for density
         self.veh_flow_3min = self._vdist_3min / (self.segment_lengths * T_STEP)
@@ -199,14 +202,14 @@ class SimBarcaExplore(SimBarcaForecast):
         # time interval. This happens more frequently for the per-5s stats. We can safely replace the NaNs
         # in vehicle flow and density with 0s, as we are not changing the meaning. But we shouldn't do it
         # for speed, as a 0 speed means vehicles are stopped, not 'no vehicle here'.
-        self.veh_flow_3min = np.nan_to_num(self.veh_flow_3min, nan=0.0)
-        self.veh_density_3min = np.nan_to_num(self.veh_density_3min, nan=0.0)
+        self.veh_flow_3min = np.nan_to_num(self.veh_flow_3min, nan=0.0).astype(np.float32, copy=False)
+        self.veh_density_3min = np.nan_to_num(self.veh_density_3min, nan=0.0).astype(np.float32, copy=False)
 
         self.veh_flow_5s = self._vdist_5s / (self.segment_lengths * D_FREQ)
         self.veh_density_5s = self._vtime_5s / (self.segment_lengths * D_FREQ)
         # self.veh_speed_5s = np.divide(self._vdist_5s, self._vtime_5s)
-        self.veh_flow_5s = np.nan_to_num(self.veh_flow_5s, nan=0.0)
-        self.veh_density_5s = np.nan_to_num(self.veh_density_5s, nan=0.0)
+        self.veh_flow_5s = np.nan_to_num(self.veh_flow_5s, nan=0.0).astype(np.float32, copy=False)
+        self.veh_density_5s = np.nan_to_num(self.veh_density_5s, nan=0.0).astype(np.float32, copy=False)
 
         # input and output indexes for sliding window sampling
         in_index, _ = self.get_sample_in_out_index(self._timestamp_3min)
@@ -223,19 +226,7 @@ class SimBarcaExplore(SimBarcaForecast):
         #     nz = np.nonzero(self.in_index[x, :])[0]
         #     print("{} non-zero elements:{}".format(nz.size, nz.tolist()))
 
-        self.veh_flow_3min = torch.from_numpy(self.veh_flow_3min).to(torch.float32)
-        self.veh_density_3min = torch.from_numpy(self.veh_density_3min).to(torch.float32)
-        # self.veh_speed_3min = torch.from_numpy(self.veh_speed_3min).to(torch.float32)
-
-        self.veh_flow_5s = torch.from_numpy(self.veh_flow_5s).to(torch.float32)
-        self.veh_density_5s = torch.from_numpy(self.veh_density_5s).to(torch.float32)
-        # self.veh_speed_5s = torch.from_numpy(self.veh_speed_5s).to(torch.float32)
-
-        self.time_in_day_3min = torch.from_numpy(self.time_in_day_3min).to(torch.float32)
-        self.time_in_day_5s = torch.from_numpy(self.time_in_day_5s).to(torch.float32)
-
-        self.in_index = torch.from_numpy(self.in_index.astype(np.bool_)).to(torch.bool)
-        self.out_index = torch.from_numpy(self.out_index.astype(np.bool_)).to(torch.bool)
+        # keep numpy arrays; convert to torch tensors in __getitem__
 
     def _compute_coverage_mask(self, positions: List[Tuple[int, int]]) -> np.ndarray:
         """
@@ -279,19 +270,19 @@ class SimBarcaExplore(SimBarcaForecast):
         self.output_size = (self.pred_window // self.step_size, self.adjacency.shape[0], len(self.data_channels["target"]))
 
         metadata = {
-            "adjacency": torch.as_tensor(self.adjacency, dtype=torch.long),
-            "edge_index": torch.as_tensor(self.edge_index, dtype=torch.long),
-            "node_coordinates": torch.as_tensor(self.node_coordinates, dtype=torch.float32),
-            "segment_lengths": torch.as_tensor(self.segment_lengths, dtype=torch.float32),
-            "cluster_id": torch.as_tensor(self.cluster_id, dtype=torch.long),
+            "adjacency": np.asarray(self.adjacency, dtype=np.int64),
+            "edge_index": np.asarray(self.edge_index, dtype=np.int64),
+            "node_coordinates": np.asarray(self.node_coordinates, dtype=np.float32),
+            "segment_lengths": np.asarray(self.segment_lengths, dtype=np.float32),
+            "cluster_id": np.asarray(self.cluster_id, dtype=np.int64),
             # the grid ID of each road segment
-            "grid_id": torch.as_tensor(self.grid_id, dtype=torch.long),  
+            "grid_id": np.asarray(self.grid_id, dtype=np.int64),
             # the grid (x, y) coordinate of each road segment, shape (N,2)
-            "grid_xy": torch.as_tensor(grid_xy, dtype=torch.long),
+            "grid_xy": np.asarray(grid_xy, dtype=np.int64),
             # mapping from grid (x, y) coordinate to grid ID
             # converted to string keys for omegaconf compatibility
-            "grid_xy_to_id": _tuple_keys_to_str(self.grid_xy_to_id),  
-            "num_lanes": torch.as_tensor(self.num_lanes, dtype=torch.long),
+            "grid_xy_to_id": _tuple_keys_to_str(self.grid_xy_to_id),
+            "num_lanes": np.asarray(self.num_lanes, dtype=np.int64),
             "data_stats": {
                 "source": self.data_stats["3min"],
                 "target": self.data_stats["3min"],
@@ -348,7 +339,8 @@ class SimBarcaExplore(SimBarcaForecast):
                     )
 
         plt.tight_layout()
-        plt.savefig("SimBarcaExplore_grid_ids.pdf", bbox_inches="tight")
+        os.makedirs(FIGURE_DIR, exist_ok=True)
+        plt.savefig(os.path.join(FIGURE_DIR, "SimBarcaExplore_grid_ids.pdf"), bbox_inches="tight")
         plt.close()
 
     def summarize(self):
@@ -360,8 +352,10 @@ class SimBarcaExplore(SimBarcaForecast):
 
         # Draw a histogram for the 3 min flow and density values separately,
         # and a scatter plot for flow vs density
-        flow_values = self.veh_flow_3min.numpy().flatten()
-        density_values = self.veh_density_3min.numpy().flatten()
+        flow_array = self.veh_flow_3min.flatten()
+        density_array = self.veh_density_3min.flatten()
+        flow_values = flow_array.flatten()
+        density_values = density_array.flatten()
 
         fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
@@ -375,15 +369,16 @@ class SimBarcaExplore(SimBarcaForecast):
         axes[1].set_xlabel('Density (veh/m)')
         axes[1].set_ylabel('Data point count')
 
-        axes[2].scatter(np.average(self.veh_density_3min.numpy(), weights=self.segment_lengths, axis=-1).flatten(),
-                        np.average(self.veh_flow_3min.numpy(), weights=self.segment_lengths, axis=-1).flatten(),
+        axes[2].scatter(np.average(density_array, weights=self.segment_lengths, axis=-1).flatten(),
+                        np.average(flow_array, weights=self.segment_lengths, axis=-1).flatten(),
                         alpha=0.5) 
         axes[2].set_title('Regional Avg Flow vs Density')
         axes[2].set_xlabel('Density (veh/m)')
         axes[2].set_ylabel('Flow (veh/s)')
 
         fig.tight_layout()
-        fig.savefig('SimBarcaExplore_{}set_summary.pdf'.format(self.split))
+        os.makedirs(FIGURE_DIR, exist_ok=True)
+        fig.savefig(os.path.join(FIGURE_DIR, "SimBarcaExplore_{}set_summary.pdf".format(self.split)))
         plt.close(fig)
 
 
@@ -435,13 +430,12 @@ def historical_average_baseline(trainset, testset):
     from skymonitor.simbarca_explore_evaluation import SimBarcaExploreEvaluator
     evaluator = SimBarcaExploreEvaluator(
         save_dir="scratch/simbarca_explore_baseline_results",
-        visualize=False, 
         ignore_value=0.0
         )
     
     # eval historical average prediction
-    density = trainset.veh_density_3min.numpy() # shape (num_session, time, num_location)
-    flow = trainset.veh_flow_3min.numpy() # shape (num_session, time, num_location)
+    density = trainset.veh_density_3min
+    flow = trainset.veh_flow_3min
 
     test_loader = torch.utils.data.DataLoader(testset, batch_size=8, shuffle=False, collate_fn=testset.collate_fn)
     _, all_labels = evaluator.collect_predictions(model=torch.nn.Identity(), data_loader=test_loader, pred_seqs=[], data_seqs=['target'])
@@ -471,8 +465,8 @@ def historical_average_baseline(trainset, testset):
     per_location_per_time_avg_density = repeat(density.mean(axis=0), "t P -> S t P", S=testset.num_sessions)  # shape (time, P)
     from copy import deepcopy
     testset_cp = deepcopy(testset)
-    testset_cp.veh_flow_3min = torch.as_tensor(per_location_per_time_avg_flow, dtype=torch.float32)
-    testset_cp.veh_density_3min = torch.as_tensor(per_location_per_time_avg_density, dtype=torch.float32)
+    testset_cp.veh_flow_3min = np.asarray(per_location_per_time_avg_flow, dtype=np.float32)
+    testset_cp.veh_density_3min = np.asarray(per_location_per_time_avg_density, dtype=np.float32)
 
     dataloader_cp = torch.utils.data.DataLoader(testset_cp, batch_size=8, shuffle=False, collate_fn=testset_cp.collate_fn)
     _, avg_preds = evaluator.collect_predictions(model=torch.nn.Identity(), data_loader=dataloader_cp, pred_seqs=[], data_seqs=['target'])
@@ -500,7 +494,7 @@ def compute_critical_density(trainset, visualize=True) -> np.ndarray:
 
     Args:
         trainset: Dataset containing 3-minute density arrays shaped [num_sessions, time, num_locations].
-        visualize: If True, also save a map of critical density to the scratch folder.
+        visualize: If True, also save a map of critical density to the FIGURE_DIR folder.
 
     Returns:
         np.ndarray: Critical density per road segment with shape (num_locations,).
@@ -514,7 +508,7 @@ def compute_critical_density(trainset, visualize=True) -> np.ndarray:
             node_coordinate=trainset.node_coordinates,
             values=critical_density,
             figure_note=f"Critical density (85th percentile) [{trainset.split}]",
-            save_path=os.path.join("scratch", f"critical_density_map_{trainset.split}.png"),
+            save_path=os.path.join(FIGURE_DIR, f"critical_density_map_{trainset.split}.png"),
             cmap="coolwarm",
             colorbar_label="Critical density (veh/m)",
         )
@@ -526,7 +520,7 @@ def visualize_congestion_front(dataset, critical_density):
 
     For every session in `dataset`, this function creates a scatter plot of all road segments where
     colors encode the density-to-critical-density ratio at each time step, then saves the animation
-    under `./scratch/congestion_front_<split>/session_XXX.gif`.
+    under `./figures/skymonitor/congestion_front_<split>/session_XXX.gif`.
 
     Args:
         dataset: Dataset providing `veh_density_3min`, `node_coordinates`, `num_sessions`, and `session_ids`.
@@ -535,7 +529,7 @@ def visualize_congestion_front(dataset, critical_density):
     import matplotlib.pyplot as plt
     from matplotlib import animation
 
-    output_dir = os.path.join("scratch", f"congestion_front_{getattr(dataset, 'split', 'dataset')}")
+    output_dir = os.path.join(FIGURE_DIR, f"congestion_front_{getattr(dataset, 'split', 'dataset')}")
     os.makedirs(output_dir, exist_ok=True)
 
     densities = dataset.veh_density_3min
@@ -636,8 +630,8 @@ def map_visualize(
 if __name__ == "__main__":
 
     trainset, testset = initialize_dataset()
-    # iterate_dataset(trainset, testset)
-    # historical_average_baseline(trainset, testset)
+    iterate_dataset(trainset, testset)
+    historical_average_baseline(trainset, testset)
     critical_density = compute_critical_density(trainset)
     visualize_congestion_front(trainset, critical_density)
     visualize_congestion_front(testset, critical_density)

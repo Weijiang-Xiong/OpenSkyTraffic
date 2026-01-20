@@ -184,9 +184,11 @@ class PatchedMVLSTMGCNConv(BaseModel):
             data_dim=metadata['data_dim']
         )
         # adjacency can be one or multiple adjacency matrices 
-        if isinstance(metadata['adjacency'], torch.Tensor):
-            metadata['adjacency'] = [metadata['adjacency']]
-        adj_mtx = sum([s.detach() for s in metadata['adjacency']])
+        adjacency = metadata['adjacency']
+        if not isinstance(adjacency, (list, tuple)):
+            adjacency = [adjacency]
+        adjacency = [torch.as_tensor(s) if not isinstance(s, torch.Tensor) else s for s in adjacency]
+        adj_mtx = sum([s.detach() for s in adjacency])
         binary_adjacency = (adj_mtx > 0)
         
         if isinstance(self.adjacency_hop, int) and self.adjacency_hop > 1:
