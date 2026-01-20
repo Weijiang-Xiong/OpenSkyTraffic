@@ -66,7 +66,7 @@ class TrafficMonitorEnv(gym.Env):
 
 		# data shape info
 		in_data_steps, num_locations, feature_dim = dataset.input_size
-		# we move our drones every `time_step` (3 min), and the input drone data are given every data_step (5s)
+		# we move our drones every `time_step` (3 min), and the input data are given every step_size (3 min)
 		self.in_time_steps = int(dataset.input_window // dataset.step_size)
 		self.in_data_steps = int(in_data_steps)
 		self.data_pt_per_time_step = int(self.in_data_steps // self.in_time_steps)

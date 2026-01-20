@@ -20,8 +20,8 @@ class SimBarcaExplore(SimBarcaForecast):
     The area is divided into grids in `self.grid_ids`, and we assume a drone hovering over a grid can observe all road segments within that grid, and thus obtain almost-perfect traffic states for those segments.
 
     The data streams are aggregated at two temporal resolutions:
-        - High-frequency 5-second aggregates represent drone observations.
-        - Low-frequency 3-minute for prediction purpose (in applications we don't need high-frequency predictions)
+        - Low-frequency 3-minute aggregates for observation and prediction.
+        - High-frequency 5-second aggregates are available but not used for input.
 
     The parent class `SimBarcaForecast` loads the flow, density for all sessions as a tensor bundle shaped `[num_sessions, time, num_locations]`.
     Each session behaves like an RL environment rollout, and we want to train our drone policy using all sessions in the training set, and will test it on all sessions in the test set.
@@ -119,20 +119,20 @@ class SimBarcaExplore(SimBarcaForecast):
         sample_in_index = self.in_index[sample_idx]
         sample_out_index = self.out_index[sample_idx]
 
-        time_in_day_5s = repeat(
-            self.time_in_day_5s[self.in_index[sample_idx]],
+        time_in_day_3min = repeat(
+            self.time_in_day_3min[self.in_index[sample_idx]],
             "t -> t n",
-            n=self.veh_flow_5s.shape[-1],
+            n=self.veh_flow_3min.shape[-1],
         )
 
         # stack channels along the last dim
-        # past: 5s resolution [Tin, N, 4] => (flow, density, speed, time_in_day), without speed, the feature dimension becomes 3
+        # past: 3-min resolution [Tin, N, 4] => (flow, density, speed, time_in_day), without speed, the feature dimension becomes 3
         source = torch.stack(
             [
-                self.veh_flow_5s[active_session, sample_in_index, :],
-                self.veh_density_5s[active_session, sample_in_index, :],
-                # self.veh_speed_5s[active_session, sample_in_index, :],
-                time_in_day_5s,
+                self.veh_flow_3min[active_session, sample_in_index, :],
+                self.veh_density_3min[active_session, sample_in_index, :],
+                # self.veh_speed_3min[active_session, sample_in_index, :],
+                time_in_day_3min,
             ],
             dim=-1,
         )
@@ -209,7 +209,7 @@ class SimBarcaExplore(SimBarcaForecast):
         self.veh_density_5s = np.nan_to_num(self.veh_density_5s, nan=0.0)
 
         # input and output indexes for sliding window sampling
-        in_index, _ = self.get_sample_in_out_index(self._timestamp_5s)
+        in_index, _ = self.get_sample_in_out_index(self._timestamp_3min)
         _, out_index = self.get_sample_in_out_index(self._timestamp_3min)
 
         self.in_index = in_index
@@ -275,7 +275,7 @@ class SimBarcaExplore(SimBarcaForecast):
         # self.visualzie_grid_ids(grid_width, grid_height, grid_xy, grid_ids)
 
         # input and output sizes (excluding batch dimension)
-        self.input_size = (self.input_window * 12, self.adjacency.shape[0], len(self.data_channels["source"]))
+        self.input_size = (self.input_window // self.step_size, self.adjacency.shape[0], len(self.data_channels["source"]))
         self.output_size = (self.pred_window // self.step_size, self.adjacency.shape[0], len(self.data_channels["target"]))
 
         metadata = {
@@ -293,13 +293,13 @@ class SimBarcaExplore(SimBarcaForecast):
             "grid_xy_to_id": _tuple_keys_to_str(self.grid_xy_to_id),  
             "num_lanes": torch.as_tensor(self.num_lanes, dtype=torch.long),
             "data_stats": {
-                "source": self.data_stats["5s"],
+                "source": self.data_stats["3min"],
                 "target": self.data_stats["3min"],
             },
             "data_channels": self.data_channels,
             "data_dim": self.data_dim,
             "data_null_value": self.data_null_value,
-            "input_size": self.input_size,  # 5s resolution
+            "input_size": self.input_size,  # 3min resolution
             "output_size": self.output_size,  # 3min resolution
         }
 

@@ -78,8 +78,7 @@ class MonitoringAgent(BaseAgent):
 
             return: List[DroneAction], the actions for all drones
         """
-        # # shape (in_steps, num_locations, feature_dim), the observed traffic for the recent time step (3 mins)
-        # # drone data has high frequency (5s), so we have in_steps = 36 for 3 mins
+        # # shape (in_steps, num_locations, feature_dim), the observed traffic at 3-min resolution
         # # in feature_dim, we have (flow, density, time-in-day), time-in-day is normalized to [0,1], e.g., 1/3 means 8am
         # current_traffic = obs['observed_traffic']
         # # shape (num_locations,), a True means the location is covered by drones
