@@ -16,11 +16,10 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 class GridFeatureExtractor(BaseFeaturesExtractor):
 
     def __init__(self, observation_space: spaces.Dict, hidden_dim: int = 256):
-        T_out, P, C_out = observation_space["batch_pred"].shape
-        T_in, _ = observation_space["coverage_mask"].shape
+        _, P, C_in = observation_space["observed_traffic"].shape
 
         self.num_locations = int(P)
-        self.feature_dim = int(C_out)
+        self.feature_dim = int(C_in)
         flattened_dim = (self.num_locations * self.feature_dim) + self.num_locations
 
         super().__init__(observation_space, features_dim=hidden_dim)
@@ -32,10 +31,10 @@ class GridFeatureExtractor(BaseFeaturesExtractor):
         )
 
     def forward(self, observations: Dict[str, torch.Tensor]) -> torch.Tensor:
-        pred = observations["batch_pred"].mean(dim=1)
-        pred_flat = pred.flatten(start_dim=1)
-        coverage = observations["coverage_mask"].mean(dim=1)
-        features = torch.cat([pred_flat, coverage], dim=1)
+        traffic = observations["observed_traffic"].mean(dim=1)
+        traffic_flat = traffic.flatten(start_dim=1)
+        coverage = observations["coverage_mask"].float().mean(dim=1)
+        features = torch.cat([traffic_flat, coverage], dim=1)
         return self.mlp(features)
 
 

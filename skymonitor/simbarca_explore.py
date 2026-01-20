@@ -65,7 +65,6 @@ class SimBarcaExplore(SimBarcaForecast):
         pred_window=30,
         step_size=3,
         grid_size=220,
-        pad_input=True,
         norm_tid: bool = False,
         augmentations: List = None,
     ):
@@ -76,7 +75,6 @@ class SimBarcaExplore(SimBarcaForecast):
             pred_window: prediction window size in minutes (multiple of step_size)
             step_size: step size in minutes for sliding window sampling
             grid_size: grid size in meters for spatial abstraction
-            pad_input: if True, pad the input with global average values to reach the `input_window` size when needed.
             augmentations" : a list of data augmentation modules to apply during data loading, for supervised training only.
         """
         # the number of sliding window samples during the 120 minute valid simulation
@@ -84,7 +82,6 @@ class SimBarcaExplore(SimBarcaForecast):
         super().__init__(split, input_window, pred_window, step_size, num_unpadded_samples)
         self._active_session = None  # Current session data
         self.grid_size = grid_size
-        self.pad_input = pad_input
         self.norm_tid = norm_tid # whether to normalize time-in-day encoding to have zero mean and unit variance
 
         self.prepare_data_sequences()
@@ -96,7 +93,7 @@ class SimBarcaExplore(SimBarcaForecast):
                 augmentations = [augmentations]
             for aug in augmentations:
                 aug.set_grid(self.grid_xy_to_id, self.grid_id)
-                self.augmentations.append(aug)
+            self.augmentations = augmentations
         else:
             self.augmentations = []
 
@@ -150,62 +147,7 @@ class SimBarcaExplore(SimBarcaForecast):
             dim=-1,
         )
 
-        # if the observation window is smaller than input_window, pad it with mean values
-        T_in = source.shape[-3]
-        if self.pad_input and T_in < self.input_size[0]:
-            source, temporal_padding_mask = self.pad_backward_time(source, return_mask=True)
-        else:
-            # no padding applied, all time steps have valid observations (though not all locations are observed)
-            temporal_padding_mask = torch.ones(T_in).bool()
-
-        data_dict = {"source": source, "target": target}
-        if self.pad_input:
-            data_dict["temporal_padding_mask"] = temporal_padding_mask
-
-        return data_dict
-
-    def pad_backward_time(self, source: torch.Tensor, pad_len=None, zero_pad=False, return_mask=False) -> torch.Tensor:
-        """ 
-        Pad the input data backward in time with global mean values.
-        When the input data has fewer time steps than the required input window, we pad the
-        beginning with global mean values to reach the required input window size, and we
-        calculate the time-in-day encodings by linear extrapolation.
-        
-        Args:
-            pad_len: if specified, pad by this length, otherwise pad to the full input window size.
-            zero_pad: if True, pad with zeros instead of global mean values.
-            return_mask: if True, also return a temporal padding mask indicating which time steps are padded (True for real data, False for padded data).
-        """
-        T, P, C = source.shape
-        time_enc = source[:, 0, -1]
-
-        start_time_enc = time_enc[0]  
-        dt = time_enc.diff().abs().mean()  # average time difference between consecutive time steps
-
-        pad_len = self.input_size[0] - T if pad_len is None else pad_len
-
-        pad_data = torch.ones((pad_len, P, C-1)) * (
-                torch.tensor(
-                    [
-                        self.data_stats["5s"]["flow"]["mean"] if not zero_pad else 0.0,
-                        self.data_stats["5s"]["density"]["mean"] if not zero_pad else 0.0,
-                        # self.data_stats['5s']['speed']['mean'] if not zero_pad else 0.0,
-                    ]
-                ).reshape(1, 1, -1)
-            )
-        
-        # count back dt per step until the input window is reached: -pad_len*dt, ... -2 *dt, -dt
-        count_back_time = ( torch.arange(- pad_len, 0, step=1) ) * dt
-        count_back_time = start_time_enc + repeat(count_back_time, "T -> T P", P=P)
-        pad = torch.cat([pad_data, count_back_time.unsqueeze(-1)], dim=-1)
-
-        temporal_padding_mask = torch.cat(tensors=[torch.zeros(pad_len), torch.ones(T)], dim=0).bool()
-        padded_source = torch.cat([pad, source], dim=0)
-
-        if return_mask:
-            return padded_source, temporal_padding_mask
-        else:
-            return padded_source
+        return {"source": source, "target": target}
 
     def collate_fn(self, list_of_data_dicts: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
         batch_data_dict = {
@@ -452,7 +394,6 @@ def initialize_dataset():
         input_window=30,
         pred_window=30,
         step_size=3,
-        pad_input=True,
     )
     # trainset.summarize()
 
@@ -461,7 +402,6 @@ def initialize_dataset():
         input_window=30,
         pred_window=30,
         step_size=3,
-        pad_input=True,
     )
 
     return trainset, testset

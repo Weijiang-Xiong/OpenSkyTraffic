@@ -84,19 +84,6 @@ class MonitoringAgent(BaseAgent):
         # current_traffic = obs['observed_traffic']
         # # shape (num_locations,), a True means the location is covered by drones
         # coverage_mask = obs['coverage_mask']
-        # # predicted traffic for next 30 minutes, with 3 min time step 
-        # # shape (batch_size, out_steps, num_locations, feature_dim)
-        # predicted_traffic = obs['batch_pred'].squeeze()
-
-        # # the predictions can be batched (N T P C) or non-batched (T P C), the following works for both cases
-        # predicted_traffic_at_grid_x9y7 = predicted_traffic[..., self.grid_id==self.grid_xy_to_id[(9,7)], :]
-        # flow_at_x9y7 = predicted_traffic_at_grid_x9y7[..., 0] # shape (out_steps, road_segments_in_grid_x9y7)
-        # density_at_x9y7 = predicted_traffic_at_grid_x9y7[..., 1]  # shape (out_steps, road_segments_in_grid_x9y7)
-
-        # predicted_traffic_at_grid_id = predicted_traffic[..., self.grid_id==self.id_of_non_empty_grids[77], :]
-        # flow_at_grid_id_42 = predicted_traffic_at_grid_id[..., 0]  # shape (out_steps, road_segments_in_grid_id_42)
-        # density_at_grid_id_42 = predicted_traffic_at_grid_id[..., 1]  # shape (out_steps, road_segments_in_grid_id_42)
-
         if self.policy_net is None:
             raise ValueError("The policy net is not initialized in MonitoringAgent.")
         

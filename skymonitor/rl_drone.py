@@ -1,11 +1,10 @@
 """We consider flying a fleet of drones to collect traffic data (flow, density, speed) over a large urban area.
-The goal is to smartly plan the drone flights so that the collected data can allow a traffic predictor to achieve the best performance.
+The goal is to smartly plan the drone flights to maximize data coverage during each session.
 We plan to develop an RL-based solution to this problem, which involves:
     1. A dataset `SimBarcaExplore` that provides traffic data of an urban area, where the space is divided to grids.
-    2. A traffic predictor that takes in past observations and predict the future traffic states (flow, density, speed)
-    3. A reward calculator based on the evaluation of traffic predictions (how good is the predictor doing)
-    4. A set of monitoring agents (drones) to query data from the dataset
-    5. An environment to orchestrate the four components above
+    2. A reward calculator based on coverage over the grid.
+    3. A set of monitoring agents (drones) to query data from the dataset.
+    4. An environment to orchestrate the components above.
 """
 
 import json
@@ -27,7 +26,6 @@ from skytraffic.utils.io import make_dir_if_not_exist
 from skymonitor.simbarca_explore import SimBarcaExplore
 from skymonitor.agents import MonitoringAgent, DronePolicy, RandomAgent, StaticAgent
 from skymonitor.monitor_env import TrafficMonitorEnv
-from skymonitor.traffic_predictor import TrafficPredictor
 
 
 def train_monitoring_agent_with_ppo(
@@ -38,8 +36,6 @@ def train_monitoring_agent_with_ppo(
 	log_dir: str = 'scratch/rl_drone',
 	checkpoint_filename: str = 'ppo.zip',
 	seed: int = 0,
-	ckpt_dir: str = 'scratch/patch_lgc',
-	predictor_device: str = 'cuda',
 ) -> PPO:
 	"""Train PPO on the monitoring environment with the custom policy."""
 
@@ -54,13 +50,10 @@ def train_monitoring_agent_with_ppo(
 				input_window=3,
 				pred_window=30,
 				step_size=3,
-				pad_input=False,
 				norm_tid=False,
 			)
-			env_predictor = TrafficPredictor(device=predictor_device, ckpt_dir=ckpt_dir)
 			env = TrafficMonitorEnv(
 				dataset=env_dataset,
-				predictor=env_predictor,
 				num_drones=num_drones,
 				seed=seed + rank,
 			)
@@ -123,7 +116,6 @@ def get_reward_all_sessions(env: TrafficMonitorEnv, agent: MonitoringAgent, seed
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Train and evaluate PPO monitoring agent.')
 	parser.add_argument('--agent-type', type=str, default='ppo', help='Type of agent to use: ppo, random, static.')
-	parser.add_argument('--ckpt-dir', type=str, default='scratch/patch_lgc', help='Directory of the predictor checkpoint.')
 	parser.add_argument('--total-timesteps', type=int, default=500_000, help='Number of environment steps for PPO training.')
 	parser.add_argument('--num-envs', type=int, default=8, help='Number of parallel environments during training.')
 	parser.add_argument('--num-drones', type=int, default=10, help='Number of drones used in training and evaluation.')
@@ -131,7 +123,6 @@ if __name__ == '__main__':
 	parser.add_argument('--log-dir', type=str, default='scratch/rl_drone', help='Directory to store PPO logs and checkpoints.')
 	parser.add_argument('--ckptname', type=str, default='ppo', help='Filename for the checkpoint without extension.')
 	parser.add_argument('--seed', type=int, default=42, help='Random seed for training.')
-	parser.add_argument('--predictor-device', type=str, default='cuda', help='Device for the traffic predictor.')
 	parser.add_argument('--eval-repeat', type=int, default=5, help='Number of evaluation runs.')
 	parser.add_argument('--eval-env-seed', type=int, default=888, help='Seed for the evaluation environment.')
 	args = parser.parse_args()
@@ -145,16 +136,11 @@ if __name__ == '__main__':
 		input_window=3,
 		pred_window=30,
 		step_size=3,
-		pad_input=False,
 		norm_tid=False,
 	)
 
-	logger.info('loading the traffic predictor from {}'.format(args.ckpt_dir))
-	predictor = TrafficPredictor(device=args.predictor_device, ckpt_dir=args.ckpt_dir)
-
 	env = TrafficMonitorEnv(
 		dataset=dataset,
-		predictor=predictor,
 		num_drones=args.num_drones,
 		seed=args.eval_env_seed,
 	)
@@ -175,8 +161,6 @@ if __name__ == '__main__':
 				log_dir=args.log_dir,
 				checkpoint_filename='{}.zip'.format(args.ckptname),
 				seed=args.seed,
-				ckpt_dir=args.ckpt_dir,
-				predictor_device=args.predictor_device,
 			)
 			agent = MonitoringAgent(
 				num_drones=args.num_drones,
