@@ -16,25 +16,10 @@ def _tuple_keys_to_str(d: Dict[Tuple[int, int], int]) -> Dict[str, int]:
 
 class SimBarcaExplore(SimBarcaForecast):
     """
-    Dataset that exposes SimBarca traffic simulations for prediction-in-the-loop RL exploration.
-
-    The area is divided into grids in `self.grid_ids`, and we assume a drone hovering over a grid can observe all road segments within that grid, and thus obtain almost-perfect traffic states for those segments.
-
+    Traffic dataset for Barcelona road network with speed and flow for each road segment.
     The data streams are aggregated at two temporal resolutions:
         - Low-frequency 3-minute aggregates for observation and prediction.
         - High-frequency 5-second aggregates are available but not used for input.
-
-    The parent class `SimBarcaForecast` loads the flow, density for all sessions as a tensor bundle shaped `[num_sessions, time, num_locations]`.
-    Each session behaves like an RL environment rollout, and we want to train our drone policy using all sessions in the training set, and will test it on all sessions in the test set.
-
-    In reinforcement learning, the dataset returns data samples from the current active session only.
-    Each step, the dataset returns the data in most recent time window of `step_size` (e.g., 3 min).
-    We first set `self.active_session` and then use `self.iterate_active_session` to go through all samples in the current active session.
-
-    Still, the `__len__` and `__getitem__` methods are implemented to support supervised training for the prediction model.
-    The dataset gives sliding-window samples with fixed input and output window sizes.
-
-    See below for code examples.
     """
 
     # these statistics are calculated using the training split with the `safe_stats` function in debug mode
@@ -76,12 +61,12 @@ class SimBarcaExplore(SimBarcaForecast):
             pred_window: prediction window size in minutes (multiple of step_size)
             step_size: step size in minutes for sliding window sampling
             grid_size: grid size in meters for spatial abstraction
+            norm_tid: whether to normalize time-of-day encoding to have zero mean and unit variance
             augmentations" : a list of data augmentation modules to apply during data loading, for supervised training only.
         """
         # the number of sliding window samples during the 120 minute valid simulation
         num_unpadded_samples = ( 120 - (input_window + pred_window) ) // step_size
         super().__init__(split, input_window, pred_window, step_size, num_unpadded_samples)
-        self._active_session = None  # Current session data
         self.grid_size = grid_size
         self.norm_tid = norm_tid # whether to normalize time-in-day encoding to have zero mean and unit variance
 
@@ -107,16 +92,18 @@ class SimBarcaExplore(SimBarcaForecast):
         """
         return self.num_sessions * self.sample_per_session
 
-    def __getitem__(self, idx) -> Dict[str, torch.Tensor]:
-        """ Get the idx-th pair of (past, future) data sample from the active session.
-            works for both supervised training and RL data retrieval (through iterate_active_session).
-        """
+    def __getitem__(self, idx: int | Tuple[int, int]) -> Dict[str, torch.Tensor]:
+        """ Get the idx-th pair of (past, future) data sample from the active session. """
 
-        active_session = self.active_session if self.active_session is not None else (idx // self.sample_per_session)
-        sample_idx = idx % self.sample_per_session
-        if (self.active_session is not None) and (idx >= self.sample_per_session):
-            print("WARNING: idx >= sample_per_session when active_session is set.")
-    
+        if isinstance(idx, tuple):
+            session_idx, sample_idx = idx
+        else:
+            session_idx = idx // self.sample_per_session
+            sample_idx = idx % self.sample_per_session
+
+        assert session_idx >= 0 and session_idx < self.num_sessions, "Session index out of range."
+        assert sample_idx >= 0 and sample_idx < self.sample_per_session, "Sample index out of range."
+
         sample_in_index = self.in_index[sample_idx]
         sample_out_index = self.out_index[sample_idx]
 
@@ -127,9 +114,9 @@ class SimBarcaExplore(SimBarcaForecast):
         # past: 3-min resolution [Tin, N, 4] => (flow, density, speed, time_in_day), without speed, the feature dimension becomes 3
         source = np.stack(
             [
-                np.asarray(self.veh_flow_3min[active_session, sample_in_index, :]),
-                np.asarray(self.veh_density_3min[active_session, sample_in_index, :]),
-                # self.veh_speed_3min[active_session, sample_in_index, :],
+                np.asarray(self.veh_flow_3min[session_idx, sample_in_index, :]),
+                np.asarray(self.veh_density_3min[session_idx, sample_in_index, :]),
+                # self.veh_speed_3min[session_idx, sample_in_index, :],
                 time_in_day_3min,
             ],
             axis=-1,
@@ -138,9 +125,9 @@ class SimBarcaExplore(SimBarcaForecast):
         # future: low-frequency resolution [Tout, N, 3] => (flow, density, speed)
         target = np.stack(
             [
-                np.asarray(self.veh_flow_3min[active_session, sample_out_index, :]),
-                np.asarray(self.veh_density_3min[active_session, sample_out_index, :]),
-                # self.veh_speed_3min[active_session, sample_out_index, :],
+                np.asarray(self.veh_flow_3min[session_idx, sample_out_index, :]),
+                np.asarray(self.veh_density_3min[session_idx, sample_out_index, :]),
+                # self.veh_speed_3min[session_idx, sample_out_index, :],
             ],
             axis=-1,
         )
@@ -160,27 +147,6 @@ class SimBarcaExplore(SimBarcaForecast):
             batch_data_dict = augmentor(batch_data_dict)
 
         return batch_data_dict
-
-    @property
-    def active_session(self):
-        """Return current active session data."""
-        return self._active_session
-
-    @active_session.setter
-    def active_session(self, idx):
-        """Set current active session by index."""
-        try:
-            idx = int(idx)
-        except Exception as e:
-            raise ValueError(f"Active session should be an integer: {e}")
-        self._active_session = idx % self.num_sessions  # this also works for interger tensors
-
-    def iterate_active_session(self):
-        """Iterate within the current active session."""
-        if self._active_session is None:
-            raise ValueError("Active session not set.")
-        for i in range(self.sample_per_session):
-            yield i, self.__getitem__(i)
 
     def prepare_data_sequences(self):
         self.time_in_day_3min = self.compute_time_in_day(self._timestamp_3min)
@@ -228,17 +194,6 @@ class SimBarcaExplore(SimBarcaForecast):
 
         # keep numpy arrays; convert to torch tensors in __getitem__
 
-    def _compute_coverage_mask(self, positions: List[Tuple[int, int]]) -> np.ndarray:
-        """
-        compute a boolean mask of shape (num_locations,) indicating which locations are covered
-        at the drones at current `positions`
-        """
-        # simply add up the per-drone coverage masks.
-        # If a location is covered by at least one drone, it is considered covered.
-        mask = sum([self.grid_id == self.grid_xy_to_id[(x, y)] for x, y in positions])
-
-        return (mask > 0).astype(np.int8)
-
     def load_or_compute_metadata(self):
         def safe_stats(array: np.ndarray) -> Dict[str, float]:
             values = np.asarray(array, dtype=np.float64)
@@ -262,8 +217,6 @@ class SimBarcaExplore(SimBarcaForecast):
         self.grid_id = grid_id
         grid_xy_to_id_np = np.unique(np.concatenate([grid_xy, grid_id[:, None]], axis=1), axis=0)
         self.grid_xy_to_id = {(int(x), int(y)): int(gid) for x, y, gid in grid_xy_to_id_np}
-
-        # self.visualzie_grid_ids(grid_width, grid_height, grid_xy, grid_ids)
 
         # input and output sizes (excluding batch dimension)
         self.input_size = (self.input_window // self.step_size, self.adjacency.shape[0], len(self.data_channels["source"]))
@@ -298,89 +251,107 @@ class SimBarcaExplore(SimBarcaForecast):
 
         return metadata
 
-    @staticmethod
-    def visualzie_grid_ids(grid_width, grid_height, grid_xy, grid_ids):
-        # Visualization
-        import matplotlib.pyplot as plt
 
-        # Create a grid map showing grid IDs
-        grid_map = np.full((grid_height, grid_width), -1, dtype=int)
-        for i, (x, y) in enumerate(grid_xy):
-            grid_map[int(y), int(x)] = grid_ids[i]
+def plot_flow_density(flow_array: np.ndarray, density_array: np.ndarray, flow_weight:np.ndarray, note="example"):
+    """
+    Plot flow and density distributions plus their regional average relationship.
 
-        plt.figure(figsize=(12, 8))
+    Args:
+        flow_array: Flow values shaped like the 3-min flow tensor, shape (batch, time, location).
+        density_array: Density values shaped like the 3-min density tensor, shape (batch, time, location).
+    """
+    import matplotlib.pyplot as plt
+    import seaborn as sns
 
-        # Set up the plot
-        plt.xlim(-0.5, grid_width - 0.5)
-        plt.ylim(-0.5, grid_height - 0.5)
+    # Use seaborn darkgrid style
+    sns.set_theme(style="darkgrid")
 
-        # Add grid lines
+    # Draw a histogram for the 3 min flow and density values separately,
+    # and a scatter plot for flow vs density
+    flow_values = flow_array.flatten()
+    density_values = density_array.flatten()
+
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+
+    axes[0].hist(flow_values, bins=50, color='blue', alpha=0.7)
+    axes[0].set_title('3-min Flow Distribution')
+    axes[0].set_xlabel('Flow (veh/s)')
+    axes[0].set_ylabel('Data point count')
+
+    axes[1].hist(density_values, bins=50, color='green', alpha=0.7)
+    axes[1].set_title('3-min Density Distribution')
+    axes[1].set_xlabel('Density (veh/m)')
+    axes[1].set_ylabel('Data point count')
+
+    axes[2].scatter(np.average(density_array, weights=flow_weight, axis=-1).flatten(),
+                    np.average(flow_array, weights=flow_weight, axis=-1).flatten(),
+                    alpha=0.5) 
+    axes[2].set_title('Regional Avg Flow vs Density')
+    axes[2].set_xlabel('Density (veh/m)')
+    axes[2].set_ylabel('Flow (veh/s)')
+
+    fig.tight_layout()
+    os.makedirs(FIGURE_DIR, exist_ok=True)
+    fig.savefig(os.path.join(FIGURE_DIR, "{}.pdf".format(note)), bbox_inches="tight")
+    print(f"Saved flow-density plots to {os.path.join(FIGURE_DIR, '{}.pdf'.format(note))}")
+    plt.close(fig)
+
+
+def visualzie_grid_ids(grid_xy, grid_ids, note="grid_ids"):
+    """
+    Visualize grid IDs as a labeled 2D grid.
+
+    Args:
+        grid_xy: Array of (x, y) grid coordinates for each item.
+        grid_ids: Sequence of grid IDs aligned with grid_xy.
+    """
+    # Visualization
+    import matplotlib.pyplot as plt
+
+    grid_height = int(grid_xy[:, 1].max() + 1)
+    grid_width = int(grid_xy[:, 0].max() + 1)
+
+    # Create a grid map showing grid IDs
+    grid_map = np.full((grid_height, grid_width), -1, dtype=int)
+    for i, (x, y) in enumerate(grid_xy):
+        grid_map[int(y), int(x)] = grid_ids[i]
+
+    plt.figure(figsize=(12, 8))
+
+    # Set up the plot
+    plt.xlim(-0.5, grid_width - 0.5)
+    plt.ylim(-0.5, grid_height - 0.5)
+    plt.grid(False)
+
+    # Add grid lines
+    for x in range(grid_width):
+        plt.axvline(x - 0.5, color="gray", linewidth=0.5)
+    for y in range(grid_height):
+        plt.axhline(y - 0.5, color="gray", linewidth=0.5)
+
+    plt.title("Grid IDs Visualization")
+    plt.xlabel("Grid X")
+    plt.ylabel("Grid Y")
+
+    # Add text annotations for grid IDs
+    for y in range(grid_height):
         for x in range(grid_width):
-            plt.axvline(x - 0.5, color="gray", linewidth=0.5)
-        for y in range(grid_height):
-            plt.axhline(y - 0.5, color="gray", linewidth=0.5)
+            if grid_map[y, x] != -1:
+                plt.text(
+                    x,
+                    y,
+                    str(grid_map[y, x]),
+                    ha="center",
+                    va="center",
+                    fontsize=10,
+                    color="black",
+                )
 
-        plt.title("Grid IDs Visualization")
-        plt.xlabel("Grid X")
-        plt.ylabel("Grid Y")
-
-        # Add text annotations for grid IDs
-        for y in range(grid_height):
-            for x in range(grid_width):
-                if grid_map[y, x] != -1:
-                    plt.text(
-                        x,
-                        y,
-                        str(grid_map[y, x]),
-                        ha="center",
-                        va="center",
-                        fontsize=10,
-                        color="black",
-                    )
-
-        plt.tight_layout()
-        os.makedirs(FIGURE_DIR, exist_ok=True)
-        plt.savefig(os.path.join(FIGURE_DIR, "SimBarcaExplore_grid_ids.pdf"), bbox_inches="tight")
-        plt.close()
-
-    def summarize(self):
-        import matplotlib.pyplot as plt
-        import seaborn as sns
-
-        # Use seaborn darkgrid style
-        sns.set_theme(style="darkgrid")
-
-        # Draw a histogram for the 3 min flow and density values separately,
-        # and a scatter plot for flow vs density
-        flow_array = self.veh_flow_3min.flatten()
-        density_array = self.veh_density_3min.flatten()
-        flow_values = flow_array.flatten()
-        density_values = density_array.flatten()
-
-        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-
-        axes[0].hist(flow_values, bins=50, color='blue', alpha=0.7)
-        axes[0].set_title('3-min Flow Distribution')
-        axes[0].set_xlabel('Flow (veh/s)')
-        axes[0].set_ylabel('Data point count')
-
-        axes[1].hist(density_values, bins=50, color='green', alpha=0.7)
-        axes[1].set_title('3-min Density Distribution')
-        axes[1].set_xlabel('Density (veh/m)')
-        axes[1].set_ylabel('Data point count')
-
-        axes[2].scatter(np.average(density_array, weights=self.segment_lengths, axis=-1).flatten(),
-                        np.average(flow_array, weights=self.segment_lengths, axis=-1).flatten(),
-                        alpha=0.5) 
-        axes[2].set_title('Regional Avg Flow vs Density')
-        axes[2].set_xlabel('Density (veh/m)')
-        axes[2].set_ylabel('Flow (veh/s)')
-
-        fig.tight_layout()
-        os.makedirs(FIGURE_DIR, exist_ok=True)
-        fig.savefig(os.path.join(FIGURE_DIR, "SimBarcaExplore_{}set_summary.pdf".format(self.split)))
-        plt.close(fig)
-
+    plt.tight_layout()
+    os.makedirs(FIGURE_DIR, exist_ok=True)
+    plt.savefig(os.path.join(FIGURE_DIR, "{}.pdf".format(note)), bbox_inches="tight")
+    print(f"Saved grid ID visualization to {os.path.join(FIGURE_DIR, '{}.pdf'.format(note))}")
+    plt.close()
 
 def initialize_dataset():
 
@@ -390,7 +361,6 @@ def initialize_dataset():
         pred_window=30,
         step_size=3,
     )
-    # trainset.summarize()
 
     testset = SimBarcaExplore(
         split="test",
@@ -418,8 +388,10 @@ def iterate_dataset(trainset, testset):
         break
 
     # RL exploration data loading
-    trainset.active_session = 7  # set the active session
-    for step, new_data in trainset.iterate_active_session():
+    session_idx = 7
+    start_idx = session_idx * trainset.sample_per_session
+    for step in range(trainset.sample_per_session):
+        new_data = trainset[start_idx + step]
         print(step, new_data["source"].shape, new_data["target"].shape)
         if step >= 5:
             break
@@ -488,150 +460,10 @@ def historical_average_baseline(trainset, testset):
     with open("scratch/simbarca_explore_baseline_results/res.json", "w") as f:
         json.dump(all_results, f, indent=4)
 
-def compute_critical_density(trainset, visualize=True) -> np.ndarray:
-    """
-    Compute per-road-segment critical density using the 85th percentile over all training sessions.
-
-    Args:
-        trainset: Dataset containing 3-minute density arrays shaped [num_sessions, time, num_locations].
-        visualize: If True, also save a map of critical density to the FIGURE_DIR folder.
-
-    Returns:
-        np.ndarray: Critical density per road segment with shape (num_locations,).
-    """
-    densities = trainset.veh_density_3min
-    density_array = np.asarray(densities, dtype=np.float32)
-    flattened = density_array.reshape(-1, density_array.shape[-1])
-    critical_density = np.quantile(flattened, 0.85, axis=0)
-    if visualize:
-        map_visualize(
-            node_coordinate=trainset.node_coordinates,
-            values=critical_density,
-            figure_note=f"Critical density (85th percentile) [{trainset.split}]",
-            save_path=os.path.join(FIGURE_DIR, f"critical_density_map_{trainset.split}.png"),
-            cmap="coolwarm",
-            colorbar_label="Critical density (veh/m)",
-        )
-    return critical_density
-
-def visualize_congestion_front(dataset, critical_density):
-    """
-    Visualize and animate the ratio of density to critical density for each simulation session.
-
-    For every session in `dataset`, this function creates a scatter plot of all road segments where
-    colors encode the density-to-critical-density ratio at each time step, then saves the animation
-    under `./figures/skymonitor/congestion_front_<split>/session_XXX.gif`.
-
-    Args:
-        dataset: Dataset providing `veh_density_3min`, `node_coordinates`, `num_sessions`, and `session_ids`.
-        critical_density: Per-road-segment critical density tensor or array with shape (num_locations,).
-    """
-    import matplotlib.pyplot as plt
-    from matplotlib import animation
-
-    output_dir = os.path.join(FIGURE_DIR, f"congestion_front_{getattr(dataset, 'split', 'dataset')}")
-    os.makedirs(output_dir, exist_ok=True)
-
-    densities = dataset.veh_density_3min
-    density_array = np.asarray(densities, dtype=np.float32)
-    critical_array = np.asarray(critical_density, dtype=np.float32)
-    critical_array = np.maximum(critical_array, 1e-6)
-
-    ratios = density_array / critical_array
-    ratios = np.clip(ratios, a_min=None, a_max=2.0)
-    coords = np.asarray(dataset.node_coordinates, dtype=np.float32)
-    session_simids = dataset.session_ids
-    demand_scales = dataset.demand_scales
-
-    for idx in range(dataset.num_sessions):
-        print(f"Visualizing session {session_simids[idx]} ({idx+1}/{dataset.num_sessions})...")
-        session_ratios = ratios[idx]
-        scale = demand_scales[idx]
-        title_prefix = f"Session {session_simids[idx]} (scale={scale:.2f})"
-
-        fig, ax, scatter = map_visualize(
-            node_coordinate=coords,
-            values=session_ratios[0],
-            figure_note=f"{title_prefix} density ratio (t=0)",
-            save_path=None,
-            cmap="coolwarm",
-            vmin=0.0,
-            vmax=2.0,
-            colorbar_label="Density / Critical",
-        )
-
-        def update(frame):
-            scatter.set_array(session_ratios[frame])
-            ax.set_title(f"{title_prefix} density ratio (t={frame})")
-            return scatter,
-
-        anim = animation.FuncAnimation(
-            fig,
-            update,
-            frames=session_ratios.shape[0],
-            interval=300,
-            blit=False,
-        )
-
-        save_path = os.path.join(output_dir, f"session_{session_simids[idx]:03d}.gif")
-        anim.save(save_path, writer=animation.PillowWriter(fps=4))
-        plt.close(fig)
-
-def map_visualize(
-    node_coordinate: np.ndarray,
-    values: np.ndarray,
-    figure_note: str,
-    save_path: str = None,
-    cmap: str = "coolwarm",
-    vmin: float = None,
-    vmax: float = None,
-    colorbar_label: str = "Value",
-):
-    """
-    Scatter map helper used for static plots and animation frames.
-
-    Args:
-        node_coordinate: Array of shape (num_locations, 2) with XY coordinates.
-        values: Array of shape (num_locations,) containing values to visualize.
-        figure_note: Title text for the figure.
-        save_path: Optional file path to save the figure.
-        cmap: Matplotlib colormap name.
-        vmin: Optional minimum for color scaling.
-        vmax: Optional maximum for color scaling.
-        colorbar_label: Label for the colorbar.
-
-    Returns:
-        Tuple of (figure, axis, scatter) for reuse (e.g., animation updates).
-    """
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    sns.set_theme(style="darkgrid")
-
-    coords = np.asarray(node_coordinate, dtype=np.float32)
-    values = values.numpy() if isinstance(values, torch.Tensor) else np.asarray(values, dtype=np.float32)
-
-    if save_path:
-        save_dir = os.path.dirname(save_path)
-        if save_dir:
-            os.makedirs(save_dir, exist_ok=True)
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    scatter = ax.scatter(coords[:, 0], coords[:, 1], c=values, cmap=cmap, vmin=vmin, vmax=vmax, s=8)
-    fig.colorbar(scatter, ax=ax, label=colorbar_label)
-    ax.set_title(figure_note)
-    ax.set_xlabel("X coordinate")
-    ax.set_ylabel("Y coordinate")
-    ax.set_aspect("equal")
-    fig.tight_layout()
-    if save_path:
-        fig.savefig(save_path, dpi=200)
-    return fig, ax, scatter
-
 if __name__ == "__main__":
 
     trainset, testset = initialize_dataset()
     iterate_dataset(trainset, testset)
     historical_average_baseline(trainset, testset)
-    critical_density = compute_critical_density(trainset)
-    visualize_congestion_front(trainset, critical_density)
-    visualize_congestion_front(testset, critical_density)
+    plot_flow_density(trainset.veh_flow_3min, trainset.veh_density_3min, flow_weight=trainset.segment_lengths, note="trainset_flow_density")
+    visualzie_grid_ids(trainset.grid_xy, trainset.grid_id, note="grid_id_visualization")

@@ -6,6 +6,7 @@ https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation
 """
 
 import logging
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -18,7 +19,41 @@ from einops import repeat
 import torch
 
 from skymonitor.simbarca_explore import SimBarcaExplore
-from skymonitor.agents import RandomAgent, DroneAction
+from skymonitor.agents import RandomAgent, StaticAgent, DroneAction
+from skymonitor.congestion import get_congestion_score, get_congestion_change
+
+# make them un-mutable dataclasses for safety
+@dataclass(frozen=True)
+class TrafficData:
+	flow: np.ndarray = None
+	density: np.ndarray = None
+	time_stamp: np.ndarray = None
+	state: np.ndarray = None
+	score: np.ndarray = None
+	enters: np.ndarray = None
+	exits: np.ndarray = None
+
+# make them un-mutable dataclasses for safety
+@dataclass(frozen=True)
+class MapStructure:
+	# the (x, y) coordinates of each node, shape (num_nodes, 2)
+	node_coordinates: np.ndarray = None
+	# the (x, y) coordinates of each node in the grid, shape (num_nodes, 2)
+	grid_xy: np.ndarray = None
+	# the grid ID for each node, shape (num_nodes, )
+	grid_id: np.ndarray = None
+	grid_xy_to_id: Dict[Tuple[int, int], int] = None
+	available_positions: List[Tuple[int, int]] = None
+
+	def __post_init__(self):
+		if self.available_positions is None:
+			positions = [] if self.grid_xy_to_id is None else list(self.grid_xy_to_id.keys())
+			object.__setattr__(self, 'available_positions', positions)
+		if self.grid_xy_to_id is None and self.grid_xy is not None and self.grid_id is not None:
+			grid_xy_to_id = {
+				(x, y): gid for (x, y), gid in zip(self.grid_xy.tolist(), self.grid_id.tolist())
+			}
+			object.__setattr__(self, 'grid_xy_to_id', grid_xy_to_id)
 
 
 class TrafficMonitorEnv(gym.Env):
@@ -35,51 +70,45 @@ class TrafficMonitorEnv(gym.Env):
 
 	def __init__(
 		self,
-		dataset: SimBarcaExplore,
+		data: TrafficData,
+		map_structure: MapStructure,
 		num_drones: int,
 		seed: int = None,
 	):
 		super().__init__()
-		# components of the environment
-		self.dataset = dataset
-		self.action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
+		# data container
+		self.traffic_data = data
+		# map structure info
+		self.map_structure = map_structure
 		# settings and configurations
 		self.num_drones = int(num_drones)
 		# the random seed to be used upon next reset, in fact, each active session can be considered as a separate environment
 		# we want each reset to use a different active session and initial locations, so the agent can explore this dataset better
 		self.next_reset_seed: int = seed
-
-		indata_shape: Tuple = dataset.input_size
-		cvg_mask_shape: int = dataset.input_size[:-1]  # excluding the feature dim
-
+		# spaces of the environment
+		self.action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
+		S, T, P = self.traffic_data.flow.shape
 		self.observation_space = spaces.Dict(
 			{
-				'observed_traffic': spaces.Box(
-					low=0.0,
-					high=np.inf,
-					shape=indata_shape,
-					dtype=np.float32,
+				# observed traffic data and time info
+				'flow': spaces.Box(low=0.0, high=2.0, shape=(P, ), dtype=np.float32),
+				'density': spaces.Box(low=0.0, high=2.0, shape=(P, ), dtype=np.float32),
+				'time_in_day': spaces.Box(low=0.0, high=1.0, shape=(1, ), dtype=np.float32),
+				# the coordinates of drones and the node coverage mask
+				'positions_x': spaces.MultiDiscrete(
+					[int(self.map_structure.grid_xy[:, 0].max()) + 1] * self.num_drones
 				),
-				'coverage_mask': spaces.MultiBinary(n=cvg_mask_shape),
+				'positions_y': spaces.MultiDiscrete(
+					[int(self.map_structure.grid_xy[:, 1].max()) + 1] * self.num_drones
+				),
+				'coverage_mask': spaces.MultiBinary(n=P),
 			}
 		)
+		self.total_sessions = S
+		self.total_steps = T
+		self.total_locations = P
 
-		# data shape info
-		in_data_steps, num_locations, feature_dim = dataset.input_size
-		# we move our drones every `time_step` (3 min), and the input data are given every step_size (3 min)
-		self.in_time_steps = int(dataset.input_window // dataset.step_size)
-		self.in_data_steps = int(in_data_steps)
-		self.data_pt_per_time_step = int(self.in_data_steps // self.in_time_steps)
-		self.num_locations = int(num_locations)
-		self.feature_dim = int(feature_dim)
-		# -1 because we need 1 sample for initial observation in reset()
-		self.max_steps_per_session = dataset.sample_per_session - 1
-
-		# grid structure info
-		self.grid_ids: np.ndarray = dataset.grid_id
-		self.grid_xy_to_id: Dict[Tuple[int, int], int] = dataset.grid_xy_to_id
 		# empty grid cells are not valid positions
-		self.available_positions = list(self.grid_xy_to_id.keys())
 		self._action_to_direction = {
 			DroneAction.STAY: (0, 0),
 			DroneAction.UP: (0, 1),
@@ -95,6 +124,7 @@ class TrafficMonitorEnv(gym.Env):
 		self.positions_history = list()
 		self.observation_history: List[Dict[str, torch.Tensor]] = list()
 		self._last_animation = None
+		self._active_session = None
 
 	def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict, Dict]:
 		"""Resets environment and returns observations and infos for all agents."""
@@ -109,12 +139,10 @@ class TrafficMonitorEnv(gym.Env):
 		# accept override from options if provided, otherwise randomly select active session(s)
 		active_session = None if not isinstance(options, dict) else options.get('active_session', None)
 		if active_session is None:
-			active_session = self.np_random.integers(0, self.dataset.num_sessions)
-		self.dataset.active_session = active_session
+			active_session = self.np_random.integers(0, self.total_steps)
+		self.active_session = active_session
 
-		# self.compute_congestion_change()
-
-		self.data_iterator = self.dataset.iterate_active_session()
+		self.data_iterator = self.session_data_iterator()
 		self.step_index, self.data_sample = next(self.data_iterator)
 		assert self.step_index == 0, 'Step index should start from 0 after reset.'
 
@@ -133,7 +161,7 @@ class TrafficMonitorEnv(gym.Env):
 		"""
 		try:
 			self.step_index, self.data_sample = next(self.data_iterator)
-		# this is never reached normally since we check the termination flag with max_steps_per_session
+		# this is never reached normally since we check the termination flag with total_steps
 		except StopIteration:
 			return dict(), 0.0, True, False, {}
 
@@ -143,7 +171,7 @@ class TrafficMonitorEnv(gym.Env):
 		# the reward is calculated based on the current observation
 		reward_value = self.calculate_reward(obs)
 
-		terminated_flag = self.step_index >= (self.max_steps_per_session - 1)
+		terminated_flag = self.step_index >= (self.total_steps - 1)
 		truncated_flag = False
 
 		self.update_history(pos, obs)
@@ -162,48 +190,94 @@ class TrafficMonitorEnv(gym.Env):
 		self.positions_history.clear()
 		self.observation_history.clear()
 
+	@property
+	def active_session(self):
+		return self._active_session
+
+	@active_session.setter
+	def active_session(self, idx):
+		try:
+			idx = int(idx)
+		except Exception as e:
+			raise ValueError(f"Active session should be an integer: {e}")
+		self._active_session = idx % self.total_steps
+
+	def session_data_iterator(self):
+		for i in range(self.total_steps):
+			sample = {
+				'flow': self.traffic_data.flow[self.active_session, i, :],
+				'density': self.traffic_data.density[self.active_session, i, :],
+				# ensure the shape is (1, ), match the observation space definition
+				'time_in_day': np.atleast_1d(self.traffic_data.time_stamp[i]).astype(np.float32),
+			}
+			yield i, sample
+
 	def calculate_reward(self, observation: Dict[str, np.ndarray]) -> float:
 		"""Define the reward based on the current observation."""
 		coverage = observation['coverage_mask']
-		return float(coverage.mean())
+		covered_enters = (coverage.squeeze() * self.traffic_data.enters[self.active_session, self.step_index, :]).sum()
+		covered_exits = (coverage.squeeze() * self.traffic_data.exits[self.active_session, self.step_index, :]).sum()
+
+		return float((covered_enters + covered_exits).item())
 
 	def init_agent_positions(self):
 		"""Initialize drone positions at start of episode."""
-		indices = self.np_random.choice(len(self.available_positions), size=self.num_drones, replace=False)
-		return [self.available_positions[idx] for idx in indices]
+		all_positions = set(self.map_structure.available_positions)
+		interior_positions = [
+			(x, y) for x, y in all_positions
+			if (x + 1, y) in all_positions
+			and (x - 1, y) in all_positions
+			and (x, y + 1) in all_positions
+			and (x, y - 1) in all_positions
+		]
+		indices = self.np_random.choice(len(interior_positions), size=self.num_drones, replace=False)
+		return [interior_positions[idx] for idx in indices]
 
 	def compute_coverage_mask(self, positions: List[Tuple[int, int]]) -> np.ndarray:
-		return self.dataset._compute_coverage_mask(positions)
-
-	def compute_congestion_change(self) -> None:
-		raise NotImplementedError('Define congestion change computation here.') 
+		mask = sum(
+			[
+				self.map_structure.grid_id == self.map_structure.grid_xy_to_id[(x, y)]
+				for x, y in positions
+			]
+		)
+		return (mask > 0).astype(np.int8)
 
 	def get_observations(self, positions: List[Tuple[int, int]]) -> Dict[str, np.ndarray]:
 		"""get the observed traffic at the given positions."""
 
 		# clean data from the dataset, for 1 time step
-		# shape (in_steps, num_locations, feature_dim)
-		observed_traffic = self.data_sample['source'].detach().cpu().clone().numpy()
-		coverage_mask = self.compute_coverage_mask(positions)  # shape (num_locations,)
-		# have the same shape as observed_traffic for easier masking
-		coverage_mask = repeat(coverage_mask, 'P -> T P', T=observed_traffic.shape[0])
+		observed_traffic = self.data_sample
+		coverage_mask = self.compute_coverage_mask(positions)
+		positions_x = np.array([pos[0] for pos in positions], dtype=np.int64)
+		positions_y = np.array([pos[1] for pos in positions], dtype=np.int64)
 
 		# now we modify the nan values to be 0 to align with the observation space definition
-		observed_traffic = np.nan_to_num(observed_traffic, nan=0.0)
-		observed_traffic[..., coverage_mask == 0, :-1] = 0.0
+		for key, value in observed_traffic.items():
+			if not isinstance(value, np.ndarray):
+				continue
+			if value.shape != coverage_mask.shape:
+				continue
+			observed_traffic[key] = np.nan_to_num(value, nan=0.0)
+			observed_traffic[key][coverage_mask == 0] = 0.0
 
 		observation = {
-			'observed_traffic': observed_traffic,
+			**observed_traffic,
 			'coverage_mask': coverage_mask,
+			'positions_x': positions_x,
+			'positions_y': positions_y,
 		}
 
 		return observation
 
 	def get_info(self) -> Dict:
 		return {
-			'positions': list(self.positions),
 			'step_index': self.step_index,
-			'session_index': self.dataset.active_session,
+			'session_index': self.active_session,
+			'positions': list(self.positions),
+			'state': self.traffic_data.state[self.active_session, self.step_index, :],
+			'congestion_score': self.traffic_data.score[self.active_session, self.step_index, :],
+			'enters': self.traffic_data.enters[self.active_session, self.step_index, :],
+			'exits': self.traffic_data.exits[self.active_session, self.step_index, :],
 		}
 
 	def update_history(self, positions: List[Tuple[int, int]], observation: Dict[str, np.ndarray]) -> None:
@@ -234,7 +308,7 @@ class TrafficMonitorEnv(gym.Env):
 		"""works for 1 single position update"""
 		direction = self._action_to_direction.get(action, (0, 0))
 		new_pos = (old_pos[0] + direction[0], old_pos[1] + direction[1])
-		if new_pos not in self.available_positions:
+		if new_pos not in self.map_structure.available_positions:
 			new_pos = old_pos
 		return new_pos
 
@@ -247,7 +321,7 @@ class TrafficMonitorEnv(gym.Env):
 		positions_frames = [np.asarray(frame) for frame in trajectory]
 		steps = len(positions_frames)
 
-		grid_xy = self.dataset.grid_xy
+		grid_xy = self.map_structure.grid_xy
 		grid_limits = (
 			int(grid_xy[:, 0].max() + 1),
 			int(grid_xy[:, 1].max() + 1),
@@ -267,7 +341,7 @@ class TrafficMonitorEnv(gym.Env):
 		# initialize empty scatter plots, trails and annotations.
 		scatter = ax.scatter([], [], c='tab:red', s=80, label='Drones')
 		trails = [ax.plot([], [], linestyle='-', marker='o', alpha=0.5)[0] for _ in range(self.num_drones)]
-		for (x, y), label in zip(grid_xy, self.dataset.grid_id):
+		for (x, y), label in zip(grid_xy, self.map_structure.grid_id):
 			ax.text(
 				x,
 				y,
@@ -318,6 +392,55 @@ class TrafficMonitorEnv(gym.Env):
 		return animation_obj
 
 
+def build_monitor_env(
+	dataset: SimBarcaExplore,
+	num_drones=10,
+	density_threshold=0.001,
+	ff_quantile=0.9,
+	entry_thd=0.5,
+	exit_thd=0.6,
+	seed=42,
+):
+	# the time window and time step setting are not relevant to RL environment
+	# as they are related to generating indexes for data sampling batch-wise training
+	# in RL env, we take the data sequences directly and move 1 step each time, so no need for the complication
+	# norm_tid=True normalizes the time in day encoding [8am, 10am] to have zero mean and unit variance
+	flow, density, time_stamp = dataset.veh_flow_3min, dataset.veh_density_3min, dataset.time_in_day_3min
+
+	congestion_score = get_congestion_score(
+		flow=flow,
+		density=density,
+		density_threshold=density_threshold,
+		ff_quantile=ff_quantile,
+	)
+	state, enters, exits = get_congestion_change(congestion_score, entry_thd=entry_thd, exit_thd=exit_thd)
+
+	traffic_data = TrafficData(
+		flow=flow,
+		density=density,
+		time_stamp=time_stamp,
+		state=state,
+		score=congestion_score,
+		enters=enters,
+		exits=exits,
+	)
+	map_structure = MapStructure(
+		node_coordinates=dataset.node_coordinates,
+		grid_id=dataset.grid_id,
+		grid_xy_to_id=dataset.grid_xy_to_id,
+		grid_xy=dataset.grid_xy,
+	)
+
+	env = TrafficMonitorEnv(
+		data=traffic_data,
+		map_structure=map_structure,
+		num_drones=num_drones,
+		seed=seed,
+	)
+
+	return env
+
+
 if __name__ == '__main__':
 	from skytraffic.utils.event_logger import setup_logger
 	from stable_baselines3.common.env_checker import check_env
@@ -325,18 +448,13 @@ if __name__ == '__main__':
 	logger = setup_logger(name='default', log_file='./scratch/drone_monitor_env.log', level=logging.INFO)
 
 	num_drones = 10
-	dataset = SimBarcaExplore(
-		split='train',
-		input_window=3,
-		pred_window=30,
-		step_size=3,
-		norm_tid=False,
-	)
-	env = TrafficMonitorEnv(
-		dataset=dataset,
-		num_drones=num_drones,
-	)
-	agent = RandomAgent(num_drones=num_drones)
+	
+	dataset = SimBarcaExplore(split="train", norm_tid=False)
+	env = build_monitor_env(dataset=dataset, num_drones=num_drones)
+
+	check_env(env, warn=True)
+
+	agent = StaticAgent(num_drones=num_drones)
 
 	observation, info = env.reset()
 	logger.info('Initial observation keys:{}'.format(observation.keys()))
@@ -345,11 +463,16 @@ if __name__ == '__main__':
 	while not terminated:
 		obs, reward_value, terminated, _, info = env.step(agent.select_action(observation))  # test step
 		logger.info(
-			'Step:{} Reward:{:.4f} Coverage:{:.4f}'.format(
+			'Step:{} Reward:{:.4f} Flow:{:.4f} Density:{:.4f} TimeInDay:{:.4f} Coverage:{:.4f}'.format(
 				info['step_index'],
 				reward_value,
+				obs['flow'].mean(),
+				obs['density'].mean(),
+				obs['time_in_day'].mean(),
 				obs['coverage_mask'].mean(),
 			)
 		)
-
-	check_env(env, warn=True)
+	
+	animation_obj = env.visualize_traj(env.positions_history)
+	animation_obj.save(".figures/skymonitor/example_traj.gif", writer=animation.PillowWriter(fps=2))
+	print("Saved example trajectory visualization to .figures/skymonitor/example_traj.gif")

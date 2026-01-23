@@ -25,7 +25,7 @@ from skytraffic.utils.event_logger import setup_logger
 from skytraffic.utils.io import make_dir_if_not_exist
 from skymonitor.simbarca_explore import SimBarcaExplore
 from skymonitor.agents import MonitoringAgent, DronePolicy, RandomAgent, StaticAgent
-from skymonitor.monitor_env import TrafficMonitorEnv
+from skymonitor.monitor_env import build_monitor_env, TrafficMonitorEnv
 
 
 def train_monitoring_agent_with_ppo(
@@ -42,25 +42,14 @@ def train_monitoring_agent_with_ppo(
 	set_random_seed(seed)
 	log_path = Path(log_dir)
 	log_path.mkdir(parents=True, exist_ok=True)
+	dataset = SimBarcaExplore(split="train",norm_tid=False)
 
 	def _make_env(rank: int):
 		def _init():
-			env_dataset = SimBarcaExplore(
-				split='train',
-				input_window=3,
-				pred_window=30,
-				step_size=3,
-				norm_tid=False,
-			)
-			env = TrafficMonitorEnv(
-				dataset=env_dataset,
-				num_drones=num_drones,
-				seed=seed + rank,
-			)
+			env = env = build_monitor_env(dataset=dataset, num_drones=num_drones)
 			env = Monitor(env)
 			env.reset(seed=seed + rank)
 			return env
-
 		return _init
 
 	vec_env = DummyVecEnv([_make_env(rank) for rank in range(num_envs)])
@@ -130,41 +119,27 @@ if __name__ == '__main__':
 	make_dir_if_not_exist(args.log_dir)
 	logger = setup_logger(name='default', log_file='{}/experiment.log'.format(args.log_dir), level=logging.INFO)
 
+	if args.agent_type == 'ppo':
+		logger.info('Training PPO monitoring agent.')
+		ppo = train_monitoring_agent_with_ppo(
+			total_timesteps=args.total_timesteps,
+			num_envs=args.num_envs,
+			num_drones=args.num_drones,
+			learning_rate=args.learning_rate,
+			log_dir=args.log_dir,
+			checkpoint_filename='{}.zip'.format(args.ckptname),
+			seed=args.seed,
+		)
+
 	# test the agent
-	dataset = SimBarcaExplore(
-		split='test',
-		input_window=3,
-		pred_window=30,
-		step_size=3,
-		norm_tid=False,
-	)
+	dataset = SimBarcaExplore(split='test', norm_tid=False)
+	env = build_monitor_env(dataset=dataset, num_drones=args.num_drones)
 
-	env = TrafficMonitorEnv(
-		dataset=dataset,
-		num_drones=args.num_drones,
-		seed=args.eval_env_seed,
-	)
-
-	grid_info = {
-		'grid_xy': dataset.grid_xy,
-		'grid_id': dataset.grid_id,
-		'grid_xy_to_id': dataset.grid_xy_to_id,
-	}
 	match args.agent_type:
 		case 'ppo':
-			logger.info('Training PPO monitoring agent.')
-			ppo = train_monitoring_agent_with_ppo(
-				total_timesteps=args.total_timesteps,
-				num_envs=args.num_envs,
-				num_drones=args.num_drones,
-				learning_rate=args.learning_rate,
-				log_dir=args.log_dir,
-				checkpoint_filename='{}.zip'.format(args.ckptname),
-				seed=args.seed,
-			)
 			agent = MonitoringAgent(
 				num_drones=args.num_drones,
-				grid=grid_info,
+				map_structure=env.map_structure,
 				policy_net=PPO.load(Path(args.log_dir) / '{}.zip'.format(args.ckptname)).policy,
 			)
 		case 'random':
