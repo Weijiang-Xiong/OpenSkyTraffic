@@ -84,7 +84,7 @@ def get_reward_all_sessions(env: TrafficMonitorEnv, agent: MonitoringAgent, seed
 
 	all_reward = []
 
-	for active_session in range(env.dataset.num_sessions):
+	for active_session in range(env.total_sessions):
 		print('=== Running agents on session {} ==='.format(active_session))
 		observation, info = env.reset(options={'active_session': active_session})
 		done = False
@@ -105,15 +105,15 @@ def get_reward_all_sessions(env: TrafficMonitorEnv, agent: MonitoringAgent, seed
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Train and evaluate PPO monitoring agent.')
 	parser.add_argument('--agent-type', type=str, default='ppo', help='Type of agent to use: ppo, random, static.')
-	parser.add_argument('--total-timesteps', type=int, default=500_000, help='Number of environment steps for PPO training.')
+	parser.add_argument('--train-timesteps', type=int, default=500_000, help='Number of environment steps for PPO training.')
 	parser.add_argument('--num-envs', type=int, default=8, help='Number of parallel environments during training.')
 	parser.add_argument('--num-drones', type=int, default=10, help='Number of drones used in training and evaluation.')
 	parser.add_argument('--learning-rate', type=float, default=3e-4, help='Learning rate for PPO.')
 	parser.add_argument('--log-dir', type=str, default='scratch/rl_drone', help='Directory to store PPO logs and checkpoints.')
 	parser.add_argument('--ckptname', type=str, default='ppo', help='Filename for the checkpoint without extension.')
-	parser.add_argument('--seed', type=int, default=42, help='Random seed for training.')
+	parser.add_argument('--train-seed', type=int, default=42, help='Random seed for training.')
 	parser.add_argument('--eval-repeat', type=int, default=5, help='Number of evaluation runs.')
-	parser.add_argument('--eval-env-seed', type=int, default=888, help='Seed for the evaluation environment.')
+	parser.add_argument('--eval-seed', type=int, default=888, help='Seed for the evaluation environment.')
 	args = parser.parse_args()
 
 	make_dir_if_not_exist(args.log_dir)
@@ -122,13 +122,13 @@ if __name__ == '__main__':
 	if args.agent_type == 'ppo':
 		logger.info('Training PPO monitoring agent.')
 		ppo = train_monitoring_agent_with_ppo(
-			total_timesteps=args.total_timesteps,
+			total_timesteps=args.train_timesteps,
 			num_envs=args.num_envs,
 			num_drones=args.num_drones,
 			learning_rate=args.learning_rate,
 			log_dir=args.log_dir,
 			checkpoint_filename='{}.zip'.format(args.ckptname),
-			seed=args.seed,
+			seed=args.train_seed,
 		)
 
 	# test the agent
@@ -150,7 +150,7 @@ if __name__ == '__main__':
 			agent = StaticAgent(num_drones=args.num_drones)
 
 	eval_results = defaultdict(list)
-	rng = np.random.default_rng(args.eval_env_seed)
+	rng = np.random.default_rng(args.eval_seed)
 	seeds = rng.choice(10000, size=args.eval_repeat, replace=False)
 	for i in range(args.eval_repeat):
 		with torch.no_grad():

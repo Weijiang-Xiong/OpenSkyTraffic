@@ -1,11 +1,14 @@
 from enum import Enum
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, TYPE_CHECKING
 
 import numpy as np
 from gymnasium import spaces
 
 from skymonitor.policy_net import DronePolicy
 
+if TYPE_CHECKING:
+    from skymonitor.monitor_env import MapStructure
+    
 class DroneAction(Enum):
     """ A drone can stay, move up/down/left/right by at most 2 steps, or move diagonally by 1 step.
         E.g., a drone can fly at 20 m/s, and a grid cell is 220 m, in a time step of 3 mins, 
@@ -53,19 +56,11 @@ class RandomAgent(BaseAgent):
 
 class MonitoringAgent(BaseAgent):
 
-    def __init__(self, num_drones: int, grid: Dict = None, policy_net: DronePolicy = None):
+    def __init__(self, num_drones: int, map_structure: "MapStructure" = None, policy_net: DronePolicy = None):
         self.policy_net: DronePolicy = policy_net
         self.action_space: spaces.Space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
         self.positions: List[Tuple[int, int]] = None
-        # the grid_id of all road segments, shape (num_locations,)
-        self.grid_id = grid.get("grid_id", None)
-        # the grid (x, y) coordinates of all road segments, shape (num_locations, 2)
-        self.grid_xy = grid.get("grid_xy", None)
-        # Dict[Tuple[int, int], int], the mapping from (x, y) to grid_id
-        # the keys are non-empty grid (x,y) coordinates, the values are the ids of non-empty grids
-        self.grid_xy_to_id = grid.get("grid_xy_to_id", None)
-        self.id_of_non_empty_grids = list(self.grid_xy_to_id.values())
-        self.xy_of_non_empty_grids = list(self.grid_xy_to_id.keys())
+        self.map_structure = map_structure
         self.action_buffer = None
         self.state_buffer = None
         self.deterministic = False

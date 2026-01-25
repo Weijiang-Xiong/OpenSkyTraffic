@@ -38,6 +38,8 @@ class TrafficData:
 class MapStructure:
 	# the (x, y) coordinates of each node, shape (num_nodes, 2)
 	node_coordinates: np.ndarray = None
+	# the adjacency matrix of the grid, shape (num_nodes, num_nodes)
+	adjacency_matrix: np.ndarray = None
 	# the (x, y) coordinates of each node in the grid, shape (num_nodes, 2)
 	grid_xy: np.ndarray = None
 	# the grid ID for each node, shape (num_nodes, )
@@ -139,7 +141,7 @@ class TrafficMonitorEnv(gym.Env):
 		# accept override from options if provided, otherwise randomly select active session(s)
 		active_session = None if not isinstance(options, dict) else options.get('active_session', None)
 		if active_session is None:
-			active_session = self.np_random.integers(0, self.total_steps)
+			active_session = self.np_random.integers(0, self.total_sessions).item()
 		self.active_session = active_session
 
 		self.data_iterator = self.session_data_iterator()
@@ -405,7 +407,7 @@ def build_monitor_env(
 	# as they are related to generating indexes for data sampling batch-wise training
 	# in RL env, we take the data sequences directly and move 1 step each time, so no need for the complication
 	# norm_tid=True normalizes the time in day encoding [8am, 10am] to have zero mean and unit variance
-	flow, density, time_stamp = dataset.veh_flow_3min, dataset.veh_density_3min, dataset.time_in_day_3min
+	flow, density = dataset.veh_flow_3min, dataset.veh_density_3min
 
 	congestion_score = get_congestion_score(
 		flow=flow,
@@ -418,7 +420,7 @@ def build_monitor_env(
 	traffic_data = TrafficData(
 		flow=flow,
 		density=density,
-		time_stamp=time_stamp,
+		time_stamp=dataset.time_in_day_3min,
 		state=state,
 		score=congestion_score,
 		enters=enters,
@@ -426,9 +428,10 @@ def build_monitor_env(
 	)
 	map_structure = MapStructure(
 		node_coordinates=dataset.node_coordinates,
+		adjacency_matrix=dataset.adjacency,
+		grid_xy=dataset.grid_xy,
 		grid_id=dataset.grid_id,
 		grid_xy_to_id=dataset.grid_xy_to_id,
-		grid_xy=dataset.grid_xy,
 	)
 
 	env = TrafficMonitorEnv(
@@ -474,5 +477,5 @@ if __name__ == '__main__':
 		)
 	
 	animation_obj = env.visualize_traj(env.positions_history)
-	animation_obj.save(".figures/skymonitor/example_traj.gif", writer=animation.PillowWriter(fps=2))
-	print("Saved example trajectory visualization to .figures/skymonitor/example_traj.gif")
+	animation_obj.save("./figures/skymonitor/example_traj.gif", writer=animation.PillowWriter(fps=2))
+	print("Saved example trajectory visualization to ./figures/skymonitor/example_traj.gif")
