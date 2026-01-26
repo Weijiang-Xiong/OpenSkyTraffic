@@ -5,6 +5,7 @@ import torch
 import numpy as np
 from einops import repeat
 
+from skymonitor.visualize import visualzie_data_as_grid
 from skytraffic.data.datasets.simbarca_base import SimBarcaForecast
 
 D_FREQ = 5  # the high-frequency drone data has a time step of 5 seconds
@@ -359,10 +360,10 @@ def historical_average_baseline(trainset, testset):
         json.dump(all_results, f, indent=4)
 
 if __name__ == "__main__":
-    from skymonitor.visualize import plot_flow_density, visualzie_grid_ids
+    from skymonitor.visualize import plot_flow_density, visualzie_data_as_grid
 
     trainset, testset = initialize_dataset()
     iterate_dataset(trainset, testset)
     historical_average_baseline(trainset, testset)
     plot_flow_density(trainset.veh_flow_3min, trainset.veh_density_3min, flow_weight=trainset.segment_lengths, note="trainset_flow_density")
-    visualzie_grid_ids(trainset.grid_xy, trainset.grid_id, note="grid_id_visualization")
+    visualzie_data_as_grid(trainset.grid_xy, trainset.grid_id, note="grid_id_visualization")

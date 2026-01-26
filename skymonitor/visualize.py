@@ -1,5 +1,6 @@
 import os
 from typing import Dict, Sequence
+from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -53,24 +54,33 @@ def plot_flow_density(flow_array: np.ndarray, density_array: np.ndarray, flow_we
     plt.close(fig)
 
 
-def visualzie_grid_ids(grid_xy, grid_ids, note="grid_ids"):
+def visualzie_data_as_grid(grid_xy, node_data, agg="max", font_size=10, note="data"):
     """
-    Visualize grid IDs as a labeled 2D grid.
+    Visualize data as a grid map
 
     Args:
-        grid_xy: Array of (x, y) grid coordinates for each item.
-        grid_ids: Sequence of grid IDs aligned with grid_xy.
+        grid_xy: Array of (x, y) grid coordinates for each item. shape (num_nodes, 2).
+        node_data: Sequence of node data values aligned with grid_xy. shape (num_nodes,).
     """
     # Visualization
-    import matplotlib.pyplot as plt
-
     grid_height = int(grid_xy[:, 1].max() + 1)
     grid_width = int(grid_xy[:, 0].max() + 1)
 
-    # Create a grid map showing grid IDs
-    grid_map = np.full((grid_height, grid_width), -1, dtype=int)
+    # put the data to grid cells according
+    grid_data_container = defaultdict(list)
     for i, (x, y) in enumerate(grid_xy):
-        grid_map[int(y), int(x)] = grid_ids[i]
+        grid_data_container[(int(y), int(x))].append(node_data[i])
+    grid_map = np.full((grid_height, grid_width), -1, dtype=int)
+    for (y, x), data_list in grid_data_container.items():
+        if agg == "sum":
+            grid_map[y, x] = sum(data_list)
+        elif agg == "mean":
+            grid_map[y, x] = np.mean(data_list)
+        elif agg == "max":
+            grid_map[y, x] = max(data_list)
+        else:
+            raise ValueError(f"Unsupported aggregation method: {agg}")
+
 
     plt.figure(figsize=(12, 8))
 
@@ -85,7 +95,7 @@ def visualzie_grid_ids(grid_xy, grid_ids, note="grid_ids"):
     for y in range(grid_height):
         plt.axhline(y - 0.5, color="gray", linewidth=0.5)
 
-    plt.title("Grid IDs Visualization")
+    plt.title("Grid Data Visualization")
     plt.xlabel("Grid X")
     plt.ylabel("Grid Y")
 
@@ -99,14 +109,14 @@ def visualzie_grid_ids(grid_xy, grid_ids, note="grid_ids"):
                     str(grid_map[y, x]),
                     ha="center",
                     va="center",
-                    fontsize=10,
+                    fontsize=font_size,
                     color="black",
                 )
 
     plt.tight_layout()
     os.makedirs(FIGURE_DIR, exist_ok=True)
     plt.savefig(os.path.join(FIGURE_DIR, "{}.pdf".format(note)), bbox_inches="tight")
-    print(f"Saved grid ID visualization to {os.path.join(FIGURE_DIR, '{}.pdf'.format(note))}")
+    print(f"Saved grid data visualization to {os.path.join(FIGURE_DIR, '{}.pdf'.format(note))}")
     plt.close()
 
 
