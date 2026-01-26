@@ -22,6 +22,8 @@ from skymonitor.simbarca_explore import SimBarcaExplore
 from skymonitor.agents import RandomAgent, StaticAgent, DroneAction
 from skymonitor.congestion import get_congestion_score, get_congestion_change
 
+logger = logging.getLogger(__name__)
+
 # make them un-mutable dataclasses for safety
 @dataclass(frozen=True)
 class TrafficData:
@@ -135,7 +137,6 @@ class TrafficMonitorEnv(gym.Env):
 		# the drone locations, are generated using this seed, and we want the agent to explore
 		# different initial positions rather than starting always from the same ones.
 		super().reset(seed=seed if seed is not None else self.next_reset_seed)
-		print(f'Environment reset with seed: {self.np_random_seed}')
 		self.next_reset_seed = self.np_random.integers(100_000_000, 999_999_999).item()
 
 		# accept override from options if provided, otherwise randomly select active session(s)
@@ -143,6 +144,7 @@ class TrafficMonitorEnv(gym.Env):
 		if active_session is None:
 			active_session = self.np_random.integers(0, self.total_sessions).item()
 		self.active_session = active_session
+		logger.debug(f'Environment reset with seed: {self.np_random_seed} and active session: {self.active_session}.')
 
 		self.data_iterator = self.session_data_iterator()
 		self.step_index, self.data_sample = next(self.data_iterator)
@@ -394,7 +396,7 @@ class TrafficMonitorEnv(gym.Env):
 		return animation_obj
 
 
-def build_monitor_env(
+def build_traffic_monitor_env(
 	dataset: SimBarcaExplore,
 	num_drones=10,
 	density_threshold=0.001,
@@ -448,12 +450,16 @@ if __name__ == '__main__':
 	from skytraffic.utils.event_logger import setup_logger
 	from stable_baselines3.common.env_checker import check_env
 
-	logger = setup_logger(name='default', log_file='./scratch/drone_monitor_env.log', level=logging.INFO)
+	logger = setup_logger(name='default', log_file='./scratch/env.log', level=logging.INFO)
 
 	num_drones = 10
 	
 	dataset = SimBarcaExplore(split="train", norm_tid=False)
-	env = build_monitor_env(dataset=dataset, num_drones=num_drones)
+	env = build_traffic_monitor_env(dataset=dataset, num_drones=num_drones)
+
+	state_change = np.logical_or(env.traffic_data.enters, env.traffic_data.exits).astype(float)
+	env.map_structure.grid_id
+
 
 	check_env(env, warn=True)
 
