@@ -21,8 +21,8 @@ class _ColorfulFormatter(logging.Formatter):
         else:
             return log
         return prefix + " " + log
-    
-def setup_logger(name, log_file=None, level=logging.INFO, color=True, stream=True):
+
+def setup_logger(name, log_file=None, level=logging.INFO, color=True, stream=True, propagate=False):
     
     logger = logging.getLogger(name)
     logger.setLevel(level)
@@ -53,13 +53,21 @@ def setup_logger(name, log_file=None, level=logging.INFO, color=True, stream=Tru
         ch.setFormatter(formatter)
         logger.addHandler(ch)
 
+    logger.propagate = propagate
+
     return logger
 
 
 if __name__ == "__main__":
-    logger = setup_logger("DefaultLogger", "./scratch")
+    logger = setup_logger("DefaultLogger", "./scratch/test_log.log", color=True)
     logger.debug("Debug")
     logger.info("Info")
     logger.warning("Warning")
     logger.error("Error")
     logger.critical("Critical")
+
+    # we can setup the parent logger and then use child loggers in modules
+    parent = setup_logger(name="skytraffic", log_file="./scratch/test_log.log", propagate=False)
+
+    child = logging.getLogger("skytraffic.module")  # no setup needed
+    child.info("hello from module")  # goes to skytraffic's file handler via propagation
