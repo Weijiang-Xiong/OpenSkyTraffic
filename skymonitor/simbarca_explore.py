@@ -9,7 +9,6 @@ from skytraffic.data.datasets.simbarca_base import SimBarcaForecast
 
 D_FREQ = 5  # the high-frequency drone data has a time step of 5 seconds
 T_STEP = 180  # we require prediction model to predict every 3 minutes (180 seconds)
-FIGURE_DIR = os.path.join("figures", "skymonitor")
 
 def _tuple_keys_to_str(d: Dict[Tuple[int, int], int]) -> Dict[str, int]:
     return {f"{k[0]}_{k[1]}": v for k, v in d.items()}
@@ -252,107 +251,6 @@ class SimBarcaExplore(SimBarcaForecast):
         return metadata
 
 
-def plot_flow_density(flow_array: np.ndarray, density_array: np.ndarray, flow_weight:np.ndarray, note="example"):
-    """
-    Plot flow and density distributions plus their regional average relationship.
-
-    Args:
-        flow_array: Flow values shaped like the 3-min flow tensor, shape (batch, time, location).
-        density_array: Density values shaped like the 3-min density tensor, shape (batch, time, location).
-    """
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
-    # Use seaborn darkgrid style
-    sns.set_theme(style="darkgrid")
-
-    # Draw a histogram for the 3 min flow and density values separately,
-    # and a scatter plot for flow vs density
-    flow_values = flow_array.flatten()
-    density_values = density_array.flatten()
-
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-
-    axes[0].hist(flow_values, bins=50, color='blue', alpha=0.7)
-    axes[0].set_title('3-min Flow Distribution')
-    axes[0].set_xlabel('Flow (veh/s)')
-    axes[0].set_ylabel('Data point count')
-
-    axes[1].hist(density_values, bins=50, color='green', alpha=0.7)
-    axes[1].set_title('3-min Density Distribution')
-    axes[1].set_xlabel('Density (veh/m)')
-    axes[1].set_ylabel('Data point count')
-
-    axes[2].scatter(np.average(density_array, weights=flow_weight, axis=-1).flatten(),
-                    np.average(flow_array, weights=flow_weight, axis=-1).flatten(),
-                    alpha=0.5) 
-    axes[2].set_title('Regional Avg Flow vs Density')
-    axes[2].set_xlabel('Density (veh/m)')
-    axes[2].set_ylabel('Flow (veh/s)')
-
-    fig.tight_layout()
-    os.makedirs(FIGURE_DIR, exist_ok=True)
-    fig.savefig(os.path.join(FIGURE_DIR, "{}.pdf".format(note)), bbox_inches="tight")
-    print(f"Saved flow-density plots to {os.path.join(FIGURE_DIR, '{}.pdf'.format(note))}")
-    plt.close(fig)
-
-
-def visualzie_grid_ids(grid_xy, grid_ids, note="grid_ids"):
-    """
-    Visualize grid IDs as a labeled 2D grid.
-
-    Args:
-        grid_xy: Array of (x, y) grid coordinates for each item.
-        grid_ids: Sequence of grid IDs aligned with grid_xy.
-    """
-    # Visualization
-    import matplotlib.pyplot as plt
-
-    grid_height = int(grid_xy[:, 1].max() + 1)
-    grid_width = int(grid_xy[:, 0].max() + 1)
-
-    # Create a grid map showing grid IDs
-    grid_map = np.full((grid_height, grid_width), -1, dtype=int)
-    for i, (x, y) in enumerate(grid_xy):
-        grid_map[int(y), int(x)] = grid_ids[i]
-
-    plt.figure(figsize=(12, 8))
-
-    # Set up the plot
-    plt.xlim(-0.5, grid_width - 0.5)
-    plt.ylim(-0.5, grid_height - 0.5)
-    plt.grid(False)
-
-    # Add grid lines
-    for x in range(grid_width):
-        plt.axvline(x - 0.5, color="gray", linewidth=0.5)
-    for y in range(grid_height):
-        plt.axhline(y - 0.5, color="gray", linewidth=0.5)
-
-    plt.title("Grid IDs Visualization")
-    plt.xlabel("Grid X")
-    plt.ylabel("Grid Y")
-
-    # Add text annotations for grid IDs
-    for y in range(grid_height):
-        for x in range(grid_width):
-            if grid_map[y, x] != -1:
-                plt.text(
-                    x,
-                    y,
-                    str(grid_map[y, x]),
-                    ha="center",
-                    va="center",
-                    fontsize=10,
-                    color="black",
-                )
-
-    plt.tight_layout()
-    os.makedirs(FIGURE_DIR, exist_ok=True)
-    plt.savefig(os.path.join(FIGURE_DIR, "{}.pdf".format(note)), bbox_inches="tight")
-    print(f"Saved grid ID visualization to {os.path.join(FIGURE_DIR, '{}.pdf'.format(note))}")
-    plt.close()
-
 def initialize_dataset():
 
     trainset = SimBarcaExplore(
@@ -461,6 +359,7 @@ def historical_average_baseline(trainset, testset):
         json.dump(all_results, f, indent=4)
 
 if __name__ == "__main__":
+    from skymonitor.visualize import plot_flow_density, visualzie_grid_ids
 
     trainset, testset = initialize_dataset()
     iterate_dataset(trainset, testset)
