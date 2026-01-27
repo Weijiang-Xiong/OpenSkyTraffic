@@ -11,6 +11,7 @@ import logging
 import argparse
 from pathlib import Path
 from collections import defaultdict
+from typing import Dict, List
 
 import torch
 import numpy as np
@@ -23,7 +24,6 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize, VecMonit
 
 from skytraffic.utils.event_logger import setup_logger
 from skytraffic.utils.io import make_dir_if_not_exist
-from skymonitor.simbarca_explore import SimBarcaExplore
 from skymonitor.agents import BaseAgent, PolicyAgent, RandomAgent, StaticAgent
 from skymonitor.policy_net import SimpleDronePolicy, GraphDronePolicy, GridDronePolicy
 from skymonitor.monitor_env import build_traffic_monitor_env, TrafficMonitorEnv
@@ -67,8 +67,8 @@ class PeriodicEvalCallback(BaseCallback):
 
 		for seed in seeds:
 			with torch.no_grad():
-				all_reward = get_reward_all_sessions(self.eval_env, agent, seed=int(seed))
-			eval_results['reward'].append(all_reward.mean().item())
+				eval_res = get_eval_on_all_sessions(self.eval_env, agent, seed=int(seed))
+			eval_results['reward'].append(np.mean(eval_res['all_reward']))
 
 		stats = {}
 		for key in eval_results:
@@ -93,32 +93,34 @@ def train_monitoring_agent_with_ppo(
 	eval_freq: int = 0,
 	eval_repeat: int = 5,
 	eval_seed: int = 888,
+	norm_obs: bool = False,
+	init_from_high_reward: bool = False,
 ) -> PPO:
 	"""Train PPO on the monitoring environment with the custom policy."""
 
 	set_random_seed(seed)
 	log_path = Path(log_dir)
 	log_path.mkdir(parents=True, exist_ok=True)
-	dataset = SimBarcaExplore(split="train",norm_tid=False)
 
 	def _make_env(rank: int):
 		def _init():
-			env = env = build_traffic_monitor_env(dataset=dataset, num_drones=num_drones)
+			env = build_traffic_monitor_env(num_drones=num_drones, env_type='train', norm_obs=norm_obs, init_from_high_reward=init_from_high_reward)
 			env.reset(seed=seed + rank)
 			return env
 		return _init
 
 	vec_env = DummyVecEnv([_make_env(rank) for rank in range(num_envs)])
-	vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10, clip_reward=10)
+	# don't normalize the observation in VecNormalize, as the normalization is handled by the environment
+	vec_env = VecNormalize(vec_env, norm_obs=False, norm_reward=True, clip_obs=10, clip_reward=10)
 	vec_env = VecMonitor(vec_env)
 	
-	eval_env = None
+	test_env = None
 	callback = None
 	if eval_freq > 0:
-		eval_env = build_traffic_monitor_env(dataset=SimBarcaExplore(split='test', norm_tid=False), num_drones=num_drones)
-		eval_env = Monitor(eval_env)
+		test_env = build_traffic_monitor_env(num_drones=num_drones, env_type='test', norm_obs=norm_obs, init_from_high_reward=init_from_high_reward)
+		test_env = Monitor(test_env)
 		callback = PeriodicEvalCallback(
-			eval_env=eval_env,
+			eval_env=test_env,
 			num_drones=num_drones,
 			eval_freq=eval_freq,
 			eval_repeat=eval_repeat,
@@ -144,18 +146,17 @@ def train_monitoring_agent_with_ppo(
 	model.learn(total_timesteps=total_timesteps, progress_bar=True, callback=callback)
 	model.save(log_path / save_name)
 	vec_env.close()
-	if eval_env is not None:
-		eval_env.close()
+	if test_env is not None:
+		test_env.close()
 
 	return model
 
 
-def get_reward_all_sessions(env: TrafficMonitorEnv, agent: BaseAgent, seed: int = 42) -> list:
+def get_eval_on_all_sessions(env: TrafficMonitorEnv, agent: BaseAgent, seed: int = 42) -> Dict[str, List]:
 	# seed the environment once before the loop to initialize its random number generator.
 	# in this way the drones are randomly spawn for each session, but remains consistent across runs
 	env.reset(seed=seed)  
-
-	all_reward = []
+	eval_res = defaultdict(list)
 
 	for active_session in range(env.total_sessions):
 		# print('=== Running agents on session {} ==='.format(active_session))
@@ -168,9 +169,10 @@ def get_reward_all_sessions(env: TrafficMonitorEnv, agent: BaseAgent, seed: int 
 			observation, reward, done, truncated, info = env.step(actions)
 			episode_reward += reward
 
-		all_reward.append(episode_reward)
+		eval_res['all_reward'].append(episode_reward)
+		eval_res['all_trajectories'].append([pos for pos in env.positions_history])
 
-	return all_reward
+	return eval_res
 
 
 if __name__ == '__main__':
@@ -189,6 +191,8 @@ if __name__ == '__main__':
 	parser.add_argument('--eval-freq', type=int, default=int(5e4), help='Evaluation frequency (0 disables).')
 	parser.add_argument('--eval-repeat', type=int, default=5, help='Number of evaluation runs.')
 	parser.add_argument('--eval-seed', type=int, default=888, help='Seed for the evaluation environment.')
+	parser.add_argument('--norm-obs', action='store_false', help='If True, normalize observations in the environment. Default is True.')
+	parser.add_argument('--init-from-high-reward', action='store_false', help='If True, initialize drone positions from high-reward locations. Default is True.')
 	args = parser.parse_args()
 
 	make_dir_if_not_exist(args.logdir)
@@ -197,7 +201,7 @@ if __name__ == '__main__':
 
 	if not args.eval_only and args.agent_type == 'ppo':
 		logger.info('Training PPO monitoring agent.')
-		ppo = train_monitoring_agent_with_ppo(
+		trained_ppo = train_monitoring_agent_with_ppo(
 			policy_type=args.policy_type,
 			total_timesteps=args.train_timesteps,
 			num_envs=args.num_envs,
@@ -209,16 +213,19 @@ if __name__ == '__main__':
 			eval_freq=args.eval_freq,
 			eval_repeat=args.eval_repeat,
 			eval_seed=args.eval_seed,
+			norm_obs=args.norm_obs,
+			init_from_high_reward=args.init_from_high_reward,
 		)
 
 	# test the agent
-	dataset = SimBarcaExplore(split='test', norm_tid=False)
-	env = build_traffic_monitor_env(dataset=dataset, num_drones=args.num_drones)
+	env = build_traffic_monitor_env(
+		num_drones=args.num_drones, env_type='test', norm_obs=args.norm_obs, init_from_high_reward=args.init_from_high_reward
+	)
 
 	match args.agent_type:
 		case 'ppo':
 			if not args.eval_only:
-				agent = PolicyAgent(policy=ppo)
+				agent = PolicyAgent(policy=trained_ppo)
 			else:
 				logger.info('Using trained PPO Agent from {}, skipping training.'.format(
 					Path(args.logdir) / '{}'.format(args.save_name)
@@ -236,8 +243,8 @@ if __name__ == '__main__':
 	seeds = rng.choice(10000, size=args.eval_repeat, replace=False)
 	for i in range(args.eval_repeat):
 		with torch.no_grad():
-			rewards = get_reward_all_sessions(env, agent, seed=int(seeds[i]))
-		reward_reps.append(rewards)
+			eval_res = get_eval_on_all_sessions(env, agent, seed=int(seeds[i]))
+		reward_reps.append(eval_res['all_reward'])
 
 	reward_reps = np.array(reward_reps)  # (eval_repeat, total_sessions)
 	stats = {

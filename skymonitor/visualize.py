@@ -4,8 +4,11 @@ from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
-
 from matplotlib import animation
+
+# Use seaborn darkgrid style
+import seaborn as sns
+sns.set_theme(style="darkgrid")
 
 FIGURE_DIR = os.path.join("figures", "skymonitor")
 
@@ -17,12 +20,6 @@ def plot_flow_density(flow_array: np.ndarray, density_array: np.ndarray, flow_we
         flow_array: Flow values shaped like the 3-min flow tensor, shape (batch, time, location).
         density_array: Density values shaped like the 3-min density tensor, shape (batch, time, location).
     """
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
-    # Use seaborn darkgrid style
-    sns.set_theme(style="darkgrid")
-
     # Draw a histogram for the 3 min flow and density values separately,
     # and a scatter plot for flow vs density
     flow_values = flow_array.flatten()
@@ -226,6 +223,26 @@ def scatter_plot(
 	if save_path:
 		fig.savefig("{}".format(save_path))
 	return fig, ax, scatter
+
+
+def historgram_plot(
+    data: np.ndarray,
+    title: str = 'Histogram', 
+    save_path: str = "./example.pdf",
+    xlabel: str = 'Value',
+    ylabel: str = 'Count',
+    bins: int = 30,
+):
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(data, bins=bins, color='blue', alpha=0.7)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    fig.tight_layout()
+    if save_path:
+        fig.savefig("{}".format(save_path))
+    return fig, ax
+
 
 def map_visualize(
     coords: np.ndarray,

@@ -20,16 +20,15 @@ def get_congestion_score(
     S, T, P = flow.shape
     flow, density = rearrange(flow, 'S T P -> P (S T)'), rearrange(density, 'S T P -> P (S T)')
 
-    # we put the nan here temporarily for computing free-flow speed from valid observations only
-    speed = np.where(density > density_threshold, flow / density, np.nan)
+    # compute speed only where density is valid to avoid divide-by-zero warnings
+    speed = np.full(flow.shape, np.nan, dtype=float)
+    np.divide(flow, density, out=speed, where=density > density_threshold)
     
     # free flow speed of each road segment (ff_quantile observed speed)
     # 1.0 means maximum speed 
-    ff_speed = np.nanquantile(speed, ff_quantile, axis=1)
-
-    # empty road segments have free-flow speed equal to speed limit
-    is_empty_segments = np.isnan(speed).all(axis=1)
-    ff_speed[is_empty_segments] = SPEED_LIMIT
+    ff_speed = np.full(speed.shape[0], SPEED_LIMIT, dtype=float)
+    non_empty = np.isfinite(speed).any(axis=1)
+    ff_speed[non_empty] = np.nanquantile(speed[non_empty], ff_quantile, axis=1)
 
     speed = np.nan_to_num(speed, nan=SPEED_LIMIT) # we have nans in speed because the density is zero
     congestion_score = np.clip(1 - (speed / ff_speed[:, None]), 0.0, 1.0)
