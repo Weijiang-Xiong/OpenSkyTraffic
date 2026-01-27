@@ -101,11 +101,8 @@ class GraphFeatureExtractor(BaseFeaturesExtractor):
         flow = observations["flow"].float()
         density = observations["density"].float()
         coverage = observations["coverage_mask"].float()
-        speed = torch.zeros_like(flow)
-        valid = density > 0.0
-        speed[valid] = flow[valid] / density[valid]
 
-        node_features = torch.stack([flow, speed, coverage], dim=-1)
+        node_features = torch.stack([flow, density, coverage], dim=-1)
         graph_features = self.relu(self.gcn(node_features, self.edge_index))
         graph_features = graph_features.mean(dim=1)
 
