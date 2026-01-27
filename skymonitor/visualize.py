@@ -54,7 +54,7 @@ def plot_flow_density(flow_array: np.ndarray, density_array: np.ndarray, flow_we
     plt.close(fig)
 
 
-def visualzie_data_as_grid(grid_xy, node_data, agg="max", font_size=10, note="data"):
+def visualize_data_as_grid(grid_xy, node_data, agg="max", font_size=10, note="data"):
     """
     Visualize data as a grid map
 
@@ -83,6 +83,18 @@ def visualzie_data_as_grid(grid_xy, node_data, agg="max", font_size=10, note="da
 
 
     plt.figure(figsize=(12, 8))
+
+    # Render grid cells with colors, leaving empty cells white.
+    masked_map = np.ma.masked_where(grid_map == -1, grid_map)
+    cmap = plt.cm.turbo.copy()
+    cmap.set_bad(color="white")
+    plt.imshow(
+        masked_map,
+        origin="lower",
+        cmap=cmap,
+        extent=(-0.5, grid_width - 0.5, -0.5, grid_height - 0.5),
+        interpolation="none",
+    )
 
     # Set up the plot
     plt.xlim(-0.5, grid_width - 0.5)
