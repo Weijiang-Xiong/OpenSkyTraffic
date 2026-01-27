@@ -5,7 +5,6 @@ import torch
 import numpy as np
 from einops import repeat
 
-from skymonitor.visualize import visualize_data_as_grid
 from skytraffic.data.datasets.simbarca_base import SimBarcaForecast
 
 D_FREQ = 5  # the high-frequency drone data has a time step of 5 seconds
