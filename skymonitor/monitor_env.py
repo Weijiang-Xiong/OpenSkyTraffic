@@ -201,6 +201,8 @@ class TrafficMonitorEnv(gym.Env):
 		self._last_animation = None
 		self._active_session = None
 
+		self.avg_flow_by_location = self.traffic_data.flow.mean(axis=(0,1))  # shape (P)
+
 	def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict, Dict]:
 		"""Resets environment and returns observations and infos for all agents."""
 		self.clear_state()
@@ -289,9 +291,11 @@ class TrafficMonitorEnv(gym.Env):
 
 	def calculate_reward(self, observation: Dict[str, np.ndarray]) -> float:
 		"""Define the reward based on the current observation."""
-		coverage = observation['coverage_mask']
-		covered_enters = (coverage.squeeze() * self.traffic_data.enters[self.active_session, self.step_index, :]).sum()
-		covered_exits = (coverage.squeeze() * self.traffic_data.exits[self.active_session, self.step_index, :]).sum()
+		coverage = observation['coverage_mask'].astype(np.float32)
+		enters = self.traffic_data.enters[self.active_session, self.step_index, :].astype(np.float32)
+		exits = self.traffic_data.exits[self.active_session, self.step_index, :].astype(np.float32)
+		covered_enters = (self.avg_flow_by_location * coverage * enters).sum()
+		covered_exits = (self.avg_flow_by_location * coverage * exits).sum()
 
 		return float((covered_enters + covered_exits).item())
 
@@ -407,8 +411,10 @@ class TrafficMonitorEnv(gym.Env):
 	def render(self):
 		pass
 
-	def visualize_traj(self, trajectory: List):
-		"""Visualize drone paths with matplotlib in terminal mode."""
+	def visualize_traj(self, trajectory: List, save_path: Optional[str] = None):
+		"""Visualize drone paths with matplotlib in terminal mode.
+		If save_path is provided, saves a GIF to that location.
+		"""
 
 		positions_frames = [np.asarray(frame) for frame in trajectory]
 		steps = len(positions_frames)
@@ -479,10 +485,10 @@ class TrafficMonitorEnv(gym.Env):
 			interval=interval_ms,
 			repeat=False,
 		)
+		if save_path is not None:
+			animation_obj.save(save_path, writer='pillow', fps=2)
+			logger.info('Saved trajectory visualization to {}'.format(save_path))
 		self._last_animation = animation_obj
-
-		return animation_obj
-
 
 def prepare_env_data_structure(
 	dataset: SimBarcaExplore,
@@ -525,12 +531,17 @@ def prepare_env_data_structure(
 	return traffic_data, map_structure
 
 
-def get_high_reward_pos(traffic_data, map_structure, k: int = 10) -> List[Tuple[int, int]]:
+def get_high_reward_pos(traffic_data, map_structure, k: int = 10, return_reward: bool = False) -> List[Tuple[int, int]]:
 	"""Calculate the top-k most rewarding positions for all sessions and time steps."""
-	state_change = np.logical_or(
+
+	state_change_score = np.logical_or(
 		traffic_data.enters, traffic_data.exits
 	).astype(float)  # shape (S, T, P)
-	total_change = state_change.sum(axis=(0, 1))  # shape (P, )
+	# weight by average flow to prioritize high-traffic locations
+	avg_flow_by_location = traffic_data.flow.mean(axis=(0,1))  # shape (P, )
+	state_change_score = state_change_score * avg_flow_by_location[None, None, :]  # shape (S, T, P)
+
+	total_change = state_change_score.sum(axis=(0, 1))  # shape (P, )
 	grid_ids = map_structure.grid_id_of_nodes # shape (P, )
 	unique_gids = np.unique(grid_ids)
 	grid_rewards = [total_change[grid_ids == gid].sum() for gid in unique_gids]
@@ -540,13 +551,21 @@ def get_high_reward_pos(traffic_data, map_structure, k: int = 10) -> List[Tuple[
 
 	positions = [grid_id_to_xy[gid] for gid in rewarding_gids]
 
-	return positions
+	if return_reward:
+		rewards = [grid_rewards[idx] for idx in idxs]
+		return positions, rewards
+	else:
+		return positions
 
 def build_traffic_monitor_env(
-	num_drones: int, env_type: str = 'train', norm_obs: bool = True, init_from_high_reward: bool = True
+	trainset: SimBarcaExplore = None,
+	testset: SimBarcaExplore = None,
+	num_drones: int = 5,
+	env_type: str = 'train',
+	norm_obs: bool = True,
 ) -> Tuple[TrafficMonitorEnv, Optional[TrafficMonitorEnv]]:
 	"""
-	Build the traffic monitoring envs. 
+	Build the traffic monitoring envs.
 
 	Note that the test set needs to be build using the normalizer computed from the train env
 
@@ -554,24 +573,23 @@ def build_traffic_monitor_env(
 		num_drones (int): number of drones
 		env_type (str, optional): type of environment to build. One of 'train', 'test', or 'both'. Defaults to 'train'.
 		norm_obs (bool, optional): whether to normalize observations. Defaults to True.
-		init_from_high_reward (bool, optional): whether to init drones from high reward positions. Defaults to True.
 	Returns:
 		Tuple[TrafficMonitorEnv, Optional[TrafficMonitorEnv]]: train and test environments
 	"""
-
-	trainset, testset = initialize_dataset()
+	if trainset is None:
+		raise ValueError("trainset must always be provided (for normalizer computation of test environments).")
+	if env_type in ['test', 'both'] and testset is None:
+		raise ValueError("testset must be provided when env_type is 'test' or 'both'.")
 
 	# by default build the training environment
 	train_traffic_data, train_map_structure = prepare_env_data_structure(trainset)
 	normalizer = ObservationNormalizer(train_traffic_data)
-	high_reward_positions = get_high_reward_pos(train_traffic_data, train_map_structure, k=num_drones)
 
 	train_env = TrafficMonitorEnv(
 		data=train_traffic_data,
 		map_structure=train_map_structure,
 		obs_normalizer=normalizer if norm_obs else None,
 		num_drones=num_drones,
-		fixed_init_pos=high_reward_positions if init_from_high_reward else None,
 	)
 
 	# if requested, build the test environment
@@ -582,7 +600,6 @@ def build_traffic_monitor_env(
 			map_structure=test_map_structure,
 			obs_normalizer=normalizer if norm_obs else None,
 			num_drones=num_drones,
-			fixed_init_pos=high_reward_positions if init_from_high_reward else None,
 		)
 
 	if env_type == 'train':
@@ -591,7 +608,7 @@ def build_traffic_monitor_env(
 		return test_env
 	elif env_type == 'both':
 		return train_env, test_env
-	else :
+	else:
 		raise ValueError(f"Invalid envs argument: {env_type}. Must be 'train', 'test' or 'both'.")
 
 
@@ -605,21 +622,32 @@ if __name__ == '__main__':
 	logger = setup_logger(name='default', log_file='./scratch/env.log', level=logging.INFO)
 
 	num_drones = 10
-	train_env, test_env = build_traffic_monitor_env(num_drones=num_drones, env_type='both', norm_obs=True, init_from_high_reward=True)
+	trainset, testset = initialize_dataset()
+	train_env, test_env = build_traffic_monitor_env(trainset=trainset, testset=testset, num_drones=num_drones, env_type='both', norm_obs=True)
 
 	# we visualize the average reward for grids, which is how much (on average) a static agent would receive
 	# if it stays at the same grid in all the sessions
 	for env, name in zip([train_env, test_env], ['train', 'test']):
 		state_change = np.logical_or(env.traffic_data.enters, env.traffic_data.exits).astype(float)
+		flow_by_location = env.traffic_data.flow.mean(axis=(0,1))  # shape (P)
 		visualize_data_as_grid(
 			grid_xy=env.map_structure.grid_xy_of_nodes,
 			node_data=state_change.mean(axis=0).sum(axis=0),
 			agg='sum',
 			note=f'state_change_by_grid_{name}'
 		)
+		visualize_data_as_grid(
+			grid_xy=env.map_structure.grid_xy_of_nodes,
+			node_data=state_change.mean(axis=0).sum(axis=0) * flow_by_location,
+			agg='sum',
+			note=f'state_change_weighted_by_flow_{name}'
+		)
 
 	check_env(train_env, warn=True)
 	check_env(test_env, warn=True)
+
+	hr_pos, hr_rewards = get_high_reward_pos(test_env.traffic_data, test_env.map_structure, k=10, return_reward=True)
+	logger.info("Top-10 high reward positions in test env: {} with avg rewards per session: {:.2f}".format(hr_pos, np.sum(hr_rewards)/test_env.total_sessions))
 
 	for agent_class in [StaticAgent, RandomAgent]:
 		agent = agent_class(num_drones=num_drones)
@@ -644,6 +672,7 @@ if __name__ == '__main__':
 				)
 			)
 		
-		animation_obj = train_env.visualize_traj(train_env.positions_history)
-		animation_obj.save(f"{FIGURE_DIR}/example_traj_{agent_class.__name__}.gif", writer='pillow', fps=2)
-		print(f"Saved example trajectory visualization to {FIGURE_DIR}/example_traj_{agent_class.__name__}.gif")
+		train_env.visualize_traj(
+			train_env.positions_history,
+			save_path=f"{FIGURE_DIR}/example_traj_{agent_class.__name__}.gif",
+		)

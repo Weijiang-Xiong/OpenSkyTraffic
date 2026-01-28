@@ -3,17 +3,23 @@
 """
 
 from typing import Callable, Dict, Tuple
+from functools import partial
 
-import gymnasium as gym
-from gymnasium import spaces
-from gymnasium.spaces.utils import flatdim
+import numpy as np 
 
 import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
 
+import gymnasium as gym
+from gymnasium import spaces
+from gymnasium.spaces.utils import flatdim
+
 from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.distributions import MultiCategoricalDistribution
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+
+from skymonitor.monitor_env import MapStructure
 
 class SimpleFeatureExtractor(BaseFeaturesExtractor):
 
@@ -68,7 +74,7 @@ class GraphFeatureExtractor(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Dict,
-        adjacency_matrix,
+        adjacency_matrix: np.ndarray = None,
         hidden_dim: int = 256,
         gnn_hidden_dim: int = None,
     ):
@@ -129,7 +135,7 @@ class GridCNNFeatureExtractor(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Dict,
-        map_structure,
+        map_structure: MapStructure = None,
         hidden_dim: int = 256,
         pos_emb_dim: int = 16,
         cnn_hidden_dim: int = None,
@@ -139,7 +145,7 @@ class GridCNNFeatureExtractor(BaseFeaturesExtractor):
         if cnn_hidden_dim is None:
             cnn_hidden_dim = hidden_dim
 
-        grid_xy = torch.as_tensor(map_structure.grid_xy, dtype=torch.long)
+        grid_xy = torch.as_tensor(map_structure.grid_xy_of_nodes, dtype=torch.long)
         grid_width = int(grid_xy[:, 0].max().item()) + 1
         grid_height = int(grid_xy[:, 1].max().item()) + 1
         num_cells = grid_width * grid_height
@@ -236,6 +242,17 @@ class CustomMLPExtractor(nn.Module):
         return self.value_net(features) 
 
 
+class MultiHeadActionNet(nn.Module):
+    """Independent action heads for MultiDiscrete policies."""
+
+    def __init__(self, latent_dim: int, action_dims: list[int]):
+        super().__init__()
+        self.heads = nn.ModuleList([nn.Linear(latent_dim, n) for n in action_dims])
+
+    def forward(self, latent: torch.Tensor) -> torch.Tensor:
+        return torch.cat([head(latent) for head in self.heads], dim=1)
+
+
 class SimpleDronePolicy(ActorCriticPolicy):
     """Actor-critic policy that plugs the monitoring extractor into PPO."""
 
@@ -244,6 +261,7 @@ class SimpleDronePolicy(ActorCriticPolicy):
         observation_space: gym.Space,
         action_space: gym.Space,
         lr_schedule: Callable[[float], float],
+        map_structure: MapStructure = None,
         policy_hidden_dim: int = 256,
         value_hidden_dim: int = 256,
         feature_extractor_class: BaseFeaturesExtractor = SimpleFeatureExtractor,
@@ -281,6 +299,7 @@ class GraphDronePolicy(SimpleDronePolicy):
         observation_space: gym.Space,
         action_space: gym.Space,
         lr_schedule: Callable[[float], float],
+        map_structure: MapStructure = None,
         policy_hidden_dim: int = 256,
         value_hidden_dim: int = 256,
         feature_extractor_class: BaseFeaturesExtractor = GraphFeatureExtractor,
@@ -288,6 +307,10 @@ class GraphDronePolicy(SimpleDronePolicy):
         *args,
         **kwargs,
     ):
+        extractor_kwargs = feature_extractor_kwargs
+        if map_structure is not None:
+            extractor_kwargs = {} if feature_extractor_kwargs is None else dict(feature_extractor_kwargs)
+            extractor_kwargs.setdefault("adjacency_matrix", map_structure.adjacency_matrix)
         super().__init__(
             observation_space,
             action_space,
@@ -295,7 +318,7 @@ class GraphDronePolicy(SimpleDronePolicy):
             policy_hidden_dim=policy_hidden_dim,
             value_hidden_dim=value_hidden_dim,
             feature_extractor_class=feature_extractor_class,
-            feature_extractor_kwargs=feature_extractor_kwargs,
+            feature_extractor_kwargs=extractor_kwargs,
             *args,
             **kwargs,
         )
@@ -308,6 +331,7 @@ class GridDronePolicy(SimpleDronePolicy):
         observation_space: gym.Space,
         action_space: gym.Space,
         lr_schedule: Callable[[float], float],
+        map_structure: MapStructure = None,
         policy_hidden_dim: int = 256,
         value_hidden_dim: int = 256,
         feature_extractor_class: BaseFeaturesExtractor = GridCNNFeatureExtractor,
@@ -315,6 +339,10 @@ class GridDronePolicy(SimpleDronePolicy):
         *args,
         **kwargs,
     ):
+        extractor_kwargs = feature_extractor_kwargs
+        if map_structure is not None:
+            extractor_kwargs = {} if feature_extractor_kwargs is None else dict(feature_extractor_kwargs)
+            extractor_kwargs.setdefault("map_structure", map_structure)
         super().__init__(
             observation_space,
             action_space,
@@ -322,7 +350,25 @@ class GridDronePolicy(SimpleDronePolicy):
             policy_hidden_dim=policy_hidden_dim,
             value_hidden_dim=value_hidden_dim,
             feature_extractor_class=feature_extractor_class,
-            feature_extractor_kwargs=feature_extractor_kwargs,
+            feature_extractor_kwargs=extractor_kwargs,
             *args,
             **kwargs,
         )
+
+
+class MultiHeadDronePolicy(SimpleDronePolicy):
+    """Centralized policy with independent action heads per drone."""
+
+    def _build(self, lr_schedule: Callable[[float], float]) -> None:
+        super()._build(lr_schedule)
+
+        if not isinstance(self.action_dist, MultiCategoricalDistribution):
+            raise ValueError("MultiHeadDronePolicy requires a MultiDiscrete action space.")
+
+        latent_dim_pi = self.mlp_extractor.latent_dim_pi
+        self.action_net = MultiHeadActionNet(latent_dim_pi, self.action_dist.action_dims)
+
+        if self.ortho_init:
+            self.action_net.apply(partial(self.init_weights, gain=0.01))
+
+        self.optimizer = self.optimizer_class(self.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs)

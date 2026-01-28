@@ -27,8 +27,9 @@ from skytraffic.utils.io import make_dir_if_not_exist
 from skymonitor.agents import BaseAgent, PolicyAgent, RandomAgent, StaticAgent
 from skymonitor.policy_net import SimpleDronePolicy, GraphDronePolicy, GridDronePolicy
 from skymonitor.monitor_env import build_traffic_monitor_env, TrafficMonitorEnv
+from skymonitor.simbarca_explore import initialize_dataset
 
-POLICY_NET_DICT = {
+POLICY_NETS = {
 	'simple': SimpleDronePolicy,
 	'graph': GraphDronePolicy,
 	'grid': GridDronePolicy,
@@ -94,7 +95,6 @@ def train_monitoring_agent_with_ppo(
 	eval_repeat: int = 5,
 	eval_seed: int = 888,
 	norm_obs: bool = False,
-	init_from_high_reward: bool = False,
 ) -> PPO:
 	"""Train PPO on the monitoring environment with the custom policy."""
 
@@ -102,9 +102,12 @@ def train_monitoring_agent_with_ppo(
 	log_path = Path(log_dir)
 	log_path.mkdir(parents=True, exist_ok=True)
 
+	trainset, testset = initialize_dataset()
+
 	def _make_env(rank: int):
 		def _init():
-			env = build_traffic_monitor_env(num_drones=num_drones, env_type='train', norm_obs=norm_obs, init_from_high_reward=init_from_high_reward)
+			logger.info(f'Creating environment {rank} with seed {seed + rank}')
+			env = build_traffic_monitor_env(trainset=trainset, testset=None, num_drones=num_drones, env_type='train', norm_obs=norm_obs)
 			env.reset(seed=seed + rank)
 			return env
 		return _init
@@ -117,7 +120,7 @@ def train_monitoring_agent_with_ppo(
 	test_env = None
 	callback = None
 	if eval_freq > 0:
-		test_env = build_traffic_monitor_env(num_drones=num_drones, env_type='test', norm_obs=norm_obs, init_from_high_reward=init_from_high_reward)
+		test_env = build_traffic_monitor_env(trainset=trainset, testset=testset, num_drones=num_drones, env_type='test', norm_obs=norm_obs)
 		test_env = Monitor(test_env)
 		callback = PeriodicEvalCallback(
 			eval_env=test_env,
@@ -127,9 +130,14 @@ def train_monitoring_agent_with_ppo(
 			eval_seed=eval_seed,
 		)
 
+	policy_kwargs = {
+		'map_structure': vec_env.get_attr('map_structure')[0],
+	}
+
 	model = PPO(
-		policy=POLICY_NET_DICT[policy_type],
+		policy=POLICY_NETS[policy_type],
 		env=vec_env,
+		policy_kwargs=policy_kwargs,
 		learning_rate=learning_rate,
 		n_steps=max(32, 1024 // max(1, num_envs)),
 		batch_size=64,
@@ -179,7 +187,7 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Train and evaluate PPO monitoring agent.')
 	parser.add_argument('--eval-only', action='store_true', help='If set, only evaluate the agent without training.')
 	parser.add_argument('--agent-type', type=str, default='ppo', help='Type of agent to use: ppo, random, static.')
-	parser.add_argument('--policy-type', type=str, default='simple', help='Type of policy network to use: simple, graph, grid.')
+	parser.add_argument('--policy-type', type=str, default='grid', help='Type of policy network to use: simple, graph, grid.')
 	parser.add_argument('--train-timesteps', type=int, default=int(1e6), help='Number of environment steps for PPO training.')
 	parser.add_argument('--num-envs', type=int, default=8, help='Number of parallel environments during training.')
 	parser.add_argument('--num-drones', type=int, default=10, help='Number of drones used in training and evaluation.')
@@ -192,11 +200,14 @@ if __name__ == '__main__':
 	parser.add_argument('--eval-repeat', type=int, default=5, help='Number of evaluation runs.')
 	parser.add_argument('--eval-seed', type=int, default=888, help='Seed for the evaluation environment.')
 	parser.add_argument('--norm-obs', action='store_false', help='If True, normalize observations in the environment. Default is True.')
-	parser.add_argument('--init-from-high-reward', action='store_false', help='If True, initialize drone positions from high-reward locations. Default is True.')
 	args = parser.parse_args()
 
 	make_dir_if_not_exist(args.logdir)
-	logger = setup_logger(name='skymonitor', log_file='{}/experiment.log'.format(args.logdir), level=getattr(logging, args.log_level.upper()))
+	logger = setup_logger(
+		name='skymonitor',
+		log_file='{}/experiment.log'.format(args.logdir),
+		level=getattr(logging, args.log_level.upper()),
+	)
 	logger.info('Arguments: {}'.format(args))
 
 	if not args.eval_only and args.agent_type == 'ppo':
@@ -214,12 +225,12 @@ if __name__ == '__main__':
 			eval_repeat=args.eval_repeat,
 			eval_seed=args.eval_seed,
 			norm_obs=args.norm_obs,
-			init_from_high_reward=args.init_from_high_reward,
 		)
 
 	# test the agent
-	env = build_traffic_monitor_env(
-		num_drones=args.num_drones, env_type='test', norm_obs=args.norm_obs, init_from_high_reward=args.init_from_high_reward
+	trainset, testset = initialize_dataset()
+	env: TrafficMonitorEnv = build_traffic_monitor_env(
+		trainset=trainset, testset=testset, num_drones=args.num_drones, env_type='test', norm_obs=args.norm_obs
 	)
 
 	match args.agent_type:
@@ -238,15 +249,16 @@ if __name__ == '__main__':
 			logger.info('Using Static Agent, skipping training.')
 			agent = StaticAgent(num_drones=args.num_drones)
 
-	reward_reps = []
+	res_reps = defaultdict(list)
 	rng = np.random.default_rng(args.eval_seed)
 	seeds = rng.choice(10000, size=args.eval_repeat, replace=False)
 	for i in range(args.eval_repeat):
 		with torch.no_grad():
 			eval_res = get_eval_on_all_sessions(env, agent, seed=int(seeds[i]))
-		reward_reps.append(eval_res['all_reward'])
+		res_reps['reward'].append(eval_res['all_reward'])
+		res_reps['trajectories'].append(eval_res['all_trajectories'])
 
-	reward_reps = np.array(reward_reps)  # (eval_repeat, total_sessions)
+	reward_reps = np.array(res_reps['reward'])  # (eval_repeat, total_sessions)
 	stats = {
 		'avg_reward': reward_reps.mean(axis=1).mean(),
 		'std_reward': reward_reps.mean(axis=1).std(),
@@ -256,9 +268,19 @@ if __name__ == '__main__':
 
 	logger.info('Drone Monitoring Evaluation Results: {}'.format(stats))
 
-	env.close()
-
 	# save eval_results and stats to a json file
-	save_path = Path(args.logdir) / 'multi_run_results.json'
+	save_path = Path(args.logdir) / 'rep{}x_results.json'.format(args.eval_repeat)
 	with open(save_path, 'w') as f:
 		json.dump({'stats': stats, 'reward_all_repeats': reward_reps.tolist()}, f, indent=4)
+
+	for rep, all_traj in enumerate(res_reps['trajectories']):
+		if not rep % 5 == 0:
+			continue
+		for session_id, traj in enumerate(all_traj):
+			if session_id % 20 == 0:
+				env.visualize_traj(
+					traj,
+					save_path=Path(args.logdir) / f'traj_rep{rep}_session{session_id}.gif',
+				)
+
+	env.close()
