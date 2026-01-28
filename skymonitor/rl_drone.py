@@ -40,7 +40,7 @@ class PeriodicEvalCallback(BaseCallback):
 	def __init__(
 		self,
 		eval_env: TrafficMonitorEnv,
-		num_drones: int,
+		policy: PPO,
 		eval_freq: int,
 		eval_repeat: int,
 		eval_seed: int,
@@ -48,7 +48,7 @@ class PeriodicEvalCallback(BaseCallback):
 	):
 		super().__init__(verbose)
 		self.eval_env = eval_env
-		self.num_drones = num_drones
+		self.agent = PolicyAgent(policy=policy)
 		self.eval_freq = int(eval_freq)
 		self.eval_repeat = int(eval_repeat)
 		self.eval_seed = int(eval_seed)
@@ -60,15 +60,10 @@ class PeriodicEvalCallback(BaseCallback):
 		eval_results = defaultdict(list)
 		rng = np.random.default_rng(self.eval_seed)
 		seeds = rng.choice(10000, size=self.eval_repeat, replace=False)
-		agent = PolicyAgent(
-			num_drones=self.num_drones,
-			map_structure=self.eval_env.map_structure,
-			policy=self.model.policy,
-		)
 
 		for seed in seeds:
 			with torch.no_grad():
-				eval_res = get_eval_on_all_sessions(self.eval_env, agent, seed=int(seed))
+				eval_res = get_eval_on_all_sessions(self.eval_env, self.agent, seed=int(seed))
 			eval_results['reward'].append(np.mean(eval_res['all_reward']))
 
 		stats = {}
@@ -81,6 +76,10 @@ class PeriodicEvalCallback(BaseCallback):
 		self.logger.dump(step=self.num_timesteps)
 
 		return True
+	
+	def _on_training_end(self):
+		self.eval_env.close()
+		return super()._on_training_end()
 
 def train_monitoring_agent_with_ppo(
 	policy_type: str = 'simple',
@@ -102,6 +101,8 @@ def train_monitoring_agent_with_ppo(
 	log_path = Path(log_dir)
 	log_path.mkdir(parents=True, exist_ok=True)
 
+	logger = logging.getLogger('skymonitor.train_ppo')
+
 	trainset, testset = initialize_dataset()
 
 	def _make_env(rank: int):
@@ -116,31 +117,19 @@ def train_monitoring_agent_with_ppo(
 	# don't normalize the observation in VecNormalize, as the normalization is handled by the environment
 	vec_env = VecNormalize(vec_env, norm_obs=False, norm_reward=True, clip_obs=10, clip_reward=10)
 	vec_env = VecMonitor(vec_env)
-	
-	test_env = None
-	callback = None
-	if eval_freq > 0:
-		test_env = build_traffic_monitor_env(trainset=trainset, testset=testset, num_drones=num_drones, env_type='test', norm_obs=norm_obs)
-		test_env = Monitor(test_env)
-		callback = PeriodicEvalCallback(
-			eval_env=test_env,
-			num_drones=num_drones,
-			eval_freq=eval_freq,
-			eval_repeat=eval_repeat,
-			eval_seed=eval_seed,
-		)
 
 	policy_kwargs = {
 		'map_structure': vec_env.get_attr('map_structure')[0],
 	}
 
+	logger.info(f'Initializing PPO model. Using policy network: {POLICY_NETS[policy_type].__name__}')
 	model = PPO(
 		policy=POLICY_NETS[policy_type],
 		env=vec_env,
 		policy_kwargs=policy_kwargs,
 		learning_rate=learning_rate,
-		n_steps=max(32, 1024 // max(1, num_envs)),
-		batch_size=64,
+		n_steps=max(32, 2048 // max(1, num_envs)),
+		batch_size=128,
 		gamma=0.99,
 		gae_lambda=0.95,
 		clip_range=0.2,
@@ -151,11 +140,20 @@ def train_monitoring_agent_with_ppo(
 		seed=seed,
 	)
 
+	logger.info('Starting PPO training with periodic evaluation callback.')
+	callback = PeriodicEvalCallback(
+		eval_env=build_traffic_monitor_env(trainset=trainset, testset=testset, num_drones=num_drones, env_type='test', norm_obs=norm_obs),
+		policy=model,
+		eval_freq=eval_freq,
+		eval_repeat=eval_repeat,
+		eval_seed=eval_seed,
+	)
+
 	model.learn(total_timesteps=total_timesteps, progress_bar=True, callback=callback)
 	model.save(log_path / save_name)
+	logger.info(f'Trained PPO model saved to {log_path / save_name}')
+
 	vec_env.close()
-	if test_env is not None:
-		test_env.close()
 
 	return model
 
@@ -191,7 +189,7 @@ if __name__ == '__main__':
 	parser.add_argument('--train-timesteps', type=int, default=int(1e6), help='Number of environment steps for PPO training.')
 	parser.add_argument('--num-envs', type=int, default=8, help='Number of parallel environments during training.')
 	parser.add_argument('--num-drones', type=int, default=10, help='Number of drones used in training and evaluation.')
-	parser.add_argument('--learning-rate', type=float, default=3e-4, help='Learning rate for PPO.')
+	parser.add_argument('--learning-rate', type=float, default=1e-4, help='Learning rate for PPO.')
 	parser.add_argument('--logdir', type=str, default='scratch/drone_monitor', help='Directory to store PPO logs and checkpoints.')
 	parser.add_argument('--save-name', type=str, default="model", help='Checkpoint name to save the trained PPO agent.')
 	parser.add_argument('--log-level', type=str, default='info', choices=['debug', 'info', 'warning', 'error', 'critical'], help='Logging level.')
@@ -199,7 +197,7 @@ if __name__ == '__main__':
 	parser.add_argument('--eval-freq', type=int, default=int(5e4), help='Evaluation frequency (0 disables).')
 	parser.add_argument('--eval-repeat', type=int, default=5, help='Number of evaluation runs.')
 	parser.add_argument('--eval-seed', type=int, default=888, help='Seed for the evaluation environment.')
-	parser.add_argument('--norm-obs', action='store_false', help='If True, normalize observations in the environment. Default is True.')
+	parser.add_argument('--norm-obs', action=argparse.BooleanOptionalAction, default=True, help='If True, normalize observations in the environment. Default is True.')
 	args = parser.parse_args()
 
 	make_dir_if_not_exist(args.logdir)
@@ -228,6 +226,7 @@ if __name__ == '__main__':
 		)
 
 	# test the agent
+	logger.info('Evaluating the {} monitoring agent.'.format(args.agent_type))
 	trainset, testset = initialize_dataset()
 	env: TrafficMonitorEnv = build_traffic_monitor_env(
 		trainset=trainset, testset=testset, num_drones=args.num_drones, env_type='test', norm_obs=args.norm_obs
@@ -271,8 +270,9 @@ if __name__ == '__main__':
 	# save eval_results and stats to a json file
 	save_path = Path(args.logdir) / 'rep{}x_results.json'.format(args.eval_repeat)
 	with open(save_path, 'w') as f:
-		json.dump({'stats': stats, 'reward_all_repeats': reward_reps.tolist()}, f, indent=4)
+		json.dump({'stats': stats, 'reward_all_repeats': reward_reps.tolist(), 'trajectories_all_repeats': res_reps['trajectories']}, f, indent=4)
 
+	logger.info("Visualizeing the trajectories of some evaluation runs and sessions.")
 	for rep, all_traj in enumerate(res_reps['trajectories']):
 		if not rep % 5 == 0:
 			continue
@@ -284,3 +284,4 @@ if __name__ == '__main__':
 				)
 
 	env.close()
+	logger.info('Evaluation completed.')

@@ -1,8 +1,6 @@
 """Gymnasium environment for SkyMonitor.
 see the `Gymnasium environment creation tutorial` at the link:
 https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation
-
-
 """
 
 import logging
@@ -15,7 +13,6 @@ import gymnasium as gym
 from gymnasium import spaces
 import matplotlib.pyplot as plt
 from matplotlib import animation
-from einops import repeat
 
 import torch
 
@@ -537,6 +534,7 @@ def get_high_reward_pos(traffic_data, map_structure, k: int = 10, return_reward:
 	state_change_score = np.logical_or(
 		traffic_data.enters, traffic_data.exits
 	).astype(float)  # shape (S, T, P)
+	state_change_score = state_change_score[:, 1:, :]  # ignore the first time step which is not rewarded in RL
 	# weight by average flow to prioritize high-traffic locations
 	avg_flow_by_location = traffic_data.flow.mean(axis=(0,1))  # shape (P, )
 	state_change_score = state_change_score * avg_flow_by_location[None, None, :]  # shape (S, T, P)
@@ -553,6 +551,13 @@ def get_high_reward_pos(traffic_data, map_structure, k: int = 10, return_reward:
 
 	if return_reward:
 		rewards = [grid_rewards[idx] for idx in idxs]
+		reward_by_session = [
+			sum(
+				[state_change_score[s][:, grid_ids == gid].sum() for gid in rewarding_gids]
+			)
+			for s in range(state_change_score.shape[0])
+		]
+		assert np.isclose(sum(reward_by_session), sum(rewards)), "Reward calculation mismatch."
 		return positions, rewards
 	else:
 		return positions
@@ -616,8 +621,8 @@ def build_traffic_monitor_env(
 if __name__ == '__main__':
 	from skytraffic.utils.event_logger import setup_logger
 	from stable_baselines3.common.env_checker import check_env
-	from skymonitor.visualize import visualize_data_as_grid
-	from skymonitor.visualize import FIGURE_DIR
+	from skymonitor.visualize import visualize_data_as_grid, FIGURE_DIR
+	from collections import defaultdict
 
 	logger = setup_logger(name='default', log_file='./scratch/env.log', level=logging.INFO)
 
@@ -646,9 +651,32 @@ if __name__ == '__main__':
 	check_env(train_env, warn=True)
 	check_env(test_env, warn=True)
 
-	hr_pos, hr_rewards = get_high_reward_pos(test_env.traffic_data, test_env.map_structure, k=10, return_reward=True)
-	logger.info("Top-10 high reward positions in test env: {} with avg rewards per session: {:.2f}".format(hr_pos, np.sum(hr_rewards)/test_env.total_sessions))
+	hr_pos, hr_rewards = get_high_reward_pos(train_env.traffic_data, train_env.map_structure, k=10, return_reward=True)
+	logger.info("Top-10 high reward positions in TRAIN env: {} ".format(hr_pos))
+	logger.info("Avg rewards per session: {:.2f}".format(np.sum(hr_rewards)/train_env.total_sessions))
 
+	logger.info("Checking the total reward using the TEST environment with static agents at high-reward positions...")
+	agent = StaticAgent(num_drones=num_drones)
+	eval_res = defaultdict(list)
+
+	for active_session in range(test_env.total_sessions):
+		# print('=== Running agents on session {} ==='.format(active_session))
+		observation, info = test_env.reset(options={'active_session': active_session})
+		test_env.positions = hr_pos # move the drones to high-reward positions
+
+		done = False
+		truncated = False
+		episode_reward = 0.0
+		while not (done or truncated):
+			actions = agent.select_action(observation)
+			observation, reward, done, truncated, info = test_env.step(actions)
+			episode_reward += reward
+
+		eval_res['all_reward'].append(episode_reward)
+		eval_res['all_trajectories'].append([pos for pos in test_env.positions_history])
+	logger.info("Avg reward over allsessions {}".format(sum(eval_res['all_reward'])/test_env.total_sessions))
+
+	logger.info("Running example trajectories with different agents in TRAIN environment...")
 	for agent_class in [StaticAgent, RandomAgent]:
 		agent = agent_class(num_drones=num_drones)
 
