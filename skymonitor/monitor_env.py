@@ -17,7 +17,7 @@ from matplotlib import animation
 import torch
 
 from skymonitor.simbarca_explore import SimBarcaExplore, initialize_dataset
-from skymonitor.agents import RandomAgent, StaticAgent, DroneAction
+from skymonitor.agents import BaseAgent, RandomAgent, StaticAgent, SweepingAgent, DroneAction, ActionToDirection
 from skymonitor.congestion import get_congestion_score, get_congestion_change
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class MapStructure:
 	# the grid ID for each node, shape (num_nodes, )
 	grid_id_of_nodes: np.ndarray = None
 	grid_xy_to_id: Dict[Tuple[int, int], int] = None
-	available_positions: List[Tuple[int, int]] = None
+	positions_with_data: List[Tuple[int, int]] = None
 
 	def __post_init__(self):
 		if self.grid_xy_to_id is None:
@@ -54,9 +54,9 @@ class MapStructure:
 				(x, y): gid for (x, y), gid in zip(self.grid_xy_of_nodes.tolist(), self.grid_id_of_nodes.tolist())
 			}
 			object.__setattr__(self, 'grid_xy_to_id', grid_xy_to_id)
-		if self.available_positions is None:
+		if self.positions_with_data is None:
 			positions = [] if self.grid_xy_to_id is None else list(self.grid_xy_to_id.keys())
-			object.__setattr__(self, 'available_positions', positions)
+			object.__setattr__(self, 'positions_with_data', positions)
 
 class ObservationNormalizer:
 
@@ -85,8 +85,12 @@ class ObservationNormalizer:
 
 		if self.flow_mean is not None and self.flow_std is not None:
 			norm_obs['flow'] = (observation['flow'] - self.flow_mean) / self.flow_std
+			if 'ha_flow' in observation:
+				norm_obs['ha_flow'] = (observation['ha_flow'] - self.flow_mean) / self.flow_std
 		if self.density_mean is not None and self.density_std is not None:
 			norm_obs['density'] = (observation['density'] - self.density_mean) / self.density_std
+			if 'ha_density' in observation:
+				norm_obs['ha_density'] = (observation['ha_density'] - self.density_mean) / self.density_std
 		if self.time_mean is not None and self.time_std is not None:
 			norm_obs['time_in_day'] = (observation['time_in_day'] - self.time_mean) / self.time_std
 
@@ -98,8 +102,12 @@ class ObservationNormalizer:
 
 		if self.flow_mean is not None and self.flow_std is not None:
 			orig_obs['flow'] = norm_obs['flow'] * self.flow_std + self.flow_mean
+			if 'ha_flow' in norm_obs:
+				orig_obs['ha_flow'] = norm_obs['ha_flow'] * self.flow_std + self.flow_mean
 		if self.density_mean is not None and self.density_std is not None:
 			orig_obs['density'] = norm_obs['density'] * self.density_std + self.density_mean
+			if 'ha_density' in norm_obs:
+				orig_obs['ha_density'] = norm_obs['ha_density'] * self.density_std + self.density_mean
 		if self.time_mean is not None and self.time_std is not None:
 			orig_obs['time_in_day'] = norm_obs['time_in_day'] * self.time_std + self.time_mean
 
@@ -122,7 +130,7 @@ class TrafficMonitorEnv(gym.Env):
 		fixed_init_pos: List[Tuple[int, int]], fixed initial positions for drones
 		normalizer: ObservationNormalizer, the normalizer for observation values (flow, density and timestamp)
 	"""
-
+	patched_pos = [(7, 2), (8, 3), (9, 3), (9, 4), (17, 11)]
 	metadata = {'render_modes': ['human'], 'name': 'drone_traffic_v0', 'render_fps': 30}
 
 	def __init__(
@@ -132,6 +140,7 @@ class TrafficMonitorEnv(gym.Env):
 		num_drones: int,
 		fixed_init_pos: List[Tuple[int, int]] = None,
 		obs_normalizer: ObservationNormalizer = None,
+		add_historical_avg: bool = True,
 		seed: int = None,
 	):
 		super().__init__()
@@ -147,6 +156,7 @@ class TrafficMonitorEnv(gym.Env):
 		# always init the drones at fixed set of init_positions if provided
 		self.fixed_init_pos = fixed_init_pos
 		self.obs_normalizer = obs_normalizer
+		self.add_historical_avg = add_historical_avg
 
 		# spaces of the environment
 		self.action_space = spaces.MultiDiscrete([len(DroneAction)] * num_drones)
@@ -160,8 +170,7 @@ class TrafficMonitorEnv(gym.Env):
 			flow_space = spaces.Box(low=0.0, high=2.0, shape=(P, ), dtype=np.float32)
 			density_space = spaces.Box(low=0.0, high=2.0, shape=(P, ), dtype=np.float32)
 			time_space = spaces.Box(low=0.0, high=1.0, shape=(1, ), dtype=np.float32)
-		self.observation_space = spaces.Dict(
-			{
+		obs_space_dict = {
 				# observed traffic data and time info
 				'flow': flow_space,
 				'density': density_space,
@@ -175,19 +184,18 @@ class TrafficMonitorEnv(gym.Env):
 				),
 				'coverage_mask': spaces.MultiBinary(n=P),
 			}
-		)
+		if self.add_historical_avg:
+			obs_space_dict.update({
+				'ha_flow': flow_space,
+				'ha_flow_std': spaces.Box(low=0.0, high=1.0, shape=(P, ), dtype=np.float32),
+				'ha_density': density_space,
+				'ha_density_std': spaces.Box(low=0.0, high=1.0, shape=(P, ), dtype=np.float32),
+			})
+		self.observation_space = spaces.Dict(obs_space_dict)
+
 		self.total_sessions = S
 		self.total_steps = T
 		self.total_locations = P
-
-		# empty grid cells are not valid positions
-		self._action_to_direction = {
-			DroneAction.STAY: (0, 0),
-			DroneAction.UP: (0, 1),
-			DroneAction.DOWN: (0, -1),
-			DroneAction.LEFT: (-1, 0),
-			DroneAction.RIGHT: (1, 0),
-		}
 
 		# running states
 		self.step_index: int = 0
@@ -198,7 +206,18 @@ class TrafficMonitorEnv(gym.Env):
 		self._last_animation = None
 		self._active_session = None
 
+		# pre-compute some useful statistics
 		self.avg_flow_by_location = self.traffic_data.flow.mean(axis=(0,1))  # shape (P)
+		# historical average flow and density (and their stds), useful when no observation is available
+		self.ha_flow = self.traffic_data.flow.mean(axis=0)
+		self.ha_flow_std = self.traffic_data.flow.std(axis=0)
+		self.ha_flow_std = self.ha_flow_std / self.ha_flow_std.max() # normalize to (0, 1)
+		self.ha_density = self.traffic_data.density.mean(axis=0)
+		self.ha_density_std = self.traffic_data.density.std(axis=0)
+		self.ha_density_std = self.ha_density_std / self.ha_density_std.max() # normalize to (0, 1)
+
+		# amend map structure to make the shape smoother
+		self.all_positions = sorted(list(set(self.map_structure.positions_with_data).union(set(self.patched_pos))))
 
 	def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[Dict, Dict]:
 		"""Resets environment and returns observations and infos for all agents."""
@@ -303,13 +322,12 @@ class TrafficMonitorEnv(gym.Env):
 			# MUST BE a deep copy otherwise the positions will be modified in place during the episode
 			return deepcopy(self.fixed_init_pos)
 
-		all_positions = set(self.map_structure.available_positions)
 		interior_positions = [
-			(x, y) for x, y in all_positions
-			if (x + 1, y) in all_positions
-			and (x - 1, y) in all_positions
-			and (x, y + 1) in all_positions
-			and (x, y - 1) in all_positions
+			(x, y) for x, y in self.map_structure.positions_with_data
+			if (x + 1, y) in self.map_structure.positions_with_data
+			and (x - 1, y) in self.map_structure.positions_with_data
+			and (x, y + 1) in self.map_structure.positions_with_data
+			and (x, y - 1) in self.map_structure.positions_with_data
 		]
 		indices = self.np_random.choice(len(interior_positions), size=self.num_drones, replace=False)
 		return [interior_positions[idx] for idx in indices]
@@ -317,7 +335,7 @@ class TrafficMonitorEnv(gym.Env):
 	def compute_coverage_mask(self, positions: List[Tuple[int, int]]) -> np.ndarray:
 		mask = sum(
 			[
-				self.map_structure.grid_id_of_nodes == self.map_structure.grid_xy_to_id[(x, y)]
+				self.map_structure.grid_id_of_nodes == self.map_structure.grid_xy_to_id.get((x, y), -1)
 				for x, y in positions
 			]
 		)
@@ -348,11 +366,23 @@ class TrafficMonitorEnv(gym.Env):
 			'positions_y': positions_y,
 		}
 
+		if self.add_historical_avg:
+			observation.update(self.get_historical_average())
+
 		if self.obs_normalizer is not None:
 			observation = self.obs_normalizer.normalize(observation)
 
 		return observation
 
+	def get_historical_average(self) -> Dict[str, np.ndarray]:
+		time_step = self.step_index
+		return {
+			'ha_flow': self.ha_flow[time_step, :],
+			'ha_flow_std': self.ha_flow_std[time_step, :],
+			'ha_density': self.ha_density[time_step, :],
+			'ha_density_std': self.ha_density_std[time_step, :],
+		}
+	
 	def get_info(self) -> Dict:
 		return {
 			'step_index': self.step_index,
@@ -399,9 +429,9 @@ class TrafficMonitorEnv(gym.Env):
 
 	def _get_new_position(self, action: DroneAction, old_pos: Tuple[int, int]) -> Tuple[int, int]:
 		"""works for 1 single position update"""
-		direction = self._action_to_direction.get(action, (0, 0))
+		direction = ActionToDirection.get(action, (0, 0))
 		new_pos = (old_pos[0] + direction[0], old_pos[1] + direction[1])
-		if new_pos not in self.map_structure.available_positions:
+		if new_pos not in self.all_positions:
 			new_pos = old_pos
 		return new_pos
 
@@ -434,8 +464,17 @@ class TrafficMonitorEnv(gym.Env):
 		ax.set_ylabel('Grid Y')
 
 		# initialize empty scatter plots, trails and annotations.
-		scatter = ax.scatter([], [], c='tab:red', s=80, label='Drones')
-		trails = [ax.plot([], [], linestyle='-', marker='o', alpha=0.5)[0] for _ in range(self.num_drones)]
+		scatter = ax.scatter(
+			[],
+			[],
+			c=[],
+			s=80,
+			cmap=plt.get_cmap('tab10'),
+			vmin=0,
+			vmax=max(1, self.num_drones) - 1,
+			label='Drones',
+		)
+		trails = [ax.plot([], [], linestyle='-', marker='X', alpha=0.5)[0] for _ in range(self.num_drones)]
 		for (x, y), label in zip(grid_xy, self.map_structure.grid_id_of_nodes):
 			ax.text(
 				x,
@@ -465,6 +504,7 @@ class TrafficMonitorEnv(gym.Env):
 
 		def update(frame_idx):
 			scatter.set_offsets(positions_frames[frame_idx])
+			scatter.set_array(np.arange(self.num_drones))
 			annotation.set_text(f'Step {frame_idx} / {steps - 1}')
 			for drone_idx, line in enumerate(trails):
 				history = np.asarray([frame[drone_idx] for frame in positions_frames[: frame_idx + 1]])
@@ -490,9 +530,9 @@ class TrafficMonitorEnv(gym.Env):
 def prepare_env_data_structure(
 	dataset: SimBarcaExplore,
 	density_threshold=0.001,
-	ff_quantile=0.9,
+	ff_quantile=0.85,
 	entry_thd=0.5,
-	exit_thd=0.6,
+	exit_thd=0.7,
 ):
 	# the time window and time step setting are not relevant to RL environment
 	# as they are related to generating indexes for data sampling batch-wise training
@@ -527,40 +567,6 @@ def prepare_env_data_structure(
 
 	return traffic_data, map_structure
 
-
-def get_high_reward_pos(traffic_data, map_structure, k: int = 10, return_reward: bool = False) -> List[Tuple[int, int]]:
-	"""Calculate the top-k most rewarding positions for all sessions and time steps."""
-
-	state_change_score = np.logical_or(
-		traffic_data.enters, traffic_data.exits
-	).astype(float)  # shape (S, T, P)
-	state_change_score = state_change_score[:, 1:, :]  # ignore the first time step which is not rewarded in RL
-	# weight by average flow to prioritize high-traffic locations
-	avg_flow_by_location = traffic_data.flow.mean(axis=(0,1))  # shape (P, )
-	state_change_score = state_change_score * avg_flow_by_location[None, None, :]  # shape (S, T, P)
-
-	total_change = state_change_score.sum(axis=(0, 1))  # shape (P, )
-	grid_ids = map_structure.grid_id_of_nodes # shape (P, )
-	unique_gids = np.unique(grid_ids)
-	grid_rewards = [total_change[grid_ids == gid].sum() for gid in unique_gids]
-	idxs = np.argsort(grid_rewards)[::-1][:k]
-	rewarding_gids = unique_gids[idxs]
-	grid_id_to_xy = {gid:xy for xy, gid in map_structure.grid_xy_to_id.items()}
-
-	positions = [grid_id_to_xy[gid] for gid in rewarding_gids]
-
-	if return_reward:
-		rewards = [grid_rewards[idx] for idx in idxs]
-		reward_by_session = [
-			sum(
-				[state_change_score[s][:, grid_ids == gid].sum() for gid in rewarding_gids]
-			)
-			for s in range(state_change_score.shape[0])
-		]
-		assert np.isclose(sum(reward_by_session), sum(rewards)), "Reward calculation mismatch."
-		return positions, rewards
-	else:
-		return positions
 
 def build_traffic_monitor_env(
 	trainset: SimBarcaExplore = None,
@@ -616,6 +622,75 @@ def build_traffic_monitor_env(
 	else:
 		raise ValueError(f"Invalid envs argument: {env_type}. Must be 'train', 'test' or 'both'.")
 
+def eval_on_all_sessions(env: TrafficMonitorEnv, agent: BaseAgent, seed: int = 42, init_pos: List[Tuple[int, int]] = None) -> Dict[str, List]:
+	# seed the environment once before the loop to initialize its random number generator.
+	# in this way the drones are randomly spawn for each session, but remains consistent across runs
+	env.reset(seed=seed)  
+	eval_res = defaultdict(list)
+
+	for active_session in range(env.total_sessions):
+		# print('=== Running agents on session {} ==='.format(active_session))
+		observation, info = env.reset(options={'active_session': active_session})
+		if init_pos is not None:
+			logger.info(f"Overriding the positions to: {init_pos}")
+			env.positions_history.clear()
+			env.observation_history.clear()
+			env.positions = init_pos # move the drones to high-reward positions
+			observation = env.get_observations(env.positions)
+			env.update_history(env.positions, observation)
+			info = env.get_info()
+		# this is bad in general because the agents should be Markov (e.g., doesn't depend on past history)
+		if callable(getattr(agent, 'clear_state', None)):
+			agent.clear_state()
+
+		done = False
+		truncated = False
+		episode_reward = 0.0
+		while not (done or truncated):
+			actions = agent.select_action(observation)
+			observation, reward, done, truncated, info = env.step(actions)
+			episode_reward += reward
+
+		eval_res['all_reward'].append(episode_reward)
+		eval_res['all_trajectories'].append([pos for pos in env.positions_history])
+
+	return eval_res
+
+
+def get_high_reward_pos(traffic_data, map_structure, k: int = 10, return_reward: bool = False) -> List[Tuple[int, int]]:
+	"""Calculate the top-k most rewarding positions for all sessions and time steps."""
+
+	state_change_score = np.logical_or(
+		traffic_data.enters, traffic_data.exits
+	).astype(float)  # shape (S, T, P)
+	state_change_score = state_change_score[:, 1:, :]  # ignore the first time step which is not rewarded in RL
+	# weight by average flow to prioritize high-traffic locations
+	avg_flow_by_location = traffic_data.flow.mean(axis=(0,1))  # shape (P, )
+	state_change_score = state_change_score * avg_flow_by_location[None, None, :]  # shape (S, T, P)
+
+	total_change = state_change_score.sum(axis=(0, 1))  # shape (P, )
+	grid_ids = map_structure.grid_id_of_nodes # shape (P, )
+	unique_gids = np.unique(grid_ids)
+	grid_rewards = [total_change[grid_ids == gid].sum() for gid in unique_gids]
+	idxs = np.argsort(grid_rewards)[::-1][:k]
+	rewarding_gids = unique_gids[idxs]
+	grid_id_to_xy = {gid:xy for xy, gid in map_structure.grid_xy_to_id.items()}
+
+	positions = [grid_id_to_xy[gid] for gid in rewarding_gids]
+
+	if return_reward:
+		rewards = [grid_rewards[idx] for idx in idxs]
+		reward_by_session = [
+			sum(
+				[state_change_score[s][:, grid_ids == gid].sum() for gid in rewarding_gids]
+			)
+			for s in range(state_change_score.shape[0])
+		]
+		assert np.isclose(sum(reward_by_session), sum(rewards)), "Reward calculation mismatch."
+		return positions, rewards
+	else:
+		return positions
+
 
 
 if __name__ == '__main__':
@@ -651,31 +726,6 @@ if __name__ == '__main__':
 	check_env(train_env, warn=True)
 	check_env(test_env, warn=True)
 
-	hr_pos, hr_rewards = get_high_reward_pos(train_env.traffic_data, train_env.map_structure, k=10, return_reward=True)
-	logger.info("Top-10 high reward positions in TRAIN env: {} ".format(hr_pos))
-	logger.info("Avg rewards per session: {:.2f}".format(np.sum(hr_rewards)/train_env.total_sessions))
-
-	logger.info("Checking the total reward using the TEST environment with static agents at high-reward positions...")
-	agent = StaticAgent(num_drones=num_drones)
-	eval_res = defaultdict(list)
-
-	for active_session in range(test_env.total_sessions):
-		# print('=== Running agents on session {} ==='.format(active_session))
-		observation, info = test_env.reset(options={'active_session': active_session})
-		test_env.positions = hr_pos # move the drones to high-reward positions
-
-		done = False
-		truncated = False
-		episode_reward = 0.0
-		while not (done or truncated):
-			actions = agent.select_action(observation)
-			observation, reward, done, truncated, info = test_env.step(actions)
-			episode_reward += reward
-
-		eval_res['all_reward'].append(episode_reward)
-		eval_res['all_trajectories'].append([pos for pos in test_env.positions_history])
-	logger.info("Avg reward over allsessions {}".format(sum(eval_res['all_reward'])/test_env.total_sessions))
-
 	logger.info("Running example trajectories with different agents in TRAIN environment...")
 	for agent_class in [StaticAgent, RandomAgent]:
 		agent = agent_class(num_drones=num_drones)
@@ -704,3 +754,32 @@ if __name__ == '__main__':
 			train_env.positions_history,
 			save_path=f"{FIGURE_DIR}/example_traj_{agent_class.__name__}.gif",
 		)
+
+	# evaluate a baseline agent: static agent staying on the high-reward positions
+	hr_pos, hr_rewards = get_high_reward_pos(train_env.traffic_data, train_env.map_structure, k=10, return_reward=True)
+	logger.info("Top-10 high reward positions in TRAIN env: {} ".format(hr_pos))
+	logger.info("Avg rewards per session: {:.2f}".format(np.sum(hr_rewards)/train_env.total_sessions))
+
+	logger.info("Checking the total reward using the TEST environment with static agents at high-reward positions...")
+	agent = StaticAgent(num_drones=num_drones)
+	eval_res = eval_on_all_sessions(
+		env=test_env,
+		agent=agent,
+		seed=888,
+		init_pos=hr_pos,
+	)
+	logger.info("Avg reward over all sessions {}".format(sum(eval_res['all_reward'])/test_env.total_sessions))
+
+	# another baseline sweeping agents
+	logger.info("Checking the total reward using the TEST environment with sweeping agents...")
+	agent = SweepingAgent(num_drones=num_drones, sweeping_pos=test_env.all_positions)
+	eval_res = eval_on_all_sessions(
+		env=test_env,
+		agent=agent,
+		seed=888,
+		init_pos=[agent.trajectory_plan[agent_id][0] for agent_id in range(num_drones)],
+	)
+	logger.info("Avg reward over all sessions {}".format(sum(eval_res['all_reward'])/test_env.total_sessions))
+	test_env.visualize_traj(trajectory=eval_res['all_trajectories'][0], save_path=f"{FIGURE_DIR}/sweeping_agent_test_env_0.gif")
+	test_env.visualize_traj(trajectory=eval_res['all_trajectories'][15], save_path=f"{FIGURE_DIR}/sweeping_agent_test_env_15.gif")
+

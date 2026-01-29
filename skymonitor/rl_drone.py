@@ -11,22 +11,20 @@ import logging
 import argparse
 from pathlib import Path
 from collections import defaultdict
-from typing import Dict, List
 
 import torch
 import numpy as np
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize, VecMonitor
 
 from skytraffic.utils.event_logger import setup_logger
 from skytraffic.utils.io import make_dir_if_not_exist
-from skymonitor.agents import BaseAgent, PolicyAgent, RandomAgent, StaticAgent
+from skymonitor.agents import PolicyAgent, RandomAgent, StaticAgent
 from skymonitor.policy_net import SimpleDronePolicy, GraphDronePolicy, GridDronePolicy
-from skymonitor.monitor_env import build_traffic_monitor_env, TrafficMonitorEnv
+from skymonitor.monitor_env import build_traffic_monitor_env, TrafficMonitorEnv, eval_on_all_sessions
 from skymonitor.simbarca_explore import initialize_dataset
 
 POLICY_NETS = {
@@ -63,7 +61,7 @@ class PeriodicEvalCallback(BaseCallback):
 
 		for seed in seeds:
 			with torch.no_grad():
-				eval_res = get_eval_on_all_sessions(self.eval_env, self.agent, seed=int(seed))
+				eval_res = eval_on_all_sessions(self.eval_env, self.agent, seed=int(seed))
 			eval_results['reward'].append(np.mean(eval_res['all_reward']))
 
 		stats = {}
@@ -158,34 +156,11 @@ def train_monitoring_agent_with_ppo(
 	return model
 
 
-def get_eval_on_all_sessions(env: TrafficMonitorEnv, agent: BaseAgent, seed: int = 42) -> Dict[str, List]:
-	# seed the environment once before the loop to initialize its random number generator.
-	# in this way the drones are randomly spawn for each session, but remains consistent across runs
-	env.reset(seed=seed)  
-	eval_res = defaultdict(list)
-
-	for active_session in range(env.total_sessions):
-		# print('=== Running agents on session {} ==='.format(active_session))
-		observation, info = env.reset(options={'active_session': active_session})
-		done = False
-		truncated = False
-		episode_reward = 0.0
-		while not (done or truncated):
-			actions = agent.select_action(observation)
-			observation, reward, done, truncated, info = env.step(actions)
-			episode_reward += reward
-
-		eval_res['all_reward'].append(episode_reward)
-		eval_res['all_trajectories'].append([pos for pos in env.positions_history])
-
-	return eval_res
-
-
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Train and evaluate PPO monitoring agent.')
 	parser.add_argument('--eval-only', action='store_true', help='If set, only evaluate the agent without training.')
 	parser.add_argument('--agent-type', type=str, default='ppo', help='Type of agent to use: ppo, random, static.')
-	parser.add_argument('--policy-type', type=str, default='grid', help='Type of policy network to use: simple, graph, grid.')
+	parser.add_argument('--policy-type', type=str, default='simple', help='Type of policy network to use: simple, graph, grid.')
 	parser.add_argument('--train-timesteps', type=int, default=int(1e6), help='Number of environment steps for PPO training.')
 	parser.add_argument('--num-envs', type=int, default=8, help='Number of parallel environments during training.')
 	parser.add_argument('--num-drones', type=int, default=10, help='Number of drones used in training and evaluation.')
@@ -194,10 +169,10 @@ if __name__ == '__main__':
 	parser.add_argument('--save-name', type=str, default="model", help='Checkpoint name to save the trained PPO agent.')
 	parser.add_argument('--log-level', type=str, default='info', choices=['debug', 'info', 'warning', 'error', 'critical'], help='Logging level.')
 	parser.add_argument('--train-seed', type=int, default=42, help='Random seed for training.')
-	parser.add_argument('--eval-freq', type=int, default=int(5e4), help='Evaluation frequency (0 disables).')
+	parser.add_argument('--eval-freq', type=int, default=int(1e4), help='Evaluation frequency (0 disables). Will run every `eval-freq * num_envs` time steps')
 	parser.add_argument('--eval-repeat', type=int, default=5, help='Number of evaluation runs.')
 	parser.add_argument('--eval-seed', type=int, default=888, help='Seed for the evaluation environment.')
-	parser.add_argument('--norm-obs', action=argparse.BooleanOptionalAction, default=True, help='If True, normalize observations in the environment. Default is True.')
+	parser.add_argument('--norm-obs', action=argparse.BooleanOptionalAction, default=True, help='Normalize observations, default True. Pass --no-norm-obs to disable.')
 	args = parser.parse_args()
 
 	make_dir_if_not_exist(args.logdir)
@@ -253,7 +228,7 @@ if __name__ == '__main__':
 	seeds = rng.choice(10000, size=args.eval_repeat, replace=False)
 	for i in range(args.eval_repeat):
 		with torch.no_grad():
-			eval_res = get_eval_on_all_sessions(env, agent, seed=int(seeds[i]))
+			eval_res = eval_on_all_sessions(env, agent, seed=int(seeds[i]))
 		res_reps['reward'].append(eval_res['all_reward'])
 		res_reps['trajectories'].append(eval_res['all_trajectories'])
 
