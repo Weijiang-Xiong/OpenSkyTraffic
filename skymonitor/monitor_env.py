@@ -345,7 +345,8 @@ class TrafficMonitorEnv(gym.Env):
 		"""get the observed traffic at the given positions."""
 
 		# clean data from the dataset, for 1 time step
-		observed_traffic = self.data_sample
+		# make a deep copy to avoid modifying the original data sample
+		observed_traffic = deepcopy(self.data_sample)
 		coverage_mask = self.compute_coverage_mask(positions)
 		positions_x = np.array([pos[0] for pos in positions], dtype=np.int64)
 		positions_y = np.array([pos[1] for pos in positions], dtype=np.int64)
@@ -356,7 +357,7 @@ class TrafficMonitorEnv(gym.Env):
 				continue
 			if value.shape != coverage_mask.shape:
 				continue
-			observed_traffic[key] = np.nan_to_num(value, nan=0.0)
+			observed_traffic[key] = np.nan_to_num(value, nan=0.0, copy=False)
 			observed_traffic[key][coverage_mask == 0] = 0.0
 
 		observation = {
@@ -783,3 +784,4 @@ if __name__ == '__main__':
 	test_env.visualize_traj(trajectory=eval_res['all_trajectories'][0], save_path=f"{FIGURE_DIR}/sweeping_agent_test_env_0.gif")
 	test_env.visualize_traj(trajectory=eval_res['all_trajectories'][15], save_path=f"{FIGURE_DIR}/sweeping_agent_test_env_15.gif")
 
+	logger.info("Evaluating Random Agent on TEST environment...")
