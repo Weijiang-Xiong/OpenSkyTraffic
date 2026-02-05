@@ -276,7 +276,7 @@ class SimBarcaForecast(SimbarcaBase):
 
         # only part of the simulation is used, which puts a limit to the number of samples
         valid_sim_duration = int((self._sample_end_time - self._sample_start_time) / np.timedelta64(1, 'm'))
-        max_num_samples = 1 + (valid_sim_duration - (self.input_window + self.pred_window)) // self.step_size
+        max_num_samples = (valid_sim_duration - (self.input_window + self.pred_window)) // self.step_size
         self.sample_per_session = min(max_num_samples, sample_per_session)
 
     def get_sample_in_out_index(self, timestamp: np.ndarray):
@@ -306,3 +306,5 @@ class SimBarcaForecast(SimbarcaBase):
 
         # convert to numpy arrays and return
         return np.array(in_indexes), np.array(out_indexes)
+    def compute_time_in_day(self, timestamp):
+        return (timestamp - timestamp[0].astype('datetime64[D]')) / np.timedelta64(24, "h")

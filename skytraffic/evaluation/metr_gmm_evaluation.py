@@ -1,3 +1,4 @@
+import copy
 import torch
 import torch.nn as nn
 import numpy as np
@@ -69,7 +70,7 @@ class MetrGMMEvaluator(MetrEvaluator):
         self.evaluate_confidence_interval(all_preds, all_data, verbose=verbose)
         
         # Update results with GMM metrics
-        return self.metrics_scalar
+        return copy.deepcopy(self.metrics_scalar)
 
     def evaluate_crps(self, all_preds: Dict[str, torch.Tensor], all_data: Dict[str, torch.Tensor], verbose: bool = False):
         """

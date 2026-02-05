@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 from typing import Dict, List, Tuple
@@ -38,4 +39,4 @@ class MetrEvaluator(BaseEvaluator):
         self.metrics_scalar.update(avg_eval_res)
         self.metrics_vector.update(eval_res_by_horizon)
 
-        return self.metrics_scalar
+        return copy.deepcopy(self.metrics_scalar)

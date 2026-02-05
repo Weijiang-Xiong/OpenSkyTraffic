@@ -94,7 +94,10 @@ class BaseEvaluator(ABC):
     def evaluate(self, model: nn.Module, dataloader: DataLoader, verbose: bool = False, visualize: bool = False) -> Dict[str, float]:
         pass
 
-    def common_metrics_by_horizon(self, pred, label, verbose:bool=False):
+    def common_metrics_by_horizon(self, pred, label, verbose:bool=False) -> Dict[str, List[float]]:
+        """ Both pred and label are tensors of shape (N, T, P), where T is the prediction horizon.
+            This function then computes common error metrics (MAE, MAPE, RMSE) at each time step. 
+        """
         eval_res_over_time = defaultdict(list)
         pred_steps = pred.shape[1]
         for i in range(pred_steps):  # number of predicted time step
@@ -112,7 +115,11 @@ class BaseEvaluator(ABC):
         return eval_res_over_time
     
 
-    def average_metrics(self, eval_res_by_horizon, verbose: bool = False):
+    def average_metrics(self, eval_res_by_horizon, verbose: bool = False) -> Dict[str, float]:
+        """ Compute average metrics as a simple arithmetic average of the per-horizon results.
+            This is slightly different from computing the average metrics directly from all predictions and labels, 
+            e.g., mae = (pred - label).abs().mean(), because the mask may be different at different horizons.
+        """
         avg_eval_res = {k:sum(v)/len(v) for k, v in eval_res_by_horizon.items()}
         if verbose:
             metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in avg_eval_res.items()])

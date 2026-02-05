@@ -304,13 +304,36 @@ def compare_norm_input_at_different_hops():
     print("figure saved to {}".format(save_path))
     plt.close(fig)
 
+def draw_drone_only_cvg():
+    import json
+    cvgs = [0.01, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20]
+    folders = ["scratch/drone_only_cvg{}".format(round(c*100)) for c in cvgs]
+    mae_segment_30min, mae_regional_30min = [], []
+    for f in folders:
+        error_metrics = json.load(open("{}/evaluation/final_evaluation_scores.json".format(f), "r"))
+        mae_segment_30min.append(error_metrics["horizon"]["pred_speed_mae"][-1])
+        mae_regional_30min.append(error_metrics["horizon"]["pred_speed_regional_mae"][-1])
+    
+    # plot 
+    fig, ax = plt.subplots()
+    ax.plot([c*100 for c in cvgs], mae_segment_30min, label="Segment-level")
+    ax.plot([c*100 for c in cvgs], mae_regional_30min, label="Regional")
+    ax.set_xlabel("Coverage (%)")
+    ax.set_ylabel("MAE")
+    ax.legend()
+    fig.tight_layout()
+    save_path = "datasets/simbarca/figures/drone_only_cvg_mae_30min.pdf"
+    fig.savefig(save_path)
+    print("figure saved to {}".format(save_path))
+
 if __name__ == "__main__":
-    draw_hops()
-    draw_epochs()
-    draw_coverage(include_no_emb=False)
-    draw_loss_weight()
+    # draw_hops()
+    # draw_epochs()
+    # draw_coverage(include_no_emb=False)
+    # draw_loss_weight()
     # draw_ablation_emb_with_10reps()
     # check_emb_params_update()
-    draw_hidden_dimension()
+    # draw_hidden_dimension()
     # draw_ld_only_regional_mae_example()
     # compare_norm_input_at_different_hops()
+    draw_drone_only_cvg()

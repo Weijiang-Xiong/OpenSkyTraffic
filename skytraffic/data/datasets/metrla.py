@@ -8,7 +8,12 @@ import numpy as np
 import torch 
 from torch.utils.data import Dataset
 
-from .adjacency import calculate_scaled_laplacian, calculate_normalized_laplacian, sym_adj, asym_adj
+from skytraffic.utils.structure import (
+    asym_adj,
+    calculate_normalized_laplacian,
+    calculate_scaled_laplacian,
+    sym_adj,
+)
 
 logger = logging.getLogger('default')
 

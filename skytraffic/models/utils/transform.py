@@ -5,33 +5,33 @@ class TensorDataScaler:
     """
     normalize the data, a simplified version of sklearn.preprocessing.StandardScaler
     assume the data to have shape
-        1. (N, T, P, C) where the 0 in the C dimension is the data, and the rest may be time in day, day in week
-        2. (N, T, P) just data, no time appended.
+        1. (N, T, P, C) where the data sequences in the C dimension are specified by `data_dim`, and the rest may be time in day, day in week
+        2. (N, T, P) just data, nothing else appended.
 
     """
 
-    def __init__(self, mean: float, std: float, data_dim: int = 0):
-        """_summary_
+    def __init__(self, mean: float | List[float], std: float | List[float], data_dim: int | List[int] = 0):
+        """ Initialize the scaler with mean and std, the mean, std and data_dim can be scalars or lists of the same length. 
 
         Args:
-            mean (float): the mean of the data (should be a scalar or a tensor with 1 element)
-            std (float): the standard deviation of the data (should be a scalar or a tensor with 1 element)
-            data_dim (int, optional): the index of data sequences of concern (not auxiliary features). Defaults to 0.
+            mean (float | List[float]): the mean of the data (should be a scalar or a tensor with 1 element)
+            std (float | List[float]): the standard deviation of the data (should be a scalar or a tensor with 1 element)
+            data_dim (int | List[int]): the index of data sequences of concern (not auxiliary features). Defaults to 0.
         """
-        self.data_dim = data_dim
+        self.data_dim: torch.Tensor = torch.tensor(data_dim).type(torch.long)
         
-        if isinstance(mean, torch.Tensor):
-            # this will throw an error if the tensor has more than one element
-            # it is better to signal the user that the input can be problematic
-            mean = mean.item() 
-        if isinstance(std, torch.Tensor):
-            std = std.item() 
-        assert isinstance(mean, (int, float)), "mean should be a scalar"
-        assert isinstance(std, (int, float)), "std should be a scalar"
+        # if isinstance(mean, torch.Tensor):
+        #     # this will throw an error if the tensor has more than one element
+        #     # it is better to signal the user that the input can be problematic
+        #     mean = mean.item() 
+        # if isinstance(std, torch.Tensor):
+        #     std = std.item() 
+        # assert isinstance(mean, (int, float)), "mean should be a scalar"
+        # assert isinstance(std, (int, float)), "std should be a scalar"
         
-        self.mean = torch.tensor(mean, requires_grad=False)
-        self.std = torch.tensor(std, requires_grad=False)
-        self.inv_std = 1.0 / self.std
+        self.mean: torch.Tensor = torch.tensor(mean, requires_grad=False)
+        self.std: torch.Tensor = torch.tensor(std, requires_grad=False)
+        self.inv_std: torch.Tensor = 1.0 / self.std
 
     def transform(self, data, datadim_only: bool = True):
         """ Apply Z-score normalization to the data.
@@ -61,6 +61,7 @@ class TensorDataScaler:
         self.mean = self.mean.to(device)
         self.std = self.std.to(device)
         self.inv_std = self.inv_std.to(device)
+        self.data_dim = self.data_dim.to(device)
         return self
     
     @property
@@ -68,4 +69,7 @@ class TensorDataScaler:
         return self.mean.device.type
     
     def state_dict(self):
-        return {"mean": self.mean.item(), "std": self.std.item(), "data_dim": self.data_dim}
+        if self.mean.numel() == 1:
+            return {"mean": self.mean.item(), "std": self.std.item(), "data_dim": self.data_dim.item()}
+        else:
+            return {"mean": self.mean.cpu().numpy().tolist(), "std": self.std.cpu().numpy().tolist(), "data_dim": self.data_dim}

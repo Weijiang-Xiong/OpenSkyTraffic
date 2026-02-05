@@ -122,7 +122,8 @@ class HiMSNet_GMM(nn.Module):
         self.rescale_anchors = rescale_anchors
         # weight for the regional task
         self.reg_loss_weight = reg_loss_weight
-        self.adapt_to_metadata(metadata)
+        if metadata is not None:
+            self.adapt_to_metadata(metadata)
 
     @property
     def device(self):
@@ -262,8 +263,6 @@ class HiMSNet_GMM(nn.Module):
         return seg_feat, reg_feat
 
     def adapt_to_metadata(self, metadata):
-        
-        assert self.training, "metadata should be loaded in training mode"
         
         # keep the tensors and arrays on the same device as the model
         self.data_scalers = {
