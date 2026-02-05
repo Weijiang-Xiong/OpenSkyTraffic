@@ -26,6 +26,7 @@ from skymonitor.agents import PolicyAgent, RandomAgent, StaticAgent
 from skymonitor.policy_net import SimpleDronePolicy, GraphDronePolicy, GridDronePolicy
 from skymonitor.monitor_env import build_traffic_monitor_env, TrafficMonitorEnv, eval_on_all_sessions
 from skymonitor.simbarca_explore import initialize_dataset
+from skymonitor.visualize import animate_trajectory
 
 POLICY_NETS = {
 	'simple': SimpleDronePolicy,
@@ -253,8 +254,9 @@ if __name__ == '__main__':
 			continue
 		for session_id, traj in enumerate(all_traj):
 			if session_id % 20 == 0:
-				env.visualize_traj(
-					traj,
+				animate_trajectory(
+					grid_xy=env.map_structure.grid_xy_of_nodes,
+					trajectory=traj,
 					save_path=Path(args.logdir) / f'traj_rep{rep}_session{session_id}.gif',
 				)
 

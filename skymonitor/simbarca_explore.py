@@ -6,12 +6,10 @@ import numpy as np
 from einops import repeat
 
 from skytraffic.data.datasets.simbarca_base import SimBarcaForecast
+from skytraffic.utils.structure import build_grid_index, tuple_keys_to_str
 
 D_FREQ = 5  # the high-frequency drone data has a time step of 5 seconds
 T_STEP = 180  # we require prediction model to predict every 3 minutes (180 seconds)
-
-def _tuple_keys_to_str(d: Dict[Tuple[int, int], int]) -> Dict[str, int]:
-    return {f"{k[0]}_{k[1]}": v for k, v in d.items()}
 
 class SimBarcaExplore(SimBarcaForecast):
     """
@@ -206,16 +204,10 @@ class SimBarcaExplore(SimBarcaForecast):
             }
 
         # coarse grid assignment for spatial abstraction used by the RL agents
-        grid_xy = np.floor_divide(self.node_coordinates, self.grid_size).astype(int)
-        grid_xy = grid_xy - grid_xy.min(axis=0, keepdims=True)
+        grid_xy, grid_id, grid_xy_to_id = build_grid_index(self.node_coordinates, self.grid_size)
         self.grid_xy = grid_xy
-        grid_width = int(grid_xy[:, 0].max() + 1)
-        grid_height = int(grid_xy[:, 1].max() + 1)
-
-        grid_id = grid_xy[:, 1] * grid_width + grid_xy[:, 0]
         self.grid_id = grid_id
-        grid_xy_to_id_np = np.unique(np.concatenate([grid_xy, grid_id[:, None]], axis=1), axis=0)
-        self.grid_xy_to_id = {(int(x), int(y)): int(gid) for x, y, gid in grid_xy_to_id_np}
+        self.grid_xy_to_id = grid_xy_to_id
 
         # input and output sizes (excluding batch dimension)
         self.input_size = (self.input_window // self.step_size, self.adjacency.shape[0], len(self.data_channels["source"]))
@@ -233,7 +225,7 @@ class SimBarcaExplore(SimBarcaForecast):
             "grid_xy": np.asarray(grid_xy, dtype=np.int64),
             # mapping from grid (x, y) coordinate to grid ID
             # converted to string keys for omegaconf compatibility
-            "grid_xy_to_id": _tuple_keys_to_str(self.grid_xy_to_id),
+            "grid_xy_to_id": tuple_keys_to_str(self.grid_xy_to_id),
             "num_lanes": np.asarray(self.num_lanes, dtype=np.int64),
             "data_stats": {
                 "source": self.data_stats["3min"],

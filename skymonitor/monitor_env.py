@@ -11,14 +11,14 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
-import matplotlib.pyplot as plt
-from matplotlib import animation
 
 import torch
 
 from skymonitor.simbarca_explore import SimBarcaExplore, initialize_dataset
 from skymonitor.agents import BaseAgent, RandomAgent, StaticAgent, SweepingAgent, DroneAction, ActionToDirection
 from skymonitor.congestion import get_congestion_score, get_congestion_change
+from skymonitor.visualize import animate_trajectory
+from skytraffic.utils.structure import build_grid_xy_to_id
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,8 @@ class MapStructure:
 	node_coordinates: np.ndarray = None
 	# the adjacency matrix of the grid, shape (num_nodes, num_nodes)
 	adjacency_matrix: np.ndarray = None
+	# cell size in meters
+	cell_size: float = 220.0
 	# the (x, y) coordinates of each node in the grid, shape (num_nodes, 2)
 	grid_xy_of_nodes: np.ndarray = None
 	# the grid ID for each node, shape (num_nodes, )
@@ -50,9 +52,7 @@ class MapStructure:
 	def __post_init__(self):
 		if self.grid_xy_to_id is None:
 			assert self.grid_xy_of_nodes is not None and self.grid_id_of_nodes is not None, "grid_xy and grid_id must be provided"
-			grid_xy_to_id = {
-				(x, y): gid for (x, y), gid in zip(self.grid_xy_of_nodes.tolist(), self.grid_id_of_nodes.tolist())
-			}
+			grid_xy_to_id = build_grid_xy_to_id(self.grid_xy_of_nodes, self.grid_id_of_nodes)
 			object.__setattr__(self, 'grid_xy_to_id', grid_xy_to_id)
 		if self.positions_with_data is None:
 			positions = [] if self.grid_xy_to_id is None else list(self.grid_xy_to_id.keys())
@@ -203,7 +203,6 @@ class TrafficMonitorEnv(gym.Env):
 		self.positions: List[Tuple[int, int]] = []
 		self.positions_history = list()
 		self.observation_history: List[Dict[str, torch.Tensor]] = list()
-		self._last_animation = None
 		self._active_session = None
 
 		# pre-compute some useful statistics
@@ -278,7 +277,6 @@ class TrafficMonitorEnv(gym.Env):
 	def clear_state(self) -> None:
 		self.step_index = 0
 		self.data_sample = None
-		self._last_animation = None
 		self.positions.clear()
 		self.positions_history.clear()
 		self.observation_history.clear()
@@ -438,95 +436,6 @@ class TrafficMonitorEnv(gym.Env):
 
 	def render(self):
 		pass
-
-	def visualize_traj(self, trajectory: List, save_path: Optional[str] = None):
-		"""Visualize drone paths with matplotlib in terminal mode.
-		If save_path is provided, saves a GIF to that location.
-		"""
-
-		positions_frames = [np.asarray(frame) for frame in trajectory]
-		steps = len(positions_frames)
-
-		grid_xy = self.map_structure.grid_xy_of_nodes
-		grid_limits = (
-			int(grid_xy[:, 0].max() + 1),
-			int(grid_xy[:, 1].max() + 1),
-		)
-
-		fig, ax = plt.subplots(figsize=(12, 8))
-		ax.set_xlim(-0.5, grid_limits[0] - 0.5)
-		ax.set_ylim(-0.5, grid_limits[1] - 0.5)
-		for x in range(grid_limits[0] + 1):
-			ax.axvline(x - 0.5, color='gray', linewidth=0.5, alpha=0.4)
-		for y in range(grid_limits[1] + 1):
-			ax.axhline(y - 0.5, color='gray', linewidth=0.5, alpha=0.4)
-		ax.set_title('Drone Coverage Summary')
-		ax.set_xlabel('Grid X')
-		ax.set_ylabel('Grid Y')
-
-		# initialize empty scatter plots, trails and annotations.
-		scatter = ax.scatter(
-			[],
-			[],
-			c=[],
-			s=80,
-			cmap=plt.get_cmap('tab10'),
-			vmin=0,
-			vmax=max(1, self.num_drones) - 1,
-			label='Drones',
-		)
-		trails = [ax.plot([], [], linestyle='-', marker='X', alpha=0.5)[0] for _ in range(self.num_drones)]
-		for (x, y), label in zip(grid_xy, self.map_structure.grid_id_of_nodes):
-			ax.text(
-				x,
-				y,
-				str(label),
-				ha='center',
-				va='center',
-				fontsize=8,
-				color='black',
-			)
-		annotation = ax.text(
-			0.02,
-			0.95,
-			'',
-			transform=ax.transAxes,
-			fontsize=10,
-			ha='left',
-			va='top',
-			bbox={'boxstyle': 'round', 'facecolor': 'white', 'alpha': 0.7},
-		)
-
-		def init():
-			annotation.set_text('')
-			for line in trails:
-				line.set_data([], [])
-			return [scatter, annotation, *trails]
-
-		def update(frame_idx):
-			scatter.set_offsets(positions_frames[frame_idx])
-			scatter.set_array(np.arange(self.num_drones))
-			annotation.set_text(f'Step {frame_idx} / {steps - 1}')
-			for drone_idx, line in enumerate(trails):
-				history = np.asarray([frame[drone_idx] for frame in positions_frames[: frame_idx + 1]])
-				line.set_data(history[:, 0], history[:, 1])
-			return [scatter, annotation, *trails]
-
-		base_interval = 1000 / max(1, self.metadata.get('render_fps', 30))
-		interval_ms = max(350, base_interval)
-		animation_obj = animation.FuncAnimation(
-			fig,
-			update,
-			frames=steps,
-			init_func=init,
-			blit=False,
-			interval=interval_ms,
-			repeat=False,
-		)
-		if save_path is not None:
-			animation_obj.save(save_path, writer='pillow', fps=2)
-			logger.info('Saved trajectory visualization to {}'.format(save_path))
-		self._last_animation = animation_obj
 
 def prepare_env_data_structure(
 	dataset: SimBarcaExplore,
@@ -700,7 +609,7 @@ if __name__ == '__main__':
 	from skymonitor.visualize import visualize_data_as_grid, FIGURE_DIR
 	from collections import defaultdict
 
-	logger = setup_logger(name='default', log_file='./scratch/env.log', level=logging.INFO)
+	logger = setup_logger(name='skymonitor', level=logging.INFO)
 
 	num_drones = 10
 	trainset, testset = initialize_dataset()
@@ -751,8 +660,9 @@ if __name__ == '__main__':
 				)
 			)
 		
-		train_env.visualize_traj(
-			train_env.positions_history,
+		animate_trajectory(
+			grid_xy=train_env.map_structure.grid_xy_of_nodes,
+			trajectory=train_env.positions_history,
 			save_path=f"{FIGURE_DIR}/example_traj_{agent_class.__name__}.gif",
 		)
 
@@ -781,7 +691,15 @@ if __name__ == '__main__':
 		init_pos=[agent.trajectory_plan[agent_id][0] for agent_id in range(num_drones)],
 	)
 	logger.info("Avg reward over all sessions {}".format(sum(eval_res['all_reward'])/test_env.total_sessions))
-	test_env.visualize_traj(trajectory=eval_res['all_trajectories'][0], save_path=f"{FIGURE_DIR}/sweeping_agent_test_env_0.gif")
-	test_env.visualize_traj(trajectory=eval_res['all_trajectories'][15], save_path=f"{FIGURE_DIR}/sweeping_agent_test_env_15.gif")
+	animate_trajectory(
+		grid_xy=test_env.map_structure.grid_xy_of_nodes,
+		trajectory=eval_res['all_trajectories'][0],
+		save_path=f"{FIGURE_DIR}/sweeping_agent_test_env_0.gif",
+	)
+	animate_trajectory(
+		grid_xy=test_env.map_structure.grid_xy_of_nodes,
+		trajectory=eval_res['all_trajectories'][15],
+		save_path=f"{FIGURE_DIR}/sweeping_agent_test_env_15.gif",
+	)
 
 	logger.info("Evaluating Random Agent on TEST environment...")

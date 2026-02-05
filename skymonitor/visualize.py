@@ -1,16 +1,69 @@
 import os
+import logging
 from collections import defaultdict
 from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import cm
 from matplotlib import animation
+
+from skytraffic.utils.structure import norm_coords_and_grid_xy
 
 # Use seaborn darkgrid style
 import seaborn as sns
 sns.set_theme(style="darkgrid")
 
 FIGURE_DIR = os.path.join("figures", "skymonitor")
+logger = logging.getLogger(__name__)
+
+def init_canvas(
+    grid_xy,
+    *,
+    figsize: Tuple[int, int] = (12, 8),
+    title="Grid Visualization",
+    line_alpha=0.4,
+    draw_grid_lines=True,
+    mark_grids=True,
+):
+    
+    fig, ax = plt.subplots(figsize=figsize)
+
+    grid_xy = np.asarray(grid_xy)
+    x_min = int(grid_xy[:, 0].min())
+    x_max = int(grid_xy[:, 0].max())
+    y_min = int(grid_xy[:, 1].min())
+    y_max = int(grid_xy[:, 1].max())
+
+    ax.set_xlim(x_min - 0.5, x_max + 0.5)
+    ax.set_ylim(y_min - 0.5, y_max + 0.5)
+    ax.grid(False)
+
+    if draw_grid_lines:
+        for x in range(x_min, x_max + 2):
+            ax.axvline(x - 0.5, color="gray", linewidth=0.5, alpha=line_alpha)
+        for y in range(y_min, y_max + 2):
+            ax.axhline(y - 0.5, color="gray", linewidth=0.5, alpha=line_alpha)
+
+    if mark_grids:
+        ax.scatter(
+            grid_xy[:, 0],
+            grid_xy[:, 1],
+            marker="s",
+            s=20,
+            color="lightgray",
+            linewidths=1,
+            alpha=0.6,
+        )
+
+    ax.set_title(title)
+    ax.set_xlabel("Grid X")
+    ax.set_ylabel("Grid Y")
+    ax.set_aspect("equal", adjustable="box")
+
+    fig.tight_layout()
+
+    return fig, ax
 
 def plot_flow_density(flow_array: np.ndarray, density_array: np.ndarray, flow_weight:np.ndarray, note="example"):
     """
@@ -59,6 +112,13 @@ def visualize_data_as_grid(grid_xy, node_data, agg="max", font_size=10, note="da
         grid_xy: Array of (x, y) grid coordinates for each item. shape (num_nodes, 2).
         node_data: Sequence of node data values aligned with grid_xy. shape (num_nodes,).
     """
+    fig, ax = init_canvas(
+        grid_xy=grid_xy,
+        line_alpha=1.0,
+        mark_grids=False,
+        title="Grid Data Visualization",
+    )
+
     # Visualization
     grid_height = int(grid_xy[:, 1].max() + 1)
     grid_width = int(grid_xy[:, 0].max() + 1)
@@ -78,41 +138,24 @@ def visualize_data_as_grid(grid_xy, node_data, agg="max", font_size=10, note="da
         else:
             raise ValueError(f"Unsupported aggregation method: {agg}")
 
-
-    plt.figure(figsize=(12, 8))
-
     # Render grid cells with colors, leaving empty cells white.
-    masked_map = np.ma.masked_where(grid_map == -1, grid_map)
-    cmap = plt.cm.turbo.copy()
+    grid_map = grid_map.astype(float)
+    grid_map[grid_map == -1] = np.nan
+    cmap = cm.turbo.copy()
     cmap.set_bad(color="white")
-    plt.imshow(
-        masked_map,
+    ax.imshow(
+        grid_map, # nans will be ignored
         origin="lower",
         cmap=cmap,
         extent=(-0.5, grid_width - 0.5, -0.5, grid_height - 0.5),
         interpolation="none",
     )
 
-    # Set up the plot
-    plt.xlim(-0.5, grid_width - 0.5)
-    plt.ylim(-0.5, grid_height - 0.5)
-    plt.grid(False)
-
-    # Add grid lines
-    for x in range(grid_width):
-        plt.axvline(x - 0.5, color="gray", linewidth=0.5)
-    for y in range(grid_height):
-        plt.axhline(y - 0.5, color="gray", linewidth=0.5)
-
-    plt.title("Grid Data Visualization")
-    plt.xlabel("Grid X")
-    plt.ylabel("Grid Y")
-
     # Add text annotations for grid IDs
     for y in range(grid_height):
         for x in range(grid_width):
             if grid_map[y, x] != -1:
-                plt.text(
+                ax.text(
                     x,
                     y,
                     str(grid_map[y, x]),
@@ -122,39 +165,94 @@ def visualize_data_as_grid(grid_xy, node_data, agg="max", font_size=10, note="da
                     color="black",
                 )
 
-    plt.tight_layout()
     os.makedirs(FIGURE_DIR, exist_ok=True)
-    plt.savefig(os.path.join(FIGURE_DIR, "{}.pdf".format(note)), bbox_inches="tight")
+    fig.savefig(os.path.join(FIGURE_DIR, "{}.pdf".format(note)), bbox_inches="tight")
     print(f"Saved grid data visualization to {os.path.join(FIGURE_DIR, '{}.pdf'.format(note))}")
-    plt.close()
+    plt.close(fig)
+
+
+def animate_trajectory(
+    grid_xy: np.ndarray,
+    trajectory: Sequence,
+    save_path: Optional[str] = None,
+    title: str = "Drone Coverage Summary",
+    fps: int = 2,
+):
+    """Visualize drone paths with matplotlib in terminal mode.
+    If save_path is provided, saves a GIF to that location.
+    """
+    positions_frames = [np.asarray(frame) for frame in trajectory]
+    steps = len(positions_frames)
+    num_agents = positions_frames[0].shape[0]
+
+    fig, ax = init_canvas(
+        grid_xy=grid_xy,
+        line_alpha=0.4,
+        title=title,
+    )
+    scatter = ax.scatter(
+        [],
+        [],
+        c=[],
+        s=80,
+        cmap=plt.get_cmap("tab10"),
+        vmin=0,
+        vmax=max(1, num_agents) - 1,
+        label="Drones",
+    )
+    trails = [ax.plot([], [], linestyle="-", marker="X", alpha=0.5)[0] for _ in range(num_agents)]
+    annotation = ax.text(
+        0.02,
+        0.95,
+        "",
+        transform=ax.transAxes,
+        fontsize=10,
+        ha="left",
+        va="top",
+        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.7},
+    )
+
+    def init():
+        annotation.set_text("")
+        for line in trails:
+            line.set_data([], [])
+        return [scatter, annotation, *trails]
+
+    def update(frame_idx):
+        scatter.set_offsets(positions_frames[frame_idx])
+        scatter.set_array(np.arange(num_agents))
+        annotation.set_text(f"Step {frame_idx} / {steps - 1}")
+        for drone_idx, line in enumerate(trails):
+            history = np.asarray([frame[drone_idx] for frame in positions_frames[: frame_idx + 1]])
+            line.set_data(history[:, 0], history[:, 1])
+        return [scatter, annotation, *trails]
+
+    animation_obj = animation.FuncAnimation(
+        fig,
+        update,
+        frames=steps,
+        init_func=init,
+        blit=False,
+        repeat=False,
+    )
+    if save_path is not None:
+        animation_obj.save(save_path, writer="pillow", fps=fps)
+        logger.info('Saved trajectory visualization to {}'.format(save_path))
+
+    return animation_obj
 
 
 def visualize_sweep_scan_trajectories(
     grid_xy: np.ndarray,
     trajectories: Sequence[Sequence[Tuple[int, int]]],
     save_path: Optional[str] = None,
-    title: str = "Sweeping-Scan Trajectories",
 ):
     """Plot sweep-scan trajectories on the grid."""
-    positions = {(int(x), int(y)) for x, y in np.asarray(grid_xy)}
-    if not positions:
-        return None, None
-
-    xs = [pos[0] for pos in positions]
-    ys = [pos[1] for pos in positions]
-    min_x, max_x = min(xs), max(xs)
-    min_y, max_y = min(ys), max(ys)
-
-    fig, ax = plt.subplots(figsize=(12, 8))
-    ax.set_xlim(min_x - 0.5, max_x + 0.5)
-    ax.set_ylim(min_y - 0.5, max_y + 0.5)
-    for x in range(min_x, max_x + 2):
-        ax.axvline(x - 0.5, color="gray", linewidth=0.5, alpha=0.3)
-    for y in range(min_y, max_y + 2):
-        ax.axhline(y - 0.5, color="gray", linewidth=0.5, alpha=0.3)
-
-    grid_points = np.asarray(list(positions))
-    ax.scatter(grid_points[:, 0], grid_points[:, 1], s=18, color="lightgray", alpha=0.6, marker="s")
+    fig, ax = init_canvas(
+        grid_xy=grid_xy,
+        line_alpha=0.3,
+        title="Sweeping-Scan Trajectories",
+    )
 
     cmap = plt.get_cmap("tab10", max(1, len(trajectories)))
     for idx, path in enumerate(trajectories):
@@ -166,25 +264,23 @@ def visualize_sweep_scan_trajectories(
         ax.scatter(coords[0, 0], coords[0, 1], color=color, s=60, marker="o")
         ax.scatter(coords[-1, 0], coords[-1, 1], color=color, s=70, marker="X")
 
-    ax.set_title(title)
-    ax.set_xlabel("Grid X")
-    ax.set_ylabel("Grid Y")
-    ax.set_aspect("equal", adjustable="box")
-
-    plt.tight_layout()
     if save_path is not None:
         dir_name = os.path.dirname(save_path)
         if dir_name:
             os.makedirs(dir_name, exist_ok=True)
         fig.savefig(save_path, bbox_inches="tight")
+        logger.info('Saved sweep-scan trajectory visualization to {}'.format(save_path))
+
     return fig, ax
 
 
 def visualize_map_scores(
     scores: np.ndarray,
     node_coordinates: np.ndarray,
+    grid_size: float = 220.0,
     note: str = "note",
     info: Dict[str, Sequence] = None,
+    draw_grid: bool = True,
 ):
 
     """
@@ -215,7 +311,8 @@ def visualize_map_scores(
     os.makedirs(output_dir, exist_ok=True)
 
     scores = np.asarray(scores, dtype=np.float32)
-    coords = np.asarray(node_coordinates, dtype=np.float32)
+    coords, grid_xy = norm_coords_and_grid_xy(node_coordinates, grid_size)
+
     if info is not None:
         session_info = ["_".join("{}={}".format(k, v[i]) for k, v in info.items())
                         for i in range(scores.shape[0])]
@@ -229,32 +326,37 @@ def visualize_map_scores(
         session_scores = scores[idx]
         title_prefix = session_info[idx]
 
-        fig, ax, scatter = map_visualize(
-            coords=coords,
-            values=session_scores[0],
-            figure_note=f"{title_prefix} score (t=0)",
-            save_path=None,
+        fig, ax = init_canvas(
+            grid_xy=grid_xy,
+            title=f"{title_prefix} (t=0)",
+            draw_grid_lines=draw_grid,
+            mark_grids=False,
+        )
+        scatter = ax.scatter(
+            coords[:, 0],
+            coords[:, 1],
+            c=session_scores[0],
             cmap="coolwarm",
             vmin=0.0,
             vmax=1.0,
-            colorbar_label="Score",
+            s=8,
         )
 
         def update(frame):
             scatter.set_array(session_scores[frame])
-            ax.set_title(f"{title_prefix} score (t={frame})")
+            ax.set_title(f"{title_prefix} (t={frame})")
             return scatter,
 
         anim = animation.FuncAnimation(
             fig,
             update,
             frames=session_scores.shape[0],
-            interval=300,
             blit=False,
+            repeat=False,
         )
 
         save_path = os.path.join(output_dir, f"{session_info[idx]}.gif")
-        anim.save(save_path, writer=animation.PillowWriter(fps=4))
+        anim.save(save_path, writer=animation.PillowWriter(fps=2))
         plt.close(fig)
 
 def scatter_plot(
@@ -295,118 +397,23 @@ def historgram_plot(
     return fig, ax
 
 
-def map_visualize(
-    coords: np.ndarray,
-    values: np.ndarray,
-    figure_note: str,
-    save_path: str = None,
-    cmap: str = "coolwarm",
-    vmin: float = None,
-    vmax: float = None,
-    colorbar_label: str = "Value",
-):
-    """
-    Scatter map helper used for static plots and animation frames.
-
-    Args:
-        node_coordinate: Array of shape (num_locations, 2) with XY coordinates.
-        values: Array of shape (num_locations,) containing values to visualize.
-        figure_note: Title text for the figure.
-        save_path: Optional file path to save the figure.
-        cmap: Matplotlib colormap name.
-        vmin: Optional minimum for color scaling.
-        vmax: Optional maximum for color scaling.
-        colorbar_label: Label for the colorbar.
-
-    Returns:
-        Tuple of (figure, axis, scatter) for reuse (e.g., animation updates).
-    """
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    sns.set_theme(style="darkgrid")
-
-    if save_path:
-        save_dir = os.path.dirname(save_path)
-        if save_dir:
-            os.makedirs(save_dir, exist_ok=True)
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    scatter = ax.scatter(coords[:, 0], coords[:, 1], c=values, cmap=cmap, vmin=vmin, vmax=vmax, s=8)
-    fig.colorbar(scatter, ax=ax, label=colorbar_label)
-    ax.set_title(figure_note)
-    ax.set_xlabel("X coordinate")
-    ax.set_ylabel("Y coordinate")
-    ax.set_aspect("equal")
-    fig.tight_layout()
-    if save_path:
-        fig.savefig(save_path, dpi=200)
-
-    return fig, ax, scatter
-
-
-def plot_coverage_masks(coverage_mask):
-    """ 
-    Visualize monitoring coverage masks for multiple data samples.
-
-    Example usage:
-    ```
-    with open("figures/skymonitor/data.pkl", "rb") as f:
-        data = pickle.load(f)
-
-    source = data["source"]  # shape: (N, T, P, C)
-    coverage_mask = data["coverage_mask"]  # shape: (N, T, P)
-    N, T, P, C = source.shape
-    plot_coverage_masks(coverage_mask)
-    ```
-    """
-    # coverage_mask shape: (N, T, P)
-    N, T, P = coverage_mask.shape
-    mask_per_fig = 4
-    num_figs = np.ceil(N / mask_per_fig).astype(int)
-
-    for fig_idx in range(num_figs):
-        start = fig_idx * mask_per_fig
-        end = min(start + mask_per_fig, N)
-        batch_slice = coverage_mask[start:end]
-
-        cols = mask_per_fig
-        fig, axes = plt.subplots(1, cols, figsize=(2 * cols, 6))
-        axes = axes.ravel()
-
-        for i, mask in enumerate(batch_slice):
-            ax = axes[i]
-            ax.imshow(mask.T, origin="lower", cmap="viridis", aspect="auto")
-            # ax.set_title(f"Monitoring Mask {start + i}")
-            ax.set_xlabel("Input Time Steps")
-            if i == 0:
-                ax.set_ylabel("Road Segment Number")
-            else:
-                ax.set_ylabel("")
-                ax.set_yticks([])
-
-        # Hide any unused subplots
-        for j in range(len(batch_slice), len(axes)):
-            axes[j].axis("off")
-
-        plt.tight_layout()
-        fig.savefig(f"{FIGURE_DIR}/coverage_mask_{fig_idx}.pdf", dpi=300)
-        plt.close(fig)
-
-
 if __name__ == "__main__":
     from skymonitor.agents import SweepingAgent
     from skymonitor.monitor_env import TrafficMonitorEnv, build_traffic_monitor_env
     from skymonitor.simbarca_explore import initialize_dataset
+    from skytraffic.utils.event_logger import setup_logger
+
+    logger = setup_logger(name='skymonitor', level=logging.INFO)
 
     trainset, _ = initialize_dataset()
     env: TrafficMonitorEnv = build_traffic_monitor_env(trainset, num_drones=10, env_type="train")
 
     trajectories = SweepingAgent.build_sweep_scan_plan(env.all_positions, num_drones=10)
-    print("Generated sweep-scan trajectories for 10 drones.")
-    print("Max length of trajectories:", max(len(t) for t in trajectories))
+    logger.info("Generated sweep-scan trajectories for 10 drones.")
+    logger.info("Max length of trajectories: {}".format(max(len(t) for t in trajectories)))
 
     visualize_sweep_scan_trajectories(
         env.all_positions,
         trajectories,
-        save_path="figures/skymonitor/sweep_scan.pdf",
+        save_path="{}/sweep_scan.pdf".format(FIGURE_DIR),
     )
