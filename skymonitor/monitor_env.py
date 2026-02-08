@@ -6,6 +6,7 @@ https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -607,7 +608,6 @@ if __name__ == '__main__':
 	from skytraffic.utils.event_logger import setup_logger
 	from stable_baselines3.common.env_checker import check_env
 	from skymonitor.visualize import visualize_data_as_grid, FIGURE_DIR
-	from collections import defaultdict
 
 	logger = setup_logger(name='skymonitor', level=logging.INFO)
 
