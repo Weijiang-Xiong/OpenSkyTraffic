@@ -80,7 +80,7 @@ def main():
     )
     parser.add_argument("record", help="Record id e.g., 10491409")
     parser.add_argument("-o", "--outdir", default="zenodo_downloads")
-    args = parser.parse_args("10491409".split())
+    args = parser.parse_args()
 
     rec = get_record_json(args.record)
     files = extract_files(rec)
