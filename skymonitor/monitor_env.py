@@ -607,6 +607,7 @@ def get_high_reward_pos(traffic_data, map_structure, k: int = 10, return_reward:
 if __name__ == '__main__':
 	from skytraffic.utils.event_logger import setup_logger
 	from stable_baselines3.common.env_checker import check_env
+	from gymnasium.utils.env_checker import check_env as gym_check_env
 	from skymonitor.visualize import visualize_data_as_grid, FIGURE_DIR
 
 	logger = setup_logger(name='skymonitor', level=logging.INFO)
@@ -635,6 +636,13 @@ if __name__ == '__main__':
 
 	check_env(train_env, warn=True)
 	check_env(test_env, warn=True)
+	# This will catch many common issues
+	try:
+		gym_check_env(train_env)
+		gym_check_env(test_env)
+		print("Environment passes all checks!")
+	except Exception as e:
+		print(f"Environment has issues: {e}")
 
 	logger.info("Running example trajectories with different agents in TRAIN environment...")
 	for agent_class in [StaticAgent, RandomAgent]:
