@@ -5,6 +5,7 @@ https://gymnasium.farama.org/tutorials/gymnasium_basics/environment_creation
 
 import logging
 from copy import deepcopy
+from collections import defaultdict
 from dataclasses import dataclass
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
