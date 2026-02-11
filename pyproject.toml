@@ -33,12 +33,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-vis = [
-  "geopandas",
-  "contextily",
-]
 rl = [
-  "stable-baselines3",
+  "stable-baselines3[extra]",
   "gymnasium",
 ]
 
