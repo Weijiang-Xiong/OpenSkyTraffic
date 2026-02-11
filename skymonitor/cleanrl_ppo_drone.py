@@ -9,6 +9,7 @@ import logging
 import random
 import time
 from collections import defaultdict
+from functools import partial
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -18,7 +19,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from gymnasium import spaces
-from gymnasium.spaces.utils import flatdim
 from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
 
@@ -26,9 +26,12 @@ from skytraffic.utils.event_logger import setup_logger
 from skytraffic.utils.io import make_dir_if_not_exist
 from skymonitor.agents import BaseAgent
 from skymonitor.monitor_env import MapStructure, TrafficMonitorEnv, build_traffic_monitor_env, eval_on_all_sessions
+from skymonitor.policy_net import GraphFeatureExtractor, GridCNNFeatureExtractor, SimpleFeatureExtractor
 from skymonitor.simbarca_explore import initialize_dataset
 
 POSITION_KEYS = {'positions_x', 'positions_y'}
+SB3_ROLLOUT_STEPS = 2048
+SB3_MINIBATCH_TARGET = 128
 
 
 def parse_args():
@@ -37,20 +40,32 @@ def parse_args():
 	parser.add_argument('--policy-type', type=str, default='simple', choices=['simple', 'graph', 'grid'])
 	parser.add_argument('--train-timesteps', type=int, default=int(1e6), help='Total environment steps for training.')
 	parser.add_argument('--num-envs', type=int, default=8, help='Number of parallel environments.')
-	parser.add_argument('--num-steps', type=int, default=128, help='Rollout length per environment.')
-	parser.add_argument('--num-minibatches', type=int, default=4, help='Number of minibatches per PPO epoch.')
-	parser.add_argument('--update-epochs', type=int, default=4, help='Number of PPO epochs per update.')
+	parser.add_argument(
+		'--num-steps',
+		type=int,
+		default=0,
+		help='Rollout length per environment. Set <=0 to use SB3 parity default max(32, 2048 // num_envs).',
+	)
+	parser.add_argument(
+		'--num-minibatches',
+		type=int,
+		default=0,
+		help='Number of minibatches per PPO epoch. Set <=0 to auto-resolve near minibatch size 128.',
+	)
+	parser.add_argument('--update-epochs', type=int, default=10, help='Number of PPO epochs per update.')
 	parser.add_argument('--num-drones', type=int, default=10, help='Number of drones.')
 	parser.add_argument('--learning-rate', type=float, default=1e-4, help='Learning rate.')
 	parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor.')
 	parser.add_argument('--gae-lambda', type=float, default=0.95, help='GAE lambda.')
 	parser.add_argument('--clip-coef', type=float, default=0.2, help='PPO clip coefficient.')
-	parser.add_argument('--clip-vloss', action=argparse.BooleanOptionalAction, default=True, help='Enable clipped value loss.')
-	parser.add_argument('--ent-coef', type=float, default=0.01, help='Entropy coefficient.')
+	parser.add_argument('--clip-vloss', action=argparse.BooleanOptionalAction, default=False, help='Enable clipped value loss.')
+	parser.add_argument('--ent-coef', type=float, default=0.0, help='Entropy coefficient.')
 	parser.add_argument('--vf-coef', type=float, default=0.5, help='Value loss coefficient.')
 	parser.add_argument('--max-grad-norm', type=float, default=0.5, help='Gradient clipping norm.')
 	parser.add_argument('--target-kl', type=float, default=None, help='Early stop update if approx KL exceeds this.')
-	parser.add_argument('--anneal-lr', action=argparse.BooleanOptionalAction, default=True, help='Use linear LR annealing.')
+	parser.add_argument('--anneal-lr', action=argparse.BooleanOptionalAction, default=False, help='Use linear LR annealing.')
+	parser.add_argument('--reward-norm', action=argparse.BooleanOptionalAction, default=True, help='Enable SB3-style reward normalization.')
+	parser.add_argument('--clip-reward', type=float, default=10.0, help='Clip normalized rewards to [-clip_reward, clip_reward].')
 	parser.add_argument('--norm-adv', action=argparse.BooleanOptionalAction, default=True, help='Normalize advantages.')
 	parser.add_argument('--norm-obs', action=argparse.BooleanOptionalAction, default=True, help='Normalize observations in environment.')
 	parser.add_argument('--eval-freq', type=int, default=int(1e4), help='Eval frequency, every eval_freq * num_envs environment steps.')
@@ -104,234 +119,6 @@ def zeros_like_obs_buffer(
 	return buffers
 
 
-def flatten_obs_batch(obs_batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-	chunks = []
-	for key in sorted(obs_batch.keys()):
-		value = obs_batch[key]
-		if key in POSITION_KEYS:
-			value = value.float()
-		chunks.append(value.reshape(value.shape[0], -1))
-	return torch.cat(chunks, dim=1)
-
-
-class SimpleDroneEncoder(nn.Module):
-	def __init__(self, observation_space: spaces.Dict, hidden_dim: int = 256):
-		super().__init__()
-		base_dim = max(16, hidden_dim // 8)
-		time_dim = max(8, hidden_dim // 32)
-		pos_emb_dim = max(8, hidden_dim // 32)
-
-		flow_in = int(flatdim(observation_space['flow']))
-		density_in = int(flatdim(observation_space['density']))
-		time_in = int(flatdim(observation_space['time_in_day']))
-		coverage_in = int(flatdim(observation_space['coverage_mask']))
-
-		num_x = int(observation_space['positions_x'].nvec.max())
-		num_y = int(observation_space['positions_y'].nvec.max())
-
-		self.flow_encoder = layer_init(nn.Linear(flow_in, base_dim))
-		self.density_encoder = layer_init(nn.Linear(density_in, base_dim))
-		self.time_encoder = layer_init(nn.Linear(time_in, time_dim))
-		self.coverage_encoder = layer_init(nn.Linear(coverage_in, base_dim))
-		self.x_embed = nn.Embedding(num_x, pos_emb_dim)
-		self.y_embed = nn.Embedding(num_y, pos_emb_dim)
-
-		self.ha_flow_encoder = None
-		self.ha_density_encoder = None
-		self.ha_flow_std_encoder = None
-		self.ha_density_std_encoder = None
-		extra_dim = 0
-		if 'ha_flow' in observation_space.spaces:
-			ha_flow_in = int(flatdim(observation_space['ha_flow']))
-			self.ha_flow_encoder = layer_init(nn.Linear(ha_flow_in, base_dim))
-			extra_dim += base_dim
-		if 'ha_density' in observation_space.spaces:
-			ha_density_in = int(flatdim(observation_space['ha_density']))
-			self.ha_density_encoder = layer_init(nn.Linear(ha_density_in, base_dim))
-			extra_dim += base_dim
-		if 'ha_flow_std' in observation_space.spaces:
-			ha_flow_std_in = int(flatdim(observation_space['ha_flow_std']))
-			self.ha_flow_std_encoder = layer_init(nn.Linear(ha_flow_std_in, base_dim))
-			extra_dim += base_dim
-		if 'ha_density_std' in observation_space.spaces:
-			ha_density_std_in = int(flatdim(observation_space['ha_density_std']))
-			self.ha_density_std_encoder = layer_init(nn.Linear(ha_density_std_in, base_dim))
-			extra_dim += base_dim
-
-		concat_dim = (base_dim * 3) + time_dim + (2 * pos_emb_dim) + extra_dim
-		self.proj = layer_init(nn.Linear(concat_dim, hidden_dim))
-		self.out_dim = hidden_dim
-
-	def forward(self, observations: Dict[str, torch.Tensor]) -> torch.Tensor:
-		flow = observations['flow'].float().flatten(start_dim=1)
-		density = observations['density'].float().flatten(start_dim=1)
-		time_in_day = observations['time_in_day'].float().flatten(start_dim=1)
-		coverage = observations['coverage_mask'].float().flatten(start_dim=1)
-
-		flow_feat = torch.relu(self.flow_encoder(flow))
-		density_feat = torch.relu(self.density_encoder(density))
-		time_feat = torch.relu(self.time_encoder(time_in_day))
-		coverage_feat = torch.relu(self.coverage_encoder(coverage))
-
-		pos_x = observations['positions_x'].long()
-		pos_y = observations['positions_y'].long()
-		pos_x_emb = self.x_embed(pos_x).mean(dim=1)
-		pos_y_emb = self.y_embed(pos_y).mean(dim=1)
-
-		features = [flow_feat, density_feat, time_feat, coverage_feat, pos_x_emb, pos_y_emb]
-		if self.ha_flow_encoder is not None:
-			features.append(torch.relu(self.ha_flow_encoder(observations['ha_flow'].float().flatten(start_dim=1))))
-		if self.ha_density_encoder is not None:
-			features.append(torch.relu(self.ha_density_encoder(observations['ha_density'].float().flatten(start_dim=1))))
-		if self.ha_flow_std_encoder is not None:
-			features.append(torch.relu(self.ha_flow_std_encoder(observations['ha_flow_std'].float().flatten(start_dim=1))))
-		if self.ha_density_std_encoder is not None:
-			features.append(torch.relu(self.ha_density_std_encoder(observations['ha_density_std'].float().flatten(start_dim=1))))
-
-		return torch.relu(self.proj(torch.cat(features, dim=1)))
-
-
-class GraphDroneEncoder(nn.Module):
-	def __init__(self, observation_space: spaces.Dict, map_structure: MapStructure, hidden_dim: int = 256):
-		super().__init__()
-		if map_structure is None:
-			raise ValueError('map_structure is required for graph policy.')
-
-		pos_emb_dim = max(8, hidden_dim // 32)
-		time_dim = max(8, hidden_dim // 32)
-		gnn_hidden_dim = hidden_dim
-
-		adj = torch.as_tensor(map_structure.adjacency_matrix, dtype=torch.float32)
-		adj = (adj > 0).float()
-		adj = adj + torch.eye(adj.shape[0], dtype=adj.dtype)
-		deg = adj.sum(dim=1, keepdim=True).clamp(min=1.0)
-		adj = adj / deg
-		self.register_buffer('adjacency', adj)
-
-		num_x = int(observation_space['positions_x'].nvec.max())
-		num_y = int(observation_space['positions_y'].nvec.max())
-		time_in = int(flatdim(observation_space['time_in_day']))
-
-		self.node_encoder_1 = layer_init(nn.Linear(3, gnn_hidden_dim))
-		self.node_encoder_2 = layer_init(nn.Linear(gnn_hidden_dim, gnn_hidden_dim))
-		self.time_encoder = layer_init(nn.Linear(time_in, time_dim))
-		self.x_embed = nn.Embedding(num_x, pos_emb_dim)
-		self.y_embed = nn.Embedding(num_y, pos_emb_dim)
-		self.proj = layer_init(nn.Linear(gnn_hidden_dim + time_dim + 2 * pos_emb_dim, hidden_dim))
-		self.out_dim = hidden_dim
-
-	def forward(self, observations: Dict[str, torch.Tensor]) -> torch.Tensor:
-		flow = observations['flow'].float()
-		density = observations['density'].float()
-		coverage = observations['coverage_mask'].float()
-		node_features = torch.stack([flow, density, coverage], dim=-1)
-
-		node_hidden = torch.relu(self.node_encoder_1(node_features))
-		node_hidden = torch.einsum('ij,bjk->bik', self.adjacency, node_hidden)
-		node_hidden = torch.relu(self.node_encoder_2(node_hidden))
-		graph_feat = node_hidden.mean(dim=1)
-
-		time_feat = torch.relu(self.time_encoder(observations['time_in_day'].float().flatten(start_dim=1)))
-		pos_x = observations['positions_x'].long()
-		pos_y = observations['positions_y'].long()
-		pos_x_emb = self.x_embed(pos_x).mean(dim=1)
-		pos_y_emb = self.y_embed(pos_y).mean(dim=1)
-
-		aux = torch.cat([time_feat, pos_x_emb, pos_y_emb], dim=1)
-		return torch.relu(self.proj(torch.cat([graph_feat, aux], dim=1)))
-
-
-class GridDroneEncoder(nn.Module):
-	def __init__(self, observation_space: spaces.Dict, map_structure: MapStructure, hidden_dim: int = 256):
-		super().__init__()
-		if map_structure is None:
-			raise ValueError('map_structure is required for grid policy.')
-
-		grid_xy = torch.as_tensor(map_structure.grid_xy_of_nodes, dtype=torch.long)
-		grid_width = int(grid_xy[:, 0].max().item()) + 1
-		grid_height = int(grid_xy[:, 1].max().item()) + 1
-		num_cells = grid_width * grid_height
-
-		grid_index = grid_xy[:, 0] + (grid_xy[:, 1] * grid_width)
-		grid_counts = torch.zeros(num_cells, dtype=torch.float32)
-		grid_counts.scatter_add_(0, grid_index, torch.ones_like(grid_index, dtype=torch.float32))
-		grid_counts = torch.clamp(grid_counts, min=1.0)
-
-		grid_pos = torch.arange(num_cells, dtype=torch.long)
-		grid_x = grid_pos % grid_width
-		grid_y = grid_pos // grid_width
-
-		pos_emb_dim = max(8, hidden_dim // 16)
-		cnn_hidden_dim = hidden_dim
-		time_dim = max(8, hidden_dim // 32)
-		time_in = int(flatdim(observation_space['time_in_day']))
-
-		self.grid_width = grid_width
-		self.grid_height = grid_height
-		self.num_cells = num_cells
-
-		self.register_buffer('grid_index', grid_index)
-		self.register_buffer('grid_counts', grid_counts)
-		self.register_buffer('grid_x', grid_x)
-		self.register_buffer('grid_y', grid_y)
-
-		self.x_embed = nn.Embedding(self.grid_width, pos_emb_dim)
-		self.y_embed = nn.Embedding(self.grid_height, pos_emb_dim)
-
-		in_channels = 2 + (2 * pos_emb_dim)
-		self.cnn = nn.Sequential(
-			layer_init(nn.Conv2d(in_channels, cnn_hidden_dim, kernel_size=3, padding=1)),
-			nn.ReLU(),
-			layer_init(nn.Conv2d(cnn_hidden_dim, hidden_dim, kernel_size=3, padding=1)),
-			nn.ReLU(),
-		)
-		self.time_encoder = layer_init(nn.Linear(time_in, time_dim))
-		self.proj = layer_init(nn.Linear(hidden_dim + time_dim, hidden_dim))
-		self.out_dim = hidden_dim
-
-	def _grid_mean(self, values: torch.Tensor) -> torch.Tensor:
-		batch_size = values.shape[0]
-		idx = self.grid_index.unsqueeze(0).expand(batch_size, -1)
-		grid = torch.zeros(batch_size, self.num_cells, device=values.device, dtype=values.dtype)
-		grid.scatter_add_(1, idx, values)
-		return grid / self.grid_counts
-
-	def forward(self, observations: Dict[str, torch.Tensor]) -> torch.Tensor:
-		flow = observations['flow'].float()
-		density = observations['density'].float()
-		flow_grid = self._grid_mean(flow)
-		density_grid = self._grid_mean(density)
-
-		grid = torch.stack([flow_grid, density_grid], dim=1)
-		grid = grid.reshape(flow.shape[0], 2, self.grid_height, self.grid_width)
-
-		pos_emb = torch.cat([self.x_embed(self.grid_x), self.y_embed(self.grid_y)], dim=1)
-		pos_emb = pos_emb.view(self.grid_height, self.grid_width, -1).permute(2, 0, 1).unsqueeze(0)
-		pos_emb = pos_emb.expand(flow.shape[0], -1, -1, -1)
-
-		features = torch.cat([grid, pos_emb], dim=1)
-		cnn_feat = self.cnn(features).mean(dim=(2, 3))
-		time_feat = torch.relu(self.time_encoder(observations['time_in_day'].float().flatten(start_dim=1)))
-		return torch.relu(self.proj(torch.cat([cnn_feat, time_feat], dim=1)))
-
-
-class FlatDroneEncoder(nn.Module):
-	def __init__(self, observation_space: spaces.Dict, hidden_dim: int = 256):
-		super().__init__()
-		flat_dim = int(sum(flatdim(space) for _, space in sorted(observation_space.spaces.items())))
-		self.encoder = nn.Sequential(
-			layer_init(nn.Linear(flat_dim, hidden_dim)),
-			nn.ReLU(),
-			layer_init(nn.Linear(hidden_dim, hidden_dim)),
-			nn.ReLU(),
-		)
-		self.out_dim = hidden_dim
-
-	def forward(self, observations: Dict[str, torch.Tensor]) -> torch.Tensor:
-		flat_obs = flatten_obs_batch(observations)
-		return self.encoder(flat_obs)
-
-
 def build_encoder(
 	observation_space: spaces.Dict,
 	policy_type: str,
@@ -339,15 +126,104 @@ def build_encoder(
 	hidden_dim: int,
 ) -> nn.Module:
 	if policy_type == 'simple':
-		return SimpleDroneEncoder(observation_space, hidden_dim=hidden_dim)
+		return SimpleFeatureExtractor(observation_space=observation_space, hidden_dim=hidden_dim)
 	if policy_type == 'graph':
-		return GraphDroneEncoder(observation_space, map_structure=map_structure, hidden_dim=hidden_dim)
+		if map_structure is None:
+			raise ValueError('map_structure is required for graph policy.')
+		return GraphFeatureExtractor(
+			observation_space=observation_space,
+			adjacency_matrix=map_structure.adjacency_matrix,
+			hidden_dim=hidden_dim,
+			gnn_hidden_dim=hidden_dim,
+		)
 	if policy_type == 'grid':
-		return GridDroneEncoder(observation_space, map_structure=map_structure, hidden_dim=hidden_dim)
-	return FlatDroneEncoder(observation_space, hidden_dim=hidden_dim)
+		if map_structure is None:
+			raise ValueError('map_structure is required for grid policy.')
+		return GridCNNFeatureExtractor(
+			observation_space=observation_space,
+			map_structure=map_structure,
+			hidden_dim=hidden_dim,
+		)
+	raise ValueError(f'Unsupported policy_type: {policy_type}')
+
+
+class RunningMeanStd:
+	def __init__(self, epsilon: float = 1e-4):
+		self.mean = np.float64(0.0)
+		self.var = np.float64(1.0)
+		self.count = float(epsilon)
+
+	def update(self, values: np.ndarray) -> None:
+		values = np.asarray(values, dtype=np.float64)
+		if values.size == 0:
+			return
+		batch_mean = float(values.mean())
+		batch_var = float(values.var())
+		batch_count = int(values.shape[0])
+		self._update_from_moments(batch_mean, batch_var, batch_count)
+
+	def _update_from_moments(self, batch_mean: float, batch_var: float, batch_count: int) -> None:
+		delta = batch_mean - self.mean
+		total_count = self.count + batch_count
+		new_mean = self.mean + delta * batch_count / total_count
+		m_a = self.var * self.count
+		m_b = batch_var * batch_count
+		m2 = m_a + m_b + (delta ** 2) * self.count * batch_count / total_count
+		self.mean = new_mean
+		self.var = m2 / total_count
+		self.count = total_count
+
+
+class RewardNormalizer:
+	def __init__(
+		self,
+		num_envs: int,
+		gamma: float = 0.99,
+		clip_reward: float = 10.0,
+		epsilon: float = 1e-8,
+	):
+		self.returns = np.zeros(num_envs, dtype=np.float64)
+		self.gamma = float(gamma)
+		self.clip_reward = float(clip_reward)
+		self.epsilon = float(epsilon)
+		self.ret_rms = RunningMeanStd()
+
+	def normalize(self, rewards: np.ndarray, dones: np.ndarray) -> np.ndarray:
+		rewards = np.asarray(rewards, dtype=np.float64)
+		dones = np.asarray(dones, dtype=bool)
+		self.returns = self.returns * self.gamma + rewards
+		self.ret_rms.update(self.returns)
+		rewards = rewards / np.sqrt(self.ret_rms.var + self.epsilon)
+		rewards = np.clip(rewards, -self.clip_reward, self.clip_reward)
+		self.returns[dones] = 0.0
+		return rewards.astype(np.float32)
+
+
+def resolve_num_steps(num_envs: int, num_steps: int) -> int:
+	if num_steps > 0:
+		return int(num_steps)
+	return max(32, SB3_ROLLOUT_STEPS // max(1, num_envs))
+
+
+def resolve_num_minibatches(batch_size: int, num_minibatches: int, target_minibatch_size: int = SB3_MINIBATCH_TARGET) -> int:
+	if num_minibatches > 0:
+		if batch_size % num_minibatches != 0:
+			raise ValueError('batch_size must be divisible by num_minibatches.')
+		return int(num_minibatches)
+	divisors = [d for d in range(1, batch_size + 1) if batch_size % d == 0]
+	if not divisors:
+		raise ValueError(f'No valid divisor found for batch_size={batch_size}.')
+	return min(divisors, key=lambda d: (abs((batch_size // d) - target_minibatch_size), -d))
 
 
 class DronePPOAgent(nn.Module):
+	@staticmethod
+	def init_weights(module: nn.Module, gain: float = 1.0) -> None:
+		if isinstance(module, (nn.Linear, nn.Conv2d)):
+			nn.init.orthogonal_(module.weight, gain=gain)
+			if module.bias is not None:
+				nn.init.constant_(module.bias, 0.0)
+
 	def __init__(
 		self,
 		observation_space: spaces.Dict,
@@ -371,15 +247,17 @@ class DronePPOAgent(nn.Module):
 			map_structure=map_structure,
 			hidden_dim=hidden_dim,
 		)
+		self.encoder.apply(partial(self.init_weights, gain=np.sqrt(2)))
+		feature_dim = int(self.encoder.features_dim)
 
 		self.policy_net = nn.Sequential(
-			layer_init(nn.Linear(self.encoder.out_dim, policy_hidden_dim)),
+			layer_init(nn.Linear(feature_dim, policy_hidden_dim)),
 			nn.ReLU(),
 			layer_init(nn.Linear(policy_hidden_dim, policy_hidden_dim)),
 			nn.ReLU(),
 		)
 		self.value_net = nn.Sequential(
-			layer_init(nn.Linear(self.encoder.out_dim, value_hidden_dim)),
+			layer_init(nn.Linear(feature_dim, value_hidden_dim)),
 			nn.ReLU(),
 			layer_init(nn.Linear(value_hidden_dim, value_hidden_dim)),
 			nn.ReLU(),
@@ -433,7 +311,7 @@ class PolicyAgentCleanRL(BaseAgent):
 
 
 def make_env(trainset, num_drones, norm_obs, seed, rank, capture_video, run_name):
-	def thunk():
+	def init():
 		env = build_traffic_monitor_env(
 			trainset=trainset,
 			testset=None,
@@ -448,7 +326,7 @@ def make_env(trainset, num_drones, norm_obs, seed, rank, capture_video, run_name
 		env.reset(seed=seed + rank)
 		return env
 
-	return thunk
+	return init
 
 
 def periodic_evaluation(
@@ -520,13 +398,48 @@ def train(args, logger):
 
 	device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
 
+	args.num_steps = resolve_num_steps(num_envs=args.num_envs, num_steps=args.num_steps)
 	args.batch_size = int(args.num_envs * args.num_steps)
-	if args.batch_size % args.num_minibatches != 0:
-		raise ValueError('batch_size must be divisible by num_minibatches.')
+	args.num_minibatches = resolve_num_minibatches(
+		batch_size=args.batch_size,
+		num_minibatches=args.num_minibatches,
+		target_minibatch_size=SB3_MINIBATCH_TARGET,
+	)
 	args.minibatch_size = int(args.batch_size // args.num_minibatches)
 	args.num_iterations = int(args.train_timesteps // args.batch_size)
 	if args.num_iterations < 1:
 		raise ValueError('train-timesteps is too small for current num-envs and num-steps.')
+	logger.info(
+		'Resolved PPO hyperparameters: '
+		f'num_steps={args.num_steps}, '
+		f'batch_size={args.batch_size}, '
+		f'minibatch_size={args.minibatch_size}, '
+		f'num_minibatches={args.num_minibatches}, '
+		f'update_epochs={args.update_epochs}, '
+		f'anneal_lr={args.anneal_lr}, '
+		f'clip_vloss={args.clip_vloss}, '
+		f'ent_coef={args.ent_coef}, '
+		f'reward_norm={args.reward_norm}, '
+		f'clip_reward={args.clip_reward}'
+	)
+	writer.add_text(
+		'resolved_hyperparameters',
+		'|param|value|\n|-|-|\n%s'
+		% '\n'.join(
+			[
+				f'|num_steps|{args.num_steps}|',
+				f'|batch_size|{args.batch_size}|',
+				f'|minibatch_size|{args.minibatch_size}|',
+				f'|num_minibatches|{args.num_minibatches}|',
+				f'|update_epochs|{args.update_epochs}|',
+				f'|anneal_lr|{args.anneal_lr}|',
+				f'|clip_vloss|{args.clip_vloss}|',
+				f'|ent_coef|{args.ent_coef}|',
+				f'|reward_norm|{args.reward_norm}|',
+				f'|clip_reward|{args.clip_reward}|',
+			]
+		),
+	)
 
 	trainset, testset = initialize_dataset()
 	template_env: TrafficMonitorEnv = build_traffic_monitor_env(
@@ -574,8 +487,14 @@ def train(args, logger):
 	actions = torch.zeros((args.num_steps, args.num_envs, len(act_space.nvec)), dtype=torch.long, device=device)
 	logprobs = torch.zeros((args.num_steps, args.num_envs), dtype=torch.float32, device=device)
 	rewards = torch.zeros((args.num_steps, args.num_envs), dtype=torch.float32, device=device)
+	raw_rewards = torch.zeros((args.num_steps, args.num_envs), dtype=torch.float32, device=device)
 	dones = torch.zeros((args.num_steps, args.num_envs), dtype=torch.float32, device=device)
 	values = torch.zeros((args.num_steps, args.num_envs), dtype=torch.float32, device=device)
+	reward_normalizer = (
+		RewardNormalizer(num_envs=args.num_envs, gamma=args.gamma, clip_reward=args.clip_reward)
+		if args.reward_norm
+		else None
+	)
 
 	global_step = 0
 	start_time = time.time()
@@ -614,7 +533,13 @@ def train(args, logger):
 
 			next_obs_np, reward, terminations, truncations, infos = envs.step(action.cpu().numpy())
 			next_done_np = np.logical_or(terminations, truncations)
-			rewards[step] = torch.as_tensor(reward, device=device, dtype=torch.float32)
+			raw_reward_np = np.asarray(reward, dtype=np.float32)
+			raw_rewards[step] = torch.as_tensor(raw_reward_np, device=device, dtype=torch.float32)
+			if reward_normalizer is not None:
+				train_reward_np = reward_normalizer.normalize(raw_reward_np, next_done_np)
+			else:
+				train_reward_np = raw_reward_np
+			rewards[step] = torch.as_tensor(train_reward_np, device=device, dtype=torch.float32)
 			next_done = torch.as_tensor(next_done_np, device=device, dtype=torch.float32)
 			next_obs = to_torch_obs(next_obs_np, device=device)
 
@@ -724,6 +649,16 @@ def train(args, logger):
 		writer.add_scalar('losses/approx_kl', float(approx_kl.item()), global_step)
 		writer.add_scalar('losses/clipfrac', float(np.mean(clipfracs) if clipfracs else 0.0), global_step)
 		writer.add_scalar('losses/explained_variance', float(explained_var), global_step)
+		writer.add_scalar('charts/rollout_reward_raw_mean', float(raw_rewards.mean().item()), global_step)
+		writer.add_scalar('charts/rollout_reward_raw_std', float(raw_rewards.std().item()), global_step)
+		writer.add_scalar('charts/rollout_reward_train_mean', float(rewards.mean().item()), global_step)
+		writer.add_scalar('charts/rollout_reward_train_std', float(rewards.std().item()), global_step)
+		if reward_normalizer is not None:
+			writer.add_scalar(
+				'charts/reward_norm_rms_std',
+				float(np.sqrt(reward_normalizer.ret_rms.var + reward_normalizer.epsilon)),
+				global_step,
+			)
 		writer.add_scalar('charts/SPS', int(global_step / (time.time() - start_time)), global_step)
 
 	checkpoint_path = Path(args.logdir) / f'{args.save_name}.pt'
