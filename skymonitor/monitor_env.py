@@ -292,7 +292,7 @@ class TrafficMonitorEnv(gym.Env):
 			idx = int(idx)
 		except Exception as e:
 			raise ValueError(f"Active session should be an integer: {e}")
-		self._active_session = idx % self.total_steps
+		self._active_session = idx % self.total_sessions
 
 	def session_data_iterator(self):
 		for i in range(self.total_steps):
