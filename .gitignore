@@ -168,7 +168,7 @@ tests/*.pkl
 # intermediate files and datasets
 scratch
 results_backup*
-datasets/*
+datasets
 # visualization files
 figures
 
