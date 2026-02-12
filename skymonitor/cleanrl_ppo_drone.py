@@ -622,9 +622,9 @@ def train(args, logger):
 						args.clip_coef,
 					)
 					v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
-					v_loss = 0.5 * torch.max(v_loss_unclipped, v_loss_clipped).mean()
+					v_loss = torch.max(v_loss_unclipped, v_loss_clipped).mean()
 				else:
-					v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+					v_loss = ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
 				entropy_loss = entropy.mean()
 				loss = pg_loss - args.ent_coef * entropy_loss + args.vf_coef * v_loss
