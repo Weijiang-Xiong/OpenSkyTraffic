@@ -35,7 +35,7 @@ python scripts/train.py --config-file PATH/TO/CFG/FILE.py train.output_dir=scrat
 After training, the results can be visualized using the following command
 
 ```
-python scripts/train.py --eval-only --config-file scratch/SAVE_DIR/config.py evaluation.visualize=True
+python scripts/train.py --eval-only --config-file scratch/SAVE_DIR/config.yaml evaluation.visualize=True
 ```
 
 For a complete walk through of the training and visualization workflow, please look at the comments in the scripts.
