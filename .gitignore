@@ -161,13 +161,15 @@ cython_debug/
 
 # ignore the files and folders solely for development
 .vscode
-todo/*
 scripts/debug*.py
 tests/*.pkl
+# put two underscores to avoid git tracking
+__*
 
-# intermediate files and datasets
+# for intermediate output
 scratch
-results_backup*
+# inactive files
+storage
 datasets
 # visualization files
 figures
