@@ -167,12 +167,13 @@ tests/*.pkl
 __*
 
 # for intermediate output
-scratch
+/scratch
 # inactive files
-storage
-datasets
+/storage
+# dataset files
+/datasets
 # visualization files
-figures
+/figures
 
 # ignore claude user prompt
 CLAUDE.md
