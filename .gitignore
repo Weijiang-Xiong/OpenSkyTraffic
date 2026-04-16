@@ -161,10 +161,8 @@ cython_debug/
 
 # ignore the files and folders solely for development
 .vscode
-scripts/debug*.py
 tests/*.pkl
-# put two underscores to avoid git tracking
-__*
+
 
 # for intermediate output
 /scratch
@@ -174,6 +172,8 @@ __*
 /datasets
 # visualization files
 /figures
+# development only files 
+/dev
 
 # ignore claude user prompt
 CLAUDE.md
