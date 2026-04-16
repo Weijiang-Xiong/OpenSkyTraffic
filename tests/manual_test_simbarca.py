@@ -15,10 +15,9 @@ from skytraffic.data.datasets import SimBarcaMSMT
 from skytraffic.utils.event_logger import setup_logger
 logger = setup_logger(name="default", level=logging.INFO)
 
-def visualize_batch(data_dict, pred_dict=None, save_dir="./", batch_num=0, section_num=573, save_note="example"):
+def visualize_batch(data_dict, cluster_id, pred_dict=None, save_dir="./", batch_num=0, section_num=573, save_note="example"):
     # plot input and output 
     b, s = batch_num, section_num
-    cluster_id = data_dict['metadata']['cluster_id']
     drone_in = data_dict['drone_speed'].cpu().numpy()
     ld_in = data_dict['ld_speed'].cpu().numpy()
 
@@ -86,7 +85,7 @@ class TestSimBarca(unittest.TestCase):
         batch = test_set.collate_fn([test_set[0], test_set[1]])
         test_loader = DataLoader(test_set, batch_size=8, shuffle=False, collate_fn=test_set.collate_fn)
         for data_dict in test_loader:
-            visualize_batch(data_dict, save_note="test")
+            visualize_batch(data_dict, cluster_id=test_set.metadata["cluster_id"], save_note="test")
             break
 
         batch = test_set.collate_fn([test_set[450], test_set[450]])

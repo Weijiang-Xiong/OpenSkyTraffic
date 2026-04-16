@@ -8,6 +8,24 @@ from scipy.stats import norm
 from skytraffic.models import HiMSNet_GMM
 from skytraffic.models.layers import GMMPredictionHead, gaussian_density
 
+
+def make_simbarca_metadata(batch):
+    num_nodes = batch["drone_speed"].shape[2]
+    num_regions = batch["pred_speed_regional"].shape[2]
+    return {
+        "adjacency": torch.eye(num_nodes),
+        "cluster_id": torch.arange(num_nodes) % num_regions,
+        "mean_and_std": {
+            "drone_speed": (0.0, 1.0),
+            "ld_speed": (0.0, 1.0),
+            "pred_speed": (0.0, 1.0),
+            "pred_speed_regional": (0.0, 1.0),
+        },
+        "input_seqs": ["drone_speed", "ld_speed"],
+        "output_seqs": ["pred_speed", "pred_speed_regional"],
+    }
+
+
 class TestGMM(unittest.TestCase):
 
     def test_gaussian_density_against_scipy(self):
@@ -84,8 +102,8 @@ class TestGMM(unittest.TestCase):
             batch = pickle.load(f)
 
         model = HiMSNet_GMM(adjacency_hop=5)
+        model.adapt_to_metadata(make_simbarca_metadata(batch))
         model.train()
-        model.adapt_to_metadata(batch["metadata"]) # this should do nothing, as the metadata is already set 
 
         loss_dict = model(batch)
         # print(loss_dict.keys())

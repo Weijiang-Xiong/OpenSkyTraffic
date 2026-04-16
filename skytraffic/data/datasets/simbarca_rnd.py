@@ -260,6 +260,4 @@ class SimBarcaRandomObservation(SimBarcaMSMT):
                 [seq[attr].unsqueeze(0) for seq in list_of_seq], dim=0
             ).contiguous()
 
-        batch_data["metadata"] = self.metadata
-
         return batch_data
