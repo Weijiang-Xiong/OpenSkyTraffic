@@ -27,7 +27,6 @@ class GWNET_GMM(GWNET):
         feature_dim: int = 2,
         output_dim: int = 1,
         loss_ignore_value: float = float("nan"),
-        norm_label_for_loss: bool = True,
         # GMM-specific parameters
         anchors: List[float] = [-2.0, -1.0, 0.0, 1.0, 2.0],
         sizes: List[float] = [1.0, 1.0, 1.0, 1.0, 1.0],
@@ -58,7 +57,6 @@ class GWNET_GMM(GWNET):
             feature_dim=feature_dim,
             output_dim=output_dim,
             loss_ignore_value=loss_ignore_value,
-            norm_label_for_loss=norm_label_for_loss,
             input_steps=input_steps,
             pred_steps=pred_steps,
             num_nodes=num_nodes,

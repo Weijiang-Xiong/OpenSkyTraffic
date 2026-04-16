@@ -47,7 +47,6 @@ model = L(STAEformer)(
     add_time_in_day=True,
     add_day_in_week=False,
     loss_ignore_value = float("nan"),
-    norm_label_for_loss=True,
     # arguments related to dataset
     input_steps=MetrDataset.input_steps,
     pred_steps=MetrDataset.pred_steps,

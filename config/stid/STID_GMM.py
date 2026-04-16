@@ -25,7 +25,6 @@ model = L(STID_GMM)(
     feature_dim=2,
     output_dim=1,
     loss_ignore_value = float("nan"),
-    norm_label_for_loss=True,
     # GMM-specific parameters
     anchors=[-2.0, -1.0, 0.0, 1.0, 2.0],
     sizes=[1.0, 1.0, 1.0, 1.0, 1.0],

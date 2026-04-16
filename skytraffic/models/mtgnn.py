@@ -358,7 +358,6 @@ class MTGNN(BaseModel):
         feature_dim: int = 2,
         output_dim: int = 1,
         loss_ignore_value: float = float("nan"),
-        norm_label_for_loss: bool = True,
         # BaseModel parameters
         input_steps: int = 12,
         pred_steps: int = 12,
@@ -390,7 +389,6 @@ class MTGNN(BaseModel):
         self.feature_dim = feature_dim
         self.output_dim = output_dim
         self.loss_ignore_value = loss_ignore_value
-        self.norm_label_for_loss = norm_label_for_loss
 
         self._logger = getLogger()
         
@@ -553,21 +551,13 @@ class MTGNN(BaseModel):
 
         # normalize the data
         source = self.datascaler.transform(source)
-        if self.norm_label_for_loss:
-            target = self.datascaler.transform(target, datadim_only=False)
+        target = self.datascaler.transform(target, datadim_only=False)
 
         return source, target
 
     def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> Dict[str, torch.Tensor]:
-        # compute loss at original data scale
         pred = self.make_predictions(source)
-        # when label is scaled, we directly train the model to predict the scaled label
-        # otherwise, we scale back the prediction and then compute the loss
-        if self.norm_label_for_loss:
-            loss_val = masked_mae(pred, target, null_val=self.loss_ignore_value)
-        else:
-            pred = self.datascaler.inverse_transform(pred)
-            loss_val = masked_mae(pred, target, null_val=self.data_null_value)
+        loss_val = masked_mae(pred, target, null_val=self.loss_ignore_value)
         return {"loss": loss_val}
 
     def inference(self, source: torch.Tensor) -> Dict[str, torch.Tensor]:

@@ -25,7 +25,6 @@ class STAEformer_GMM(STAEformer):
         add_time_in_day: bool = True,
         add_day_in_week: bool = False,
         loss_ignore_value: float = float("nan"),
-        norm_label_for_loss: bool = True,
         # GMM-specific parameters
         anchors: List[float] = [-2.0, -1.0, 0.0, 1.0, 2.0],
         sizes: List[float] = [1.0, 1.0, 1.0, 1.0, 1.0],
@@ -55,7 +54,6 @@ class STAEformer_GMM(STAEformer):
             add_time_in_day=add_time_in_day,
             add_day_in_week=add_day_in_week,
             loss_ignore_value=loss_ignore_value,
-            norm_label_for_loss=norm_label_for_loss,
             input_steps=input_steps,
             pred_steps=pred_steps,
             num_nodes=num_nodes,

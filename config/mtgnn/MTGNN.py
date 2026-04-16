@@ -51,7 +51,6 @@ model = L(MTGNN)(
     feature_dim=2,
     output_dim=1,
     loss_ignore_value = float("nan"),
-    norm_label_for_loss=True,
     # arguments related to dataset
     input_steps=MetrDataset.input_steps,
     pred_steps=MetrDataset.pred_steps,

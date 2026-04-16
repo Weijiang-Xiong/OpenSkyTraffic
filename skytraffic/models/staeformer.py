@@ -138,7 +138,6 @@ class STAEformer(BaseModel):
         add_time_in_day: bool = True,
         add_day_in_week: bool = False,
         loss_ignore_value: float = float("nan"),
-        norm_label_for_loss: bool = True,
         # BaseModel parameters
         input_steps: int = 12,
         pred_steps: int = 12,
@@ -172,7 +171,6 @@ class STAEformer(BaseModel):
         self.add_time_in_day = add_time_in_day
         self.add_day_in_week = add_day_in_week
         self.loss_ignore_value = loss_ignore_value
-        self.norm_label_for_loss = norm_label_for_loss
 
         # Initialize scaler from metadata if available
         if metadata is not None:
@@ -300,21 +298,13 @@ class STAEformer(BaseModel):
 
         # normalize the data
         source = self.datascaler.transform(source)
-        if self.norm_label_for_loss:
-            target = self.datascaler.transform(target, datadim_only=False)
+        target = self.datascaler.transform(target, datadim_only=False)
 
         return source, target
 
     def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> Dict[str, torch.Tensor]:
-        # compute loss at original data scale
         pred = self.make_predictions(source)
-        # when label is scaled, we directly train the model to predict the scaled label
-        # otherwise, we scale back the prediction and then compute the loss
-        if self.norm_label_for_loss:
-            loss_val = masked_mae(pred, target, null_val=self.loss_ignore_value)
-        else:
-            pred = self.datascaler.inverse_transform(pred)
-            loss_val = masked_mae(pred, target, null_val=self.data_null_value)
+        loss_val = masked_mae(pred, target, null_val=self.loss_ignore_value)
         return {"loss": loss_val}
 
     def inference(self, source: torch.Tensor) -> Dict[str, torch.Tensor]:

@@ -37,7 +37,6 @@ model = L(LSTMGCNConv)(
     adjacency_hop=1,
     dropout=0.1,
     loss_ignore_value = float("nan"),
-    norm_label_for_loss=True,
     # arguments related to dataset
     input_steps=MetrDataset.input_steps,
     pred_steps=MetrDataset.pred_steps,
