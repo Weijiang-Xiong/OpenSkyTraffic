@@ -26,8 +26,6 @@ class PatchedMVLSTMGCNConv(BaseModel):
         layernorm=True,
         adjacency_hop: int = 1,
         dropout: float = 0.1,
-        loss_ignore_value = float("nan"),
-        norm_label_for_loss: bool = True,
         # arguments related to dataset
         input_steps: int = 10,
         pred_steps: int = 10,
@@ -44,15 +42,12 @@ class PatchedMVLSTMGCNConv(BaseModel):
             layernorm: whether to use layer normalization after GNN layer
             adjacency_hop: the number of hops to compute the adjacency matrix
             invalid_value: the invalid value in the label, will be replaced with NaN in order to be ignored in loss computation
-            norm_label_for_loss: whether to compute the loss after the Z-normalization of label
             temporal_patching (int, default to None): down-sample the temporal dimension by this factor using a convolution layer.
             masked_value_embedding: will use the customized ValueEmbedding for the input data if True, otherwise a simple linear transformation.
         """
         super().__init__(input_steps=input_steps, pred_steps=pred_steps, num_nodes=num_nodes, data_null_value=data_null_value, metadata=metadata)
         self.use_global = use_global
-        self.loss_ignore_value = loss_ignore_value
         self.adjacency_hop = adjacency_hop
-        self.norm_label_for_loss = norm_label_for_loss
         self.temp_patching = temp_patching
         self.edge_index: torch.Tensor
         self.pred_feat = pred_feat
@@ -106,12 +101,11 @@ class PatchedMVLSTMGCNConv(BaseModel):
         if target is not None:
             target = target.to(self.device)
             # replace the label values with nan, so that they will be ignored in the loss after normalization
-            if np.isnan(self.data_null_value):
-                target[target.isnan()] = self.loss_ignore_value
+            if not np.isfinite(self.data_null_value):
+                target[target.isnan()] = float("nan")
             else:
-                target[target == self.data_null_value] = self.loss_ignore_value
-            if self.norm_label_for_loss:
-                target = self.out_datascaler.transform(target, datadim_only=False)
+                target[target == self.data_null_value] = float("nan")
+            target = self.out_datascaler.transform(target, datadim_only=False)
         
         return source, target
 
@@ -121,12 +115,7 @@ class PatchedMVLSTMGCNConv(BaseModel):
 
     def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         pred_res = self.make_prediction(source)
-        # when label is normalized, we directly train the model to predict the normalized label
-        # otherwise, we scale back the prediction and then compute the loss
-        if not self.norm_label_for_loss:
-            pred_res = self.post_process(pred_res)
-        
-        loss = self.loss(pred_res['pred'], target, null_val=self.loss_ignore_value)
+        loss = self.loss(pred_res['pred'], target, null_val=float("nan"))
 
         return {"loss": loss}
 

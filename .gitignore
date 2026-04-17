@@ -161,16 +161,19 @@ cython_debug/
 
 # ignore the files and folders solely for development
 .vscode
-todo/*
-scripts/debug*.py
 tests/*.pkl
 
-# intermediate files and datasets
-scratch
-results_backup*
-datasets/*
+
+# for intermediate output
+/scratch
+# inactive files
+/storage
+# dataset files
+/datasets
 # visualization files
-figures
+/figures
+# development only files 
+/dev
 
 # ignore claude user prompt
 CLAUDE.md

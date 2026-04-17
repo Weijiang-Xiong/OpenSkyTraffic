@@ -19,7 +19,8 @@ from skytraffic.data.datasets import SimBarcaSpeed
 
 dataset.train.input_nan_to_global_avg = False
 train.output_dir = "scratch/simbarcaspd_lgc"
-model.num_nodes = SimBarcaSpeed.num_nodes
-model.input_steps = SimBarcaSpeed.input_steps
-model.pred_steps = SimBarcaSpeed.pred_steps
+model.model.num_nodes = SimBarcaSpeed.num_nodes
+model.model.input_steps = SimBarcaSpeed.input_steps
+model.model.pred_steps = SimBarcaSpeed.pred_steps
+model.model.assume_clean_input = False
 model.data_null_value = SimBarcaSpeed.data_null_value

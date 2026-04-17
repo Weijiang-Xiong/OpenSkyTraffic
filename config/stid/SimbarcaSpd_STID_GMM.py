@@ -11,7 +11,7 @@ from ..common.evaluation import simbarca_speed_gmm_evaluator as evaluator
 
 dataset.train.input_nan_to_global_avg = True
 train.output_dir = "scratch/simbarcaspd_stid_gmm"
-model.num_nodes = SimBarcaSpeed.num_nodes
-model.input_steps = SimBarcaSpeed.input_steps
-model.pred_steps = SimBarcaSpeed.pred_steps
+model.model.num_nodes = SimBarcaSpeed.num_nodes
+model.model.input_steps = SimBarcaSpeed.input_steps
+model.model.pred_steps = SimBarcaSpeed.pred_steps
 model.data_null_value = SimBarcaSpeed.data_null_value 

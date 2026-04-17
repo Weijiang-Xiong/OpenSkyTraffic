@@ -14,4 +14,4 @@ from ..common.data import pemsbay as dataset
 from skytraffic.data.datasets import PEMSBayDataset
 
 train.output_dir = "scratch/pemsbay_lgc"
-model.num_nodes = PEMSBayDataset.num_nodes
+model.model.num_nodes = PEMSBayDataset.num_nodes

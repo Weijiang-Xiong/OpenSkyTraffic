@@ -19,20 +19,18 @@ def save_res_to_dir(save_dir, res, save_note="default"):
         json.dump(res, f, indent=4)
 
 
-def invalid_to_nan(x, null_value=-1.0):
-    return x.where(x != null_value, torch.nan)
-
 def nan_to_global_avg(x):
     return torch.nan_to_num(x, nan=torch.nanmean(x))
 
 class InputAverageModel(nn.Module):
     
-    def __init__(self, seq_name):
+    def __init__(self, seq_name, cluster_id):
         super().__init__()
         self.seq_name = seq_name
+        self.cluster_id = torch.as_tensor(cluster_id)
         
     def forward(self, data_dict):
-        cluster_id = torch.as_tensor(data_dict["metadata"]["cluster_id"])
+        cluster_id = self.cluster_id.to(data_dict[self.seq_name].device)
         data_seq = data_dict[self.seq_name][..., 0]
         
         pred_speed = torch.nanmean(data_seq, dim=1, keepdim=True).tile(1, 10, 1)
@@ -50,12 +48,13 @@ class InputAverageModel(nn.Module):
 
 class LastObservedModel(nn.Module):
     
-    def __init__(self, seq_name):
+    def __init__(self, seq_name, cluster_id):
         super().__init__()
         self.seq_name = seq_name
+        self.cluster_id = torch.as_tensor(cluster_id)
     
     def forward(self, data_dict):
-        cluster_id = torch.as_tensor(data_dict["metadata"]["cluster_id"])
+        cluster_id = self.cluster_id.to(data_dict[self.seq_name].device)
         data_seq = data_dict[self.seq_name][..., 0]
         
         # https://github.com/pandas-dev/pandas/blob/d9cdd2ee5a58015ef6f4d15c7226110c9aab8140/pandas/core/missing.py#L224
@@ -117,12 +116,13 @@ class HistoricalAverageModel(nn.Module):
 def evaluate_trivial_models(data_loader, ignore_value=np.nan, save_dir="/scratch"):
     logger = logging.getLogger("default")
     make_dir_if_not_exist(save_dir)
+    cluster_id = data_loader.dataset.metadata["cluster_id"]
     
     for model_class in [InputAverageModel, LastObservedModel]:
         for mode in ["ld_speed", "drone_speed"]:
             logger.info("Evaluating trivial models {} {}".format(model_class.__name__, mode))
             evaluator = SimBarcaEvaluator(ignore_value=ignore_value, save_dir=save_dir)
-            res = evaluator.evaluate(model_class(mode), data_loader, verbose=True, visualize=True)
+            res = evaluator.evaluate(model_class(mode, cluster_id), data_loader, verbose=True, visualize=True)
 
     # historical average
     logger.info("Evaluating trivial models historical_avg")

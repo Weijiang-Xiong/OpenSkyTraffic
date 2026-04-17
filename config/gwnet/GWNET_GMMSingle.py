@@ -8,5 +8,5 @@ from .GWNET_GMM import model
 # Override train settings
 train.output_dir = "scratch/metr_gwnet_gmm_single"
 
-model.anchors = [0.0]
-model.sizes = [3.0] 
+model.model.anchors = [0.0]
+model.model.sizes = [3.0] 

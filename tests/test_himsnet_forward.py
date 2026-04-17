@@ -4,6 +4,24 @@ import torch
 from skytraffic.models import HiMSNet
 from skytraffic.models.layers import ValueEmbedding
 
+
+def make_simbarca_metadata(batch):
+    num_nodes = batch["drone_speed"].shape[2]
+    num_regions = batch["pred_speed_regional"].shape[2]
+    return {
+        "adjacency": torch.eye(num_nodes),
+        "cluster_id": torch.arange(num_nodes) % num_regions,
+        "mean_and_std": {
+            "drone_speed": (0.0, 1.0),
+            "ld_speed": (0.0, 1.0),
+            "pred_speed": (0.0, 1.0),
+            "pred_speed_regional": (0.0, 1.0),
+        },
+        "input_seqs": ["drone_speed", "ld_speed"],
+        "output_seqs": ["pred_speed", "pred_speed_regional"],
+    }
+
+
 class TestHimsNetForward(unittest.TestCase):
     
     def test_value_embedding(self):
@@ -33,10 +51,12 @@ class TestHimsNetForward(unittest.TestCase):
     def test_forward(self):
         with open("tests/simbarca_batch.pkl", "rb") as f:
             batch = pickle.load(f)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        model = HiMSNet(adjacency_hop=5, tf_glb=True).cuda()
+        model = HiMSNet(adjacency_hop=5, tf_glb=True)
+        model.adapt_to_metadata(make_simbarca_metadata(batch))
+        model = model.to(device)
         model.train()
-        model.adapt_to_metadata(batch["metadata"])
         loss_dict = model(batch)
         print(loss_dict.keys())
         loss = sum(loss_dict.values())
@@ -48,15 +68,15 @@ class TestHimsNetForward(unittest.TestCase):
         self.assertTrue("pred_speed_regional" in res.keys())
         
     def test_state_dict(self):
-        
-        model = HiMSNet().cuda()
-        adjacency = torch.randint(low=0, high=2, size=(1570, 1570)).cuda()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = HiMSNet()
+        adjacency = torch.randint(low=0, high=2, size=(1570, 1570))
         edge_index = adjacency.nonzero().t().contiguous()
         metadata = {
             "adjacency": adjacency,
             "edge_index": edge_index,
-            "cluster_id": torch.randint(low=0, high=4, size=(1570,)).cuda(),
-            "grid_id": torch.randint(low=0, high=150, size=(1570,)).cuda(),
+            "cluster_id": torch.randint(low=0, high=4, size=(1570,)),
+            "grid_id": torch.randint(low=0, high=150, size=(1570,)),
             "mean_and_std": {
                 "drone_speed": (0.0, 1.0),
                 "ld_speed": (0.0, 1.0),
@@ -67,6 +87,7 @@ class TestHimsNetForward(unittest.TestCase):
             "output_seqs": ["pred_speed", "pred_speed_regional"],
         }
         model.adapt_to_metadata(metadata)
+        model = model.to(device)
         
         state_dict = model.state_dict()
         model.load_state_dict(state_dict)

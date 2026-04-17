@@ -54,7 +54,7 @@ class HiMSNet(nn.Module):
         self.tf_glb = tf_glb
         self.global_downsample_factor = global_downsample_factor
         
-        self.ignore_value = -1.0
+        self.ignore_value = float("nan")
         self.edge_index: torch.Tensor = None
         self.cluster_id: torch.Tensor = None
         self.data_scalers: Dict[str, TensorDataScaler] = None
@@ -168,8 +168,8 @@ class HiMSNet(nn.Module):
             source["ld_speed"] = source["ld_speed"].nan_to_num(nan=self.data_scalers['ld_speed'].mean)
 
         target = {
-            "pred_speed": data["pred_speed"].nan_to_num(nan=self.ignore_value).to(self.device),
-            "pred_speed_regional": data["pred_speed_regional"].nan_to_num(nan=self.ignore_value).to(self.device),
+            "pred_speed": data["pred_speed"].to(self.device),
+            "pred_speed_regional": data["pred_speed_regional"].to(self.device),
         }
         
         return source, target
