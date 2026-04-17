@@ -19,9 +19,6 @@ def save_res_to_dir(save_dir, res, save_note="default"):
         json.dump(res, f, indent=4)
 
 
-def invalid_to_nan(x, null_value=-1.0):
-    return x.where(x != null_value, torch.nan)
-
 def nan_to_global_avg(x):
     return torch.nan_to_num(x, nan=torch.nanmean(x))
 

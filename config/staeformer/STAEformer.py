@@ -1,6 +1,6 @@
 from omegaconf import OmegaConf
 from skytraffic.config import LazyCall as L
-from skytraffic.models import STAEformer
+from skytraffic.models import ForecastModel, STAEformer, TensorDataNormalizer
 from skytraffic.data.datasets import MetrDataset
 from torch.utils.data import DataLoader
 
@@ -29,28 +29,29 @@ dataloader.test = L(DataLoader)(
     collate_fn=None
 )
 
-model = L(STAEformer)(
-    # arguments purely based on model
-    steps_per_day=288,
-    input_dim=1,
-    output_dim=1,
-    input_embedding_dim=24,
-    tod_embedding_dim=24,
-    dow_embedding_dim=24,
-    spatial_embedding_dim=0,
-    adaptive_embedding_dim=80,
-    feed_forward_dim=256,
-    num_heads=4,
-    num_layers=3,
-    dropout=0.1,
-    use_mixed_proj=True,
-    add_time_in_day=True,
-    add_day_in_week=False,
-    loss_ignore_value = float("nan"),
-    # arguments related to dataset
-    input_steps=MetrDataset.input_steps,
-    pred_steps=MetrDataset.pred_steps,
-    num_nodes=MetrDataset.num_nodes,
+model = L(ForecastModel)(
+    model=L(STAEformer)(
+        steps_per_day=288,
+        input_dim=1,
+        output_dim=1,
+        input_embedding_dim=24,
+        tod_embedding_dim=24,
+        dow_embedding_dim=24,
+        spatial_embedding_dim=0,
+        adaptive_embedding_dim=80,
+        feed_forward_dim=256,
+        num_heads=4,
+        num_layers=3,
+        dropout=0.1,
+        use_mixed_proj=True,
+        add_time_in_day=True,
+        add_day_in_week=False,
+        input_steps=MetrDataset.input_steps,
+        pred_steps=MetrDataset.pred_steps,
+        num_nodes=MetrDataset.num_nodes,
+        metadata="${..metadata}",
+    ),
+    normalizer=L(TensorDataNormalizer)(),
     data_null_value=MetrDataset.data_null_value,
     metadata=None,
-) 
+)

@@ -3,8 +3,6 @@ import torch.nn as nn
 from typing import List, Tuple
 from einops import rearrange
 
-import numpy as np
-
 def gaussian_density(mean, log_var, x):
     """
     Compute Gaussian probability density in a numerically stable way using log variance.
@@ -32,14 +30,12 @@ class GMMPredictionHead(nn.Module):
         anchors: List[float],
         sizes: List[float],
         pred_steps: int = 10,
-        loss_ignore_value: float = float("nan"),
         dropout=0.1,
         zero_init=True,
         mcd_estimation=False,
     ):
         super().__init__()
         self.pred_steps = pred_steps
-        self.loss_ignore_value = loss_ignore_value
         self.zero_init = zero_init
         self.mcd_estimation = mcd_estimation # whether to use maximum a posteriori (MAP) estimation
         self.num_component = len(anchors)
@@ -98,11 +94,8 @@ class GMMPredictionHead(nn.Module):
         """
         mixing, means, log_var = out # all of shape (N, T, P, K) as returned in forward
         
-        # Create mask for valid values (not NaN, not self.ignore_value) 
+        # Create mask for valid target values.
         valid_mask = ~target.isnan()
-        # we don't use torch.isnan because it does not support python float numbers
-        if not np.isnan(self.loss_ignore_value):
-            valid_mask = torch.logical_and(valid_mask, target != self.loss_ignore_value)
         
         # Extract valid targets and corresponding predictions
         target = target[valid_mask]  # shape: (num_valid,)

@@ -54,7 +54,7 @@ class HiMSNet_GMM(nn.Module):
         self.normalize_input = normalize_input
         self.scale_output = scale_output
         
-        self.ignore_value = -1.0
+        self.ignore_value = float("nan")
         self.metadata: Dict[str, torch.Tensor] = None
         self.data_scalers: Dict[str, TensorDataScaler] = None
 
@@ -103,7 +103,6 @@ class HiMSNet_GMM(nn.Module):
             anchors=[1.4, 4.2, 7.0, 9.8, 12.6], 
             sizes=[1.4, 1.4, 1.4, 1.4, 1.4],
             dropout=dropout,
-            loss_ignore_value=self.ignore_value,
             zero_init=zero_init,
             mcd_estimation=map_estimation
         )
@@ -114,7 +113,6 @@ class HiMSNet_GMM(nn.Module):
             anchors=[1.5, 4.5, 7.5],
             sizes=[1.5, 1.5, 1.5],
             dropout=dropout,
-            loss_ignore_value=self.ignore_value,
             zero_init=zero_init,
             mcd_estimation=map_estimation
         )
@@ -204,8 +202,8 @@ class HiMSNet_GMM(nn.Module):
             source["ld_speed"] = source["ld_speed"].nan_to_num(nan=self.data_scalers['ld_speed'].mean)
 
         target = {
-            "pred_speed": data["pred_speed"].nan_to_num(nan=self.ignore_value).to(self.device),
-            "pred_speed_regional": data["pred_speed_regional"].nan_to_num(nan=self.ignore_value).to(self.device),
+            "pred_speed": data["pred_speed"].to(self.device),
+            "pred_speed_regional": data["pred_speed_regional"].to(self.device),
         }
         
         return source, target
@@ -308,4 +306,3 @@ class HiMSNet_GMM(nn.Module):
         self.cluster_id = self.cluster_id.to(device)
         self.edge_index = self.edge_index.to(device)
         return super().to(device)
-

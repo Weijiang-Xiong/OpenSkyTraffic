@@ -26,7 +26,6 @@ class PatchedMVLSTMGCNConv(BaseModel):
         layernorm=True,
         adjacency_hop: int = 1,
         dropout: float = 0.1,
-        loss_ignore_value = float("nan"),
         # arguments related to dataset
         input_steps: int = 10,
         pred_steps: int = 10,
@@ -48,7 +47,6 @@ class PatchedMVLSTMGCNConv(BaseModel):
         """
         super().__init__(input_steps=input_steps, pred_steps=pred_steps, num_nodes=num_nodes, data_null_value=data_null_value, metadata=metadata)
         self.use_global = use_global
-        self.loss_ignore_value = loss_ignore_value
         self.adjacency_hop = adjacency_hop
         self.temp_patching = temp_patching
         self.edge_index: torch.Tensor
@@ -103,10 +101,10 @@ class PatchedMVLSTMGCNConv(BaseModel):
         if target is not None:
             target = target.to(self.device)
             # replace the label values with nan, so that they will be ignored in the loss after normalization
-            if np.isnan(self.data_null_value):
-                target[target.isnan()] = self.loss_ignore_value
+            if not np.isfinite(self.data_null_value):
+                target[target.isnan()] = float("nan")
             else:
-                target[target == self.data_null_value] = self.loss_ignore_value
+                target[target == self.data_null_value] = float("nan")
             target = self.out_datascaler.transform(target, datadim_only=False)
         
         return source, target
@@ -117,7 +115,7 @@ class PatchedMVLSTMGCNConv(BaseModel):
 
     def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         pred_res = self.make_prediction(source)
-        loss = self.loss(pred_res['pred'], target, null_val=self.loss_ignore_value)
+        loss = self.loss(pred_res['pred'], target, null_val=float("nan"))
 
         return {"loss": loss}
 

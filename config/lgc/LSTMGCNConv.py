@@ -1,6 +1,6 @@
 from omegaconf import OmegaConf
 from skytraffic.config import LazyCall as L
-from skytraffic.models import LSTMGCNConv
+from skytraffic.models import ForecastModel, LSTMGCNConv, TensorDataNormalizer
 from skytraffic.data.datasets import MetrDataset
 from torch.utils.data import DataLoader
 
@@ -28,19 +28,21 @@ dataloader.test = L(DataLoader)(
     collate_fn=None
 )
 
-model = L(LSTMGCNConv)(
-    # arguments purely based on model
-    use_global=True,
-    d_model=64,
-    global_downsample_factor=1,
-    layernorm=True,
-    adjacency_hop=1,
-    dropout=0.1,
-    loss_ignore_value = float("nan"),
-    # arguments related to dataset
-    input_steps=MetrDataset.input_steps,
-    pred_steps=MetrDataset.pred_steps,
-    num_nodes=MetrDataset.num_nodes,
+model = L(ForecastModel)(
+    model=L(LSTMGCNConv)(
+        use_global=True,
+        d_model=64,
+        global_downsample_factor=1,
+        layernorm=True,
+        assume_clean_input=True,
+        adjacency_hop=1,
+        dropout=0.1,
+        input_steps=MetrDataset.input_steps,
+        pred_steps=MetrDataset.pred_steps,
+        num_nodes=MetrDataset.num_nodes,
+        metadata="${..metadata}",
+    ),
+    normalizer=L(TensorDataNormalizer)(),
     data_null_value=MetrDataset.data_null_value,
     metadata=None,
 )

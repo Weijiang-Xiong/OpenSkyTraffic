@@ -16,5 +16,5 @@ from .PEMSBAY_STID_GMM import (
 train.output_dir = "scratch/pemsbay_stid_gmm_single"
 evaluator.data_max = 85.0 # the max speed of PEMS-Bay dataset is 85
 
-model.anchors = [0.0]
-model.sizes = [3.0] 
+model.model.anchors = [0.0]
+model.model.sizes = [3.0]

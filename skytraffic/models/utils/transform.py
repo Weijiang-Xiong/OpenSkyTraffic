@@ -1,5 +1,59 @@
 import torch
+import torch.nn as nn
 from typing import List
+
+
+class TensorDataNormalizer(nn.Module):
+    """Normalize tensors with mean/std stored as module buffers."""
+
+    def __init__(
+        self,
+        mean: float | List[float] = 0.0,
+        std: float | List[float] = 1.0,
+        data_dim: int | List[int] = 0,
+    ):
+        super().__init__()
+        self.register_buffer("mean", torch.as_tensor(mean))
+        self.register_buffer("std", torch.as_tensor(std))
+        self.register_buffer("data_dim", torch.as_tensor(data_dim, dtype=torch.long))
+
+    @property
+    def inv_std(self):
+        return 1.0 / self.std
+
+    def transform(self, data, datadim_only: bool = True):
+        if datadim_only:
+            data[..., self.data_dim] = (data[..., self.data_dim] - self.mean) * self.inv_std
+        else:
+            data = (data - self.mean) * self.inv_std
+        return data
+
+    def inverse_transform(self, data, datadim_only: bool = False):
+        if datadim_only:
+            data[..., self.data_dim] = (data[..., self.data_dim] * self.std) + self.mean
+        else:
+            data = (data * self.std) + self.mean
+        return data
+
+    def adapt_to_metadata(self, metadata):
+        self.mean = torch.as_tensor(metadata["mean"], device=self.mean.device)
+        self.std = torch.as_tensor(metadata["std"], device=self.std.device)
+        self.data_dim = torch.as_tensor(metadata["data_dim"], dtype=torch.long, device=self.data_dim.device)
+        return self
+
+
+class GMMTensorDataNormalizer(TensorDataNormalizer):
+    """Normalize tensors like TensorDataNormalizer and inverse-scale GMM outputs."""
+
+    def inverse_transform(self, data, datadim_only: bool = False):
+        if not isinstance(data, dict):
+            return super().inverse_transform(data, datadim_only=datadim_only)
+
+        prediction = dict(data)
+        prediction["pred"] = super().inverse_transform(prediction["pred"], datadim_only=datadim_only)
+        prediction["means"] = super().inverse_transform(prediction["means"], datadim_only=datadim_only)
+        prediction["log_var"] = prediction["log_var"] + 2 * torch.log(self.std)
+        return prediction
 
 class TensorDataScaler:
     """

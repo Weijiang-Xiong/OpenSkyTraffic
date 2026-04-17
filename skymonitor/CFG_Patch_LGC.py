@@ -66,7 +66,6 @@ model = L(PatchedMVLSTMGCNConv)(
     layernorm=True,
     adjacency_hop=5,
     dropout=0.1,
-    loss_ignore_value = float("nan"),
     input_steps=10,
     pred_steps=10,
     num_nodes=1570,

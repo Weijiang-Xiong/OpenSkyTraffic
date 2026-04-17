@@ -1,16 +1,12 @@
 """ Implementation modifed from https://github.com/LibCity/Bigscity-LibCity
 """
 
-from logging import getLogger
-
 import torch.nn as nn
 import torch
-from typing import Dict, Tuple
-import numpy as np
+from typing import Dict
 
 from .base import BaseModel
 from .layers import masked_mae
-from .utils.transform import TensorDataScaler
 
 
 class AttentionLayer(nn.Module):
@@ -137,18 +133,17 @@ class STAEformer(BaseModel):
         use_mixed_proj: bool = True,
         add_time_in_day: bool = True,
         add_day_in_week: bool = False,
-        loss_ignore_value: float = float("nan"),
-        # BaseModel parameters
+        # dataset/task parameters
         input_steps: int = 12,
         pred_steps: int = 12,
         num_nodes: int = 207,
-        data_null_value: float = 0.0,
         metadata: dict = None,
     ):
-        super().__init__(input_steps=input_steps, pred_steps=pred_steps, num_nodes=num_nodes,
-                        data_null_value=data_null_value, metadata=metadata)
-        
-        self._logger = getLogger()
+        super().__init__()
+
+        self.input_steps = input_steps if input_steps is not None else metadata["input_steps"]
+        self.pred_steps = pred_steps if pred_steps is not None else metadata["pred_steps"]
+        self.num_nodes = num_nodes if num_nodes is not None else metadata["num_nodes"]
 
         self.steps_per_day = steps_per_day
         self.input_dim = input_dim + (1 if add_time_in_day else 0) + (1 if add_day_in_week else 0)
@@ -170,11 +165,6 @@ class STAEformer(BaseModel):
         self.use_mixed_proj = use_mixed_proj
         self.add_time_in_day = add_time_in_day
         self.add_day_in_week = add_day_in_week
-        self.loss_ignore_value = loss_ignore_value
-
-        # Initialize scaler from metadata if available
-        if metadata is not None:
-            self.adapt_to_metadata(metadata)
 
         self.input_proj = nn.Linear(self.input_dim, input_embedding_dim)
         if self.add_time_in_day:
@@ -212,10 +202,7 @@ class STAEformer(BaseModel):
                 for _ in range(num_layers)
             ]
         )
-    def make_predictions(self, source):
-        """
-        Original forward method renamed.
-        """
+    def forward(self, source: torch.Tensor) -> torch.Tensor:
         batch_size = source.shape[0]
         
         x = self.feature_extraction(source)
@@ -284,47 +271,7 @@ class STAEformer(BaseModel):
         # (batch_size, input_steps, num_nodes, model_dim)
 
         return x
-
-
-    def preprocess(self, data: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
-        source = data["source"].to(self.device)  # (N, T, P, C)
-        target = data["target"].to(self.device) # (N, T, P)
-        
-        # replace the label values with nan, so that they will be ignored in the loss after normalization
-        if np.isnan(self.data_null_value):
-            target[target.isnan()] = self.loss_ignore_value
-        else:
-            target[target == self.data_null_value] = self.loss_ignore_value
-
-        # normalize the data
-        source = self.datascaler.transform(source)
-        target = self.datascaler.transform(target, datadim_only=False)
-
-        return source, target
-
     def compute_loss(self, source: torch.Tensor, target: torch.Tensor) -> Dict[str, torch.Tensor]:
-        pred = self.make_predictions(source)
-        loss_val = masked_mae(pred, target, null_val=self.loss_ignore_value)
+        pred = self(source)
+        loss_val = masked_mae(pred, target, null_val=float("nan"))
         return {"loss": loss_val}
-
-    def inference(self, source: torch.Tensor) -> Dict[str, torch.Tensor]:
-        pred = self.make_predictions(source)
-        pred = self.datascaler.inverse_transform(pred)
-        return {"pred": pred}
-
-    def adapt_to_metadata(self, metadata):
-        self.datascaler = TensorDataScaler(mean=metadata['mean'], std=metadata['std'], data_dim=metadata['data_dim'])
-
-    def to(self, device: torch.device):
-        self.datascaler = self.datascaler.to(device)
-        return super().to(device)
-
-    def state_dict(self):
-        state = dict()
-        state["model_params"] = super().state_dict()
-        state["datascaler"] = self.datascaler.state_dict()
-        return state
-
-    def load_state_dict(self, state_dict, strict: bool = True):
-        self.datascaler = TensorDataScaler(**state_dict["datascaler"]).to(self.device)
-        super().load_state_dict(state_dict["model_params"], strict=strict)
