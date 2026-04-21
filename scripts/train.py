@@ -26,6 +26,13 @@ from pathlib import Path
 from skytraffic.config import default_argument_parser, default_setup, LazyConfig, instantiate
 from skytraffic.engine import DefaultTrainer, hooks
 
+
+def set_model_metadata(cfg, metadata):
+    cfg.model.metadata = metadata
+    if "model" in cfg.model and "metadata" in cfg.model.model:
+        cfg.model.model.metadata = metadata
+
+
 def get_checkpoint_path(cfg, args) -> str:
     """
     Get the path to the checkpoint file based on the config file and output directory.
@@ -52,7 +59,7 @@ def main(args):
         cfg.dataloader.test.collate_fn = test_set.collate_fn
         test_loader = instantiate(cfg.dataloader.test)
 
-        cfg.model.metadata = test_set.metadata
+        set_model_metadata(cfg, test_set.metadata)
         model = instantiate(cfg.model).to(cfg.train.device)
 
         evaluator = instantiate(cfg.evaluator)
@@ -74,7 +81,7 @@ def main(args):
         cfg.dataloader.test.dataset, cfg.dataloader.test.collate_fn = test_set, test_set.collate_fn
         train_loader, test_loader = instantiate(cfg.dataloader.train), instantiate(cfg.dataloader.test)
         
-        cfg.model.metadata = train_set.metadata
+        set_model_metadata(cfg, train_set.metadata)
         model = instantiate(cfg.model).to(cfg.train.device)
 
         # build optimizer and scheduler using the corresponding configurations
