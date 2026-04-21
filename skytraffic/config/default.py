@@ -33,7 +33,7 @@ def default_setup(cfg: DictConfig, args):
     4. make the save folder if it doesn't exist
     5. replace the referenced values in the config with literal values
     """
-    OmegaConf.resolve(cfg)
+    # OmegaConf.resolve(cfg) # resolving too early will break subsequent modifications
     save_dir = cfg.train.output_dir
     make_dir_if_not_exist(save_dir)
     logger = setup_logger(name="default", log_file="{}/experiment.log".format(save_dir))
