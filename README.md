@@ -19,7 +19,7 @@ python -m pip install -e .
 
 To prepare METR-LA and PEMS-Bay dataset, please refer to this [README.md](preprocess/metr-style/README.md).
 
-For using the SimBarca dataset, one can simply download the processed version from [Zenodo](https://zenodo.org/records/17159241) and skip the preparations below.
+For using the SimBarca dataset, one can simply download the processed version from [Hugging Face](https://huggingface.co/datasets/Greatriver/SimBarca) (**recommended**) or [Zenodo](https://zenodo.org/records/17159241) and skip the preparations below.
 
 To prepare SimBarca dataset, follow this [README.md](preprocess/simbarca/README.md)
 
